@@ -529,10 +529,18 @@ function scene(kind: Backdrop | undefined, bg: [number, number]): string {
       for (const [x, y] of [[38, 30], [158, 22], [100, 8]] as [number, number][]) s.push(C(x, y, 26, '#ffb85a', 0.35), C(x, y, 11, '#ffe0a0', 0.95));
       break;
     case 'hall':
-      s.push(`<rect width="200" height="200" fill="#5a4a7a"/><rect y="90" width="200" height="110" fill="#e8946a" opacity="0.55"/>`);
-      for (let i = 0; i < 16; i++) s.push(C((i * 47 + 11) % 200, (i * 23 + 5) % 80, 1 + (i % 2), '#fff6d8', 0.9));
-      s.push(`<path d="M20 200 L 20 120 L 70 92 L 120 120 L 120 200 Z M 140 200 L 140 70 L 160 52 L 180 70 L 180 200 Z" fill="#2e2440"/><rect x="152" y="80" width="16" height="16" rx="3" fill="#ffcf7a" opacity="0.75"/>`);
-      s.push(C(160, 88, 20, '#ffcf7a', 0.25));
+      // (r19: the Lantern Hall by day — a blue sky over its grey stone gable and coloured rose window;
+      // it was a starry night card at eleven in the morning. The night wash adds the dark and the lamps.)
+      s.push(`<rect width="200" height="200" fill="#a8c8e4"/><rect y="70" width="200" height="130" fill="#e8d4b0" opacity="0.6"/>`);
+      s.push(`<ellipse cx="40" cy="34" rx="32" ry="10" fill="#fff" opacity="0.8"/><ellipse cx="58" cy="28" rx="18" ry="9" fill="#fff" opacity="0.8"/>`);
+      s.push(`<path d="M8 200 L 8 104 L 92 40 L 176 104 L 176 200 Z" fill="#8c8a94"/><path d="M0 108 L 92 34 L 184 108" stroke="#4a3e52" stroke-width="9" fill="none" stroke-linejoin="round"/>`);
+      for (let r = 0; r < 6; r++) for (let i = 0; i < 7; i++) s.push(R(14 + i * 23 - (r % 2) * 11, 112 + r * 15, 21, 13, (i + r) % 3 ? '#9a98a2' : '#7e7c88', 2, 0.9));
+      s.push(C(92, 92, 24, '#4a3e52'), C(92, 92, 20, '#e8b84a'));
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        s.push(`<path d="M92 92 L ${92 + Math.cos(a) * 20} ${92 + Math.sin(a) * 20} A 20 20 0 0 1 ${92 + Math.cos(a + Math.PI / 4) * 20} ${92 + Math.sin(a + Math.PI / 4) * 20} Z" fill="${['#c8483a', '#3a7ab0', '#e8b84a', '#5a9a5a'][i % 4]}" opacity="0.85"/>`);
+      }
+      s.push(C(92, 92, 6, '#f6e8c0'), R(150, 140, 26, 60, '#5a3a24', 3));
       break;
     case 'meadow':
       s.push(`<ellipse cx="40" cy="40" rx="36" ry="13" fill="#fff" opacity="0.85"/><ellipse cx="62" cy="34" rx="22" ry="12" fill="#fff" opacity="0.85"/><ellipse cx="164" cy="56" rx="30" ry="10" fill="#fff" opacity="0.8"/>`);
@@ -637,8 +645,27 @@ function frontHair(id: string, L: NpcLook, f: Face): string {
         ]) +
         strands(`M${cx - 30} ${t + 8} Q ${cx - 4} ${t - 4} ${cx + 22} ${t + 6}`)
       );
-    case 'cap':
-      return `<path d="M${cx - w - 2} ${t + 54} Q ${cx - w - 2} ${t + 30} ${cx - w + 8} ${t + 22} L ${cx - w + 16} ${t + 24} Q ${cx - w + 8} ${t + 36} ${cx - w + 6} ${t + 54} Z M${cx + w + 2} ${t + 54} Q ${cx + w + 2} ${t + 30} ${cx + w - 8} ${t + 22} L ${cx + w - 16} ${t + 24} Q ${cx + w - 8} ${t + 36} ${cx + w - 6} ${t + 54} Z M${cx - 26} ${t + 22} Q ${cx - 14} ${t + 34} ${cx - 4} ${t + 24} Q ${cx + 8} ${t + 32} ${cx + 20} ${t + 23} Z" fill="${H}" ${s}/>` + `<g transform="translate(0 -7)"><rect x="${cx - w - 4}" y="${t + 8}" width="${2 * w + 8}" height="18" rx="7" fill="#f3ece0" stroke="${ink(0xf3ece0)}" stroke-width="1.6"/>` + `<path d="M${cx - w - 10} ${t + 12} Q ${cx - w - 16} ${t - 30} ${cx - 22} ${t - 36} Q ${cx - 2} ${t - 54} ${cx + 22} ${t - 38} Q ${cx + w + 18} ${t - 34} ${cx + w + 10} ${t + 12} Z" fill="#fbf7ee" stroke="${ink(0xfbf7ee)}" stroke-width="1.8"/>` + `<path d="M${cx - 30} ${t - 14} Q ${cx - 12} ${t - 30} ${cx + 4} ${t - 20} M${cx + 8} ${t - 26} Q ${cx + 22} ${t - 30} ${cx + 30} ${t - 14}" stroke="#e6dccb" stroke-width="3.2" fill="none" stroke-linecap="round"/></g>`;
+    case 'cap': {
+      // (r19: the baker's toque was a flat white blob — now a pleated band under a mushrooming puff
+      // of starched cloth: pleats fanning up from the band, the puff's overhang shadow, a cool shade
+      // down the far side and a lit crown)
+      const puff = `M${cx - w - 10} ${t + 12} Q ${cx - w - 18} ${t - 22} ${cx - w + 2} ${t - 34} Q ${cx - 30} ${t - 54} ${cx - 8} ${t - 46} Q ${cx + 6} ${t - 60} ${cx + 24} ${t - 46} Q ${cx + w + 8} ${t - 48} ${cx + w + 6} ${t - 28} Q ${cx + w + 20} ${t - 14} ${cx + w + 10} ${t + 12} Z`;
+      const pleats = [-2, -1, 0, 1, 2].map((i) => `M${(cx + i * w * 0.4).toFixed(1)} ${t + 10} Q ${(cx + i * w * 0.52).toFixed(1)} ${t - 14} ${(cx + i * w * 0.34).toFixed(1)} ${t - 40 + Math.abs(i) * 6}`).join(' ');
+      const bandPleats = Array.from({ length: 9 }, (_, i) => `M${(cx - w + 2 + i * ((2 * w - 4) / 8)).toFixed(1)} ${t + 10} v 14`).join(' ');
+      return (
+        `<path d="M${cx - w - 2} ${t + 54} Q ${cx - w - 2} ${t + 30} ${cx - w + 6} ${t + 22} L ${cx - w + 11} ${t + 24} Q ${cx - w + 5} ${t + 36} ${cx - w + 4} ${t + 54} Z M${cx + w + 2} ${t + 54} Q ${cx + w + 2} ${t + 30} ${cx + w - 6} ${t + 22} L ${cx + w - 11} ${t + 24} Q ${cx + w - 5} ${t + 36} ${cx + w - 4} ${t + 54} Z M${cx - 26} ${t + 22} Q ${cx - 14} ${t + 34} ${cx - 4} ${t + 24} Q ${cx + 8} ${t + 32} ${cx + 20} ${t + 23} Z" fill="${H}" ${s}/>` +
+        `<g transform="translate(0 -7)"><clipPath id="${id}tq"><path d="${puff}"/></clipPath><clipPath id="${id}tb"><rect x="${cx - w - 4}" y="${t + 8}" width="${2 * w + 8}" height="18" rx="7"/></clipPath>` +
+        `<rect x="${cx - w - 4}" y="${t + 8}" width="${2 * w + 8}" height="18" rx="7" fill="#f1e9dc" stroke="${ink(0xf3ece0)}" stroke-width="1.6"/>` +
+        `<g clip-path="url(#${id}tb)"><path d="${bandPleats}" stroke="#d6cab6" stroke-width="1.5"/><rect x="${cx - w - 4}" y="${t + 21}" width="${2 * w + 8}" height="6" fill="#cdbfa8" opacity="0.55"/><rect x="${cx + w * 0.45}" y="${t + 8}" width="${w}" height="18" fill="#bcae9a" opacity="0.35"/></g>` +
+        `<path d="${puff}" fill="#fcf8f0" stroke="${ink(0xfbf7ee)}" stroke-width="1.8" stroke-linejoin="round"/>` +
+        `<g clip-path="url(#${id}tq)">` +
+        `<ellipse cx="${cx + w * 0.75}" cy="${t - 16}" rx="${w * 0.55}" ry="40" fill="#d2c6b4" opacity="0.55" filter="url(#${id}soft2)"/>` +
+        `<path d="M${cx - w - 12} ${t + 12} Q ${cx} ${t + 2} ${cx + w + 12} ${t + 12}" stroke="#c6b8a2" stroke-width="9" fill="none" opacity="0.55" filter="url(#${id}soft2)"/>` +
+        `<path d="${pleats}" stroke="#ddd1bd" stroke-width="2.4" fill="none" stroke-linecap="round"/>` +
+        `<path d="M${cx - w * 0.7} ${t - 30} Q ${cx - 18} ${t - 50} ${cx + 2} ${t - 44}" stroke="#ffffff" stroke-width="5" fill="none" opacity="0.85" stroke-linecap="round"/>` +
+        `</g></g>`
+      );
+    }
     case 'curly': {
       const c: string[] = [];
       if (portraitOpts.chibi) {
@@ -711,32 +738,80 @@ function frontHair(id: string, L: NpcLook, f: Face): string {
   }
 }
 
-function hat(L: NpcLook, f: Face): string {
+function hat(L: NpcLook, f: Face, id = 'h'): string {
   const c = L.hatColor ?? 0x5a6a5a;
   const o = ink(c);
   const s = `stroke="${o}" stroke-width="1.8" stroke-linejoin="round"`;
   const { cx, top, w } = f;
   switch (L.hat) {
-    case 'flatcap':
-      return `<path d="M${cx - w - 6} ${top + 26} Q ${cx - w - 4} ${top - 16} ${cx + 4} ${top - 14} Q ${cx + w + 10} ${top - 12} ${cx + w + 6} ${top + 24} Z" fill="${css(c)}" ${s}/><path d="M${cx - w + 2} ${top + 22} Q ${cx - 4} ${top + 14} ${cx + w + 12} ${top + 26} Q ${cx + 4} ${top + 34} ${cx - w + 2} ${top + 28} Z" fill="${shade(c, 0.78)}" ${s}/><path d="M${cx - 24} ${top - 4} Q ${cx} ${top - 12} ${cx + 26} ${top - 2}" stroke="${shade(c, 1.25)}" stroke-width="2.4" fill="none" opacity="0.6"/><circle cx="${cx + 2}" cy="${top - 13}" r="3" fill="${shade(c, 0.8)}"/>`;
+    case 'flatcap': {
+      // (r19: a flat green dome before — now wool tweed: panel seams from the button, a lit crown, the
+      // far side and the brim's lip in shade, flecks in the weave, a cast shadow on the brow under the brim)
+      const crown = `M${cx - w - 6} ${top + 26} Q ${cx - w - 4} ${top - 16} ${cx + 4} ${top - 14} Q ${cx + w + 10} ${top - 12} ${cx + w + 6} ${top + 24} Z`;
+      const fleck = Array.from({ length: 34 }, (_, i) => `<circle cx="${(cx - w - 2 + ((i * 37) % (2 * w + 8))).toFixed(1)}" cy="${(top - 12 + ((i * 23) % 36)).toFixed(1)}" r="0.8" fill="${i % 3 ? shade(c, 1.35) : shade(c, 0.62)}" opacity="0.7"/>`).join('');
+      return (
+        `<path d="M${cx - w + 4} ${top + 30} Q ${cx} ${top + 40} ${cx + w + 6} ${top + 30}" stroke="#3a1a10" stroke-width="7" fill="none" opacity="0.22" filter="url(#${id}soft2)"/>` +
+        `<clipPath id="${id}fc"><path d="${crown}"/></clipPath>` +
+        `<path d="${crown}" fill="${css(c)}" ${s}/>` +
+        `<g clip-path="url(#${id}fc)">${fleck}` +
+        `<ellipse cx="${cx + w * 0.8}" cy="${top + 6}" rx="${w * 0.5}" ry="30" fill="${shade(c, 0.66)}" opacity="0.6" filter="url(#${id}soft2)"/>` +
+        `<path d="M${cx - w - 6} ${top + 22} Q ${cx} ${top + 10} ${cx + w + 6} ${top + 20}" stroke="${shade(c, 0.7)}" stroke-width="6" fill="none" opacity="0.55"/>` +
+        `<path d="M${cx + 2} ${top - 13} Q ${cx - w * 0.55} ${top - 6} ${cx - w * 0.8} ${top + 18} M${cx + 2} ${top - 13} Q ${cx + w * 0.6} ${top - 6} ${cx + w * 0.85} ${top + 16}" stroke="${shade(c, 0.6)}" stroke-width="1.5" fill="none" stroke-dasharray="3 2"/>` +
+        `<path d="M${cx - 30} ${top - 6} Q ${cx - 6} ${top - 16} ${cx + 18} ${top - 8}" stroke="${shade(c, 1.4)}" stroke-width="5" fill="none" opacity="0.45" stroke-linecap="round"/></g>` +
+        `<path d="M${cx - w + 2} ${top + 22} Q ${cx - 4} ${top + 14} ${cx + w + 12} ${top + 26} Q ${cx + 4} ${top + 34} ${cx - w + 2} ${top + 28} Z" fill="${shade(c, 0.74)}" ${s}/>` +
+        `<path d="M${cx - w + 6} ${top + 24} Q ${cx - 4} ${top + 18} ${cx + w + 6} ${top + 26}" stroke="${shade(c, 1.2)}" stroke-width="1.6" fill="none" opacity="0.6"/>` +
+        `<circle cx="${cx + 2}" cy="${top - 13}" r="3.4" fill="${shade(c, 0.8)}" stroke="${o}" stroke-width="1.2"/>`
+      );
+    }
     case 'beanie': {
       const ribs: string[] = [];
       for (let i = 0; i < 12; i++) {
         const x = cx - w - 2 + i * ((2 * w + 4) / 11);
         ribs.push(`<path d="M${x} ${top + 12} L ${x} ${top + 28}" stroke="${shade(c, 0.78)}" stroke-width="2"/>`);
       }
-      return `<path d="M${cx - w - 4} ${top + 16} Q ${cx - w - 2} ${top - 34} ${cx} ${top - 34} Q ${cx + w + 2} ${top - 34} ${cx + w + 4} ${top + 16} Z" fill="${css(c)}" ${s}/><rect x="${cx - w - 6}" y="${top + 10}" width="${2 * w + 12}" height="20" rx="8" fill="${shade(c, 0.9)}" ${s}/>${ribs.join('')}<path d="M${cx - 22} ${top - 14} q 10 -10 22 -10" stroke="${shade(c, 1.3)}" stroke-width="3" fill="none" opacity="0.5" stroke-linecap="round"/>`;
+      // (r19: a knitted dome — rib columns curving over the crown, far-side shade, a lit crown, the
+      // cuff's fold shadow; it was a flat painted bowl)
+      const dome = `M${cx - w - 4} ${top + 16} Q ${cx - w - 2} ${top - 34} ${cx} ${top - 34} Q ${cx + w + 2} ${top - 34} ${cx + w + 4} ${top + 16} Z`;
+      const knit = Array.from({ length: 9 }, (_, i) => {
+        const u = (i - 4) / 4.4;
+        return `M${(cx + u * (w + 2)).toFixed(1)} ${top + 14} Q ${(cx + u * (w + 6)).toFixed(1)} ${top - 12} ${(cx + u * w * 0.45).toFixed(1)} ${top - 32}`;
+      }).join(' ');
+      return (
+        `<clipPath id="${id}bn"><path d="${dome}"/></clipPath><path d="${dome}" fill="${css(c)}" ${s}/>` +
+        `<g clip-path="url(#${id}bn)"><path d="${knit}" stroke="${shade(c, 0.8)}" stroke-width="2.2" fill="none" opacity="0.7"/><path d="${knit}" transform="translate(1.8 0)" stroke="${shade(c, 1.18)}" stroke-width="1" fill="none" opacity="0.6"/>` +
+        `<ellipse cx="${cx + w * 0.85}" cy="${top}" rx="${w * 0.5}" ry="34" fill="${shade(c, 0.62)}" opacity="0.55" filter="url(#${id}soft2)"/>` +
+        `<ellipse cx="${cx - w * 0.3}" cy="${top - 18}" rx="${w * 0.45}" ry="10" fill="${shade(c, 1.35)}" opacity="0.45" filter="url(#${id}soft2)"/></g>` +
+        `<path d="M${cx - w - 2} ${top + 12} Q ${cx} ${top + 6} ${cx + w + 2} ${top + 12}" stroke="${shade(c, 0.6)}" stroke-width="5" fill="none" opacity="0.4" filter="url(#${id}soft2)"/>` +
+        `<rect x="${cx - w - 6}" y="${top + 10}" width="${2 * w + 12}" height="20" rx="8" fill="${shade(c, 0.9)}" ${s}/>${ribs.join('')}` +
+        `<rect x="${cx + w * 0.5}" y="${top + 11}" width="${w * 0.5 + 5}" height="18" rx="7" fill="${shade(c, 0.6)}" opacity="0.35"/>` +
+        `<path d="M${cx - w - 2} ${top + 13} Q ${cx} ${top + 9} ${cx + w * 0.4} ${top + 12}" stroke="${shade(c, 1.3)}" stroke-width="2" fill="none" opacity="0.55" stroke-linecap="round"/>`
+      );
     }
     case 'sunhat': {
       const b = shade(c, 1.04);
-      return `<ellipse cx="${cx}" cy="${top + 12}" rx="${w + 42}" ry="17" fill="${b}" ${s}/><path d="M${cx - w + 2} ${top + 12} Q ${cx - w} ${top - 30} ${cx} ${top - 30} Q ${cx + w} ${top - 30} ${cx + w - 2} ${top + 12} Z" fill="${css(c)}" ${s}/><path d="M${cx - w + 1} ${top + 2} Q ${cx} ${top + 8} ${cx + w - 1} ${top + 2} L ${cx + w - 1} ${top + 10} Q ${cx} ${top + 16} ${cx - w + 1} ${top + 10} Z" fill="${css(L.scarf ?? 0xa8587a)}"/><circle cx="${cx + w - 10}" cy="${top + 2}" r="6" fill="#ff8fab" stroke="${ink(0xff8fab)}" stroke-width="1.2"/><circle cx="${cx + w - 20}" cy="${top + 6}" r="4.5" fill="#ffd166" stroke="${ink(0xffd166)}" stroke-width="1.2"/>` + Array.from({ length: 8 }, (_, i) => `<path d="M${cx - w - 30 + i * 12} ${top + 18} q 6 3 12 0" stroke="${shade(c, 0.82)}" stroke-width="1.2" fill="none"/>`).join('');
+      // (r19: woven straw — a fine weave over the crown and brim, the crown's far side and the brim's
+      // underside in shade)
+      const crownD = `M${cx - w + 2} ${top + 12} Q ${cx - w} ${top - 30} ${cx} ${top - 30} Q ${cx + w} ${top - 30} ${cx + w - 2} ${top + 12} Z`;
+      const weave = Array.from({ length: 14 }, (_, i) => `M${cx - w - 40 + i * 9} ${top + 30} l 26 -64`).join(' ') + ' ' + Array.from({ length: 14 }, (_, i) => `M${cx - w - 14 + i * 9} ${top + 30} l -26 -64`).join(' ');
+      const straw =
+        `<clipPath id="${id}sc"><path d="${crownD}"/></clipPath><g clip-path="url(#${id}sc)"><path d="${weave}" stroke="${shade(c, 0.82)}" stroke-width="1" opacity="0.55"/>` +
+        `<ellipse cx="${cx + w * 0.8}" cy="${top - 4}" rx="${w * 0.5}" ry="30" fill="${shade(c, 0.66)}" opacity="0.5" filter="url(#${id}soft2)"/><ellipse cx="${cx - w * 0.35}" cy="${top - 20}" rx="${w * 0.4}" ry="7" fill="#fff8e0" opacity="0.4" filter="url(#${id}soft2)"/></g>`;
+      const brimShade = `<path d="M${cx - w - 38} ${top + 16} Q ${cx} ${top + 34} ${cx + w + 38} ${top + 16}" stroke="${shade(c, 0.62)}" stroke-width="4" fill="none" opacity="0.45"/>`;
+      return brimShade + `<ellipse cx="${cx}" cy="${top + 12}" rx="${w + 42}" ry="17" fill="${b}" ${s}/><path d="M${cx - w + 2} ${top + 12} Q ${cx - w} ${top - 30} ${cx} ${top - 30} Q ${cx + w} ${top - 30} ${cx + w - 2} ${top + 12} Z" fill="${css(c)}" ${s}/>${straw}<path d="M${cx - w + 1} ${top + 2} Q ${cx} ${top + 8} ${cx + w - 1} ${top + 2} L ${cx + w - 1} ${top + 10} Q ${cx} ${top + 16} ${cx - w + 1} ${top + 10} Z" fill="${css(L.scarf ?? 0xa8587a)}"/><circle cx="${cx + w - 10}" cy="${top + 2}" r="6" fill="#ff8fab" stroke="${ink(0xff8fab)}" stroke-width="1.2"/><circle cx="${cx + w - 20}" cy="${top + 6}" r="4.5" fill="#ffd166" stroke="${ink(0xffd166)}" stroke-width="1.2"/>` + Array.from({ length: 8 }, (_, i) => `<path d="M${cx - w - 30 + i * 12} ${top + 18} q 6 3 12 0" stroke="${shade(c, 0.82)}" stroke-width="1.2" fill="none"/>`).join('');
     }
     case 'bandana': {
       // (r16: a fine cream-gold print kept inside the dome — rows narrow towards the crown)
       const dots = ([[8, 7, 0.86], [-2, 6, 0.74], [-12, 4, 0.5]] as const)
         .flatMap(([dy, n, span], row) => Array.from({ length: n }, (_, i) => `<circle cx="${(cx + (i / (n - 1) - 0.5) * 2 * w * span + (row === 1 ? 3 : 0)).toFixed(1)}" cy="${(top + dy + Math.abs(i - (n - 1) / 2) * 1.4).toFixed(1)}" r="1.3" fill="#e6c89a" opacity="0.9"/>`))
         .join('');
-      return `<path d="M${cx - w - 5} ${top + 26} Q ${cx - w - 2} ${top - 24} ${cx} ${top - 24} Q ${cx + w + 2} ${top - 24} ${cx + w + 5} ${top + 26} Q ${cx} ${top + 12} ${cx - w - 5} ${top + 26} Z" fill="${css(c)}" ${s}/>${dots}<path d="M${cx + w - 2} ${top + 14} q 14 -4 18 8 q -8 2 -12 12 q -4 -10 -6 -20 Z" fill="${shade(c, 0.85)}" ${s}/>`;
+      // (r19: cloth volume — the far side in shade, a lit crown, two soft folds running to the knot)
+      const scarf = `M${cx - w - 5} ${top + 26} Q ${cx - w - 2} ${top - 24} ${cx} ${top - 24} Q ${cx + w + 2} ${top - 24} ${cx + w + 5} ${top + 26} Q ${cx} ${top + 12} ${cx - w - 5} ${top + 26} Z`;
+      const cloth =
+        `<clipPath id="${id}bd2"><path d="${scarf}"/></clipPath><g clip-path="url(#${id}bd2)">` +
+        `<ellipse cx="${cx + w * 0.85}" cy="${top + 4}" rx="${w * 0.5}" ry="30" fill="${shade(c, 0.6)}" opacity="0.55" filter="url(#${id}soft2)"/>` +
+        `<ellipse cx="${cx - w * 0.3}" cy="${top - 14}" rx="${w * 0.5}" ry="8" fill="${shade(c, 1.4)}" opacity="0.4" filter="url(#${id}soft2)"/>` +
+        `<path d="M${cx - w * 0.6} ${top + 14} Q ${cx + w * 0.2} ${top - 2} ${cx + w + 4} ${top + 12} M${cx - w * 0.2} ${top - 10} Q ${cx + w * 0.4} ${top - 8} ${cx + w + 2} ${top + 4}" stroke="${shade(c, 0.72)}" stroke-width="2.4" fill="none" opacity="0.6" stroke-linecap="round"/></g>`;
+      return `<path d="${scarf}" fill="${css(c)}" ${s}/>${cloth}${dots}<path d="M${cx + w - 2} ${top + 14} q 14 -4 18 8 q -8 2 -12 12 q -4 -10 -6 -20 Z" fill="${shade(c, 0.85)}" ${s}/>`;
     }
     default:
       return '';
@@ -943,7 +1018,9 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   // Three-quarter turn: features ride a sphere of radius ~face width turned by th; the far eye
   // foreshortens, the nose tip leads, the far ear hides behind the cheek.
   const tn = TURN[mood] ?? 0.4;
-  const th = tn * 0.62;
+  // (r19: 0.62 swung the far eye onto the cheek's silhouette — on the turned moods (blush, thinking,
+  // sad, wistful) it sat half under the far sideburn / tuft with the ink line through it)
+  const th = tn * 0.46;
   const R = f.w;
   const phi = (x0: number): number => Math.asin(Math.max(-1, Math.min(1, x0 / R)));
   const X = (x0: number, depth = 0): number => 100 + (R + depth) * Math.sin(phi(x0) - th);
@@ -1043,6 +1120,10 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
     if (acc.has('earrings')) p.push(`<circle cx="${ex + sx * 1}" cy="${eyeY + 15}" r="3.6" fill="#f2c43a" stroke="#a87a1a" stroke-width="1.2"/><circle cx="${ex + sx * 0.4}" cy="${eyeY + 14}" r="1.1" fill="#fff" opacity="0.8"/>`);
   }
   // Face
+  // (r19: the silhouette follows a third of the turn — with the outline pinned, a turned head's far
+  // eye and its crow's feet ran onto / over the cheek's ink line)
+  const fo = d0 * 0.35;
+  p.push(`<g transform="translate(${fo.toFixed(2)} 0)">`);
   p.push(`<path d="${facePath(f, tn)}" fill="url(#${id}sk)" stroke="${ink(skin)}" stroke-width="2"/>`);
   p.push(`<g clip-path="url(#${id}face)">`);
   // Cel shadow on the far cheek + rim light on the near one
@@ -1062,15 +1143,16 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
   if (mood === 'angry') p.push(`<ellipse cx="100" cy="${eyeY - 7}" rx="${f.w}" ry="10" fill="${warmShadow}" opacity="0.38" filter="url(#${id}soft2)"/>`);
   // (r8b: tired lids as a warm mauve crescent tucked under each eye, following the head's turn — the
   // r7 blue ellipse sat out on the cheek and read as a bruise)
-  if (mood === 'sad' || mood === 'worried') for (const sx of [-1, 1]) p.push(`<path d="M${X(sx * 20 - 7) } ${eyeY + 7} Q ${X(sx * 20)} ${eyeY + 12} ${X(sx * 20 + 7)} ${eyeY + 7}" stroke="${mix(skin, 0x6a3a5a, 0.45)}" stroke-width="2.4" fill="none" stroke-linecap="round" opacity="0.32" filter="url(#${id}soft2)"/>`);
+  if (mood === 'sad' || mood === 'worried') for (const sx of [-1, 1]) p.push(`<path transform="translate(${(-fo).toFixed(2)} 0)" d="M${X(sx * 20 - 7) } ${eyeY + 7} Q ${X(sx * 20)} ${eyeY + 12} ${X(sx * 20 + 7)} ${eyeY + 7}" stroke="${mix(skin, 0x6a3a5a, 0.45)}" stroke-width="2.4" fill="none" stroke-linecap="round" opacity="0.32" filter="url(#${id}soft2)"/>`);
   // Stubble / beard base inside the face
   if (beard === 'stubble') {
     // Five o'clock shadow as one soft cool-grey wash inside the jaw band (r7: stippled stubble read as
     // dirt / an eyepatch-dark ear) — under the mouth and along the jaw, never up the cheek.
-    p.push(`<path transform="translate(${(d0 * 0.6).toFixed(2)} 0)" d="M${100 - f.w * 0.82} ${mouthY - 4} Q ${100 - f.w * 0.5} ${mouthY + 6} 100 ${mouthY + 4} Q ${100 + f.w * 0.5} ${mouthY + 6} ${100 + f.w * 0.82} ${mouthY - 4} Q ${100 + f.w * 0.8} ${f.chin} 100 ${f.chin + 3} Q ${100 - f.w * 0.8} ${f.chin} ${100 - f.w * 0.82} ${mouthY - 4} Z" fill="${mix(skin, 0x46505a, 0.42)}" opacity="0.32" filter="url(#${id}soft2)"/>`);
+    p.push(`<path transform="translate(${(d0 * 0.6 - fo).toFixed(2)} 0)" d="M${100 - f.w * 0.82} ${mouthY - 4} Q ${100 - f.w * 0.5} ${mouthY + 6} 100 ${mouthY + 4} Q ${100 + f.w * 0.5} ${mouthY + 6} ${100 + f.w * 0.82} ${mouthY - 4} Q ${100 + f.w * 0.8} ${f.chin} 100 ${f.chin + 3} Q ${100 - f.w * 0.8} ${f.chin} ${100 - f.w * 0.82} ${mouthY - 4} Z" fill="${mix(skin, 0x46505a, 0.42)}" opacity="0.32" filter="url(#${id}soft2)"/>`);
   }
   p.push(`</g>`);
-  if (beard === 'full') p.push(`<path transform="translate(${(d0 * 0.5).toFixed(2)} 0)" d="M${100 - f.w + 2} ${eyeY + 6} Q ${100 - f.w + 2} ${f.chin + 12} 100 ${f.chin + 14} Q ${100 + f.w - 2} ${f.chin + 12} ${100 + f.w - 2} ${eyeY + 6} Q ${100 + f.w - 8} ${mouthY + 2} 100 ${mouthY + 2} Q ${100 - f.w + 8} ${mouthY + 2} ${100 - f.w + 2} ${eyeY + 6} Z" fill="url(#${id}hr)" stroke="${ink(hair)}" stroke-width="1.8"/><path d="M92 ${f.chin + 2} q 8 6 16 0" stroke="${shade(hair, 1.35)}" stroke-width="2" fill="none" opacity="0.5"/>`);
+  p.push(`</g>`);
+  if (beard === 'full') p.push(`<path transform="translate(${(d0 * 0.42).toFixed(2)} 0)" d="M${100 - f.w + 2} ${eyeY + 6} Q ${100 - f.w + 2} ${f.chin + 12} 100 ${f.chin + 14} Q ${100 + f.w - 2} ${f.chin + 12} ${100 + f.w - 2} ${eyeY + 6} Q ${100 + f.w - 8} ${mouthY + 2} 100 ${mouthY + 2} Q ${100 - f.w + 8} ${mouthY + 2} ${100 - f.w + 2} ${eyeY + 6} Z" fill="url(#${id}hr)" stroke="${ink(hair)}" stroke-width="1.8"/><path d="M92 ${f.chin + 2} q 8 6 16 0" stroke="${shade(hair, 1.35)}" stroke-width="2" fill="none" opacity="0.5"/>`);
   // Blush
   // Blush: soft gradient ovals only (r7: stroked blush read as scrapes), stronger for rosy-cheeked
   // villagers, a wide warm flush across the nose when shy, a hot wash when angry.
@@ -1169,8 +1251,9 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
     if (P.jowl > 0.3 && beard !== 'full') for (const sx of [-1, 1]) g.push(`<path d="M${X(sx * (f.w - 12))} ${mouthY + 4} q ${sx * 3} 7 ${sx * -1} 12" stroke="${lineC}" stroke-width="1.1" fill="none" opacity="${(0.25 + P.jowl * 0.4).toFixed(2)}" stroke-linecap="round"/>`);
     if (P.smudge) {
       const sm = P.smudge;
-      const sx = sm.at === 'cheekL' ? X(-24) : sm.at === 'cheekR' ? X(26) : sm.at === 'nose' ? X(0, 8) : X(14);
-      const sy = sm.at === 'brow' ? f.top + 18 : eyeY + 17;
+      const sx = sm.at === 'cheekL' ? X(sm.kind === 'flour' ? -31 : -24) : sm.at === 'cheekR' ? X(26) : sm.at === 'nose' ? X(0, 8) : X(14);
+      // (flour sits high on the cheekbone, clear of a beard line)
+      const sy = sm.at === 'brow' ? f.top + 18 : sm.kind === 'flour' ? eyeY + 14 : eyeY + 17;
       const op = sm.kind === 'flour' ? 0.85 : sm.kind === 'paint' ? 0.8 : 0.5;
       // soot / dirt: a thin swipe of a thumb; flour / paint: a dab
       // (r13: soot / soil as a grainy dry-brush smear with specks — a blurred stroke over the blush read
@@ -1185,6 +1268,13 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
         // read as a bruise)
         g.push(`<path d="M${sx - 6} ${sy + 7} q 5 -2.6 11 -1.2" stroke="${css(sm.c)}" stroke-width="2.6" fill="none" stroke-linecap="round" opacity="0.92"/>`);
         g.push(`<path d="M${sx - 3} ${sy + 10.5} q 4 -1.6 8 -0.4" stroke="#f2c43a" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.92"/>`);
+      } else if (sm.kind === 'flour') {
+        // (r19: a dry dusting of flour — a pale patch of overlapping dabs with loose specks; the blurred
+        // white wisp beside Bram's moustache read as a puff of steam on every card)
+        const fc = css(sm.c);
+        g.push(`<g opacity="0.82"><ellipse cx="${sx}" cy="${sy}" rx="6.4" ry="3.6" fill="${fc}" opacity="0.5" transform="rotate(-14 ${sx} ${sy})"/><ellipse cx="${sx + 2.2}" cy="${sy - 0.6}" rx="3.4" ry="2.2" fill="${fc}" opacity="0.7"/>`);
+        for (let i = 0; i < 7; i++) g.push(`<circle cx="${(sx - 7 + ((i * 5.3) % 14)).toFixed(1)}" cy="${(sy - 3.4 + ((i * 3.7) % 7)).toFixed(1)}" r="${(0.5 + (i % 3) * 0.3).toFixed(2)}" fill="${fc}"/>`);
+        g.push(`</g>`);
       } else g.push(`<path d="M${sx - 6} ${sy} q 3 -3 7 -1 q 4 1 5 4 q -5 2 -9 0 q -3 -1 -3 -3 Z" fill="${css(sm.c)}" opacity="${op}" filter="url(#${id}soft2)"/>`);
     }
     p.push(g.join(''));
@@ -1211,7 +1301,7 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
     p.push(`<path d="M${100 - f.w} ${f.top + 36} Q 100 ${f.top + 22} ${100 + f.w} ${f.top + 36}" stroke="${shade(L.hair, 0.55)}" stroke-width="10" fill="none" opacity="0.5"/></g></g>`);
   }
   p.push(`</g>`);
-  p.push(`<g transform="translate(${(d0 * 0.4).toFixed(2)} 0)">${hat(L, f)}</g>`);
+  p.push(`<g transform="translate(${(d0 * 0.4).toFixed(2)} 0)">${hat(L, f, id)}</g>`);
   if (browsOver) p.push(browSvg.join(''));
   p.push(`<g transform="translate(${hsx.toFixed(2)} 0)">`);
   if (acc.has('pencil')) p.push(`<path d="M${100 + f.w - 4} ${eyeY - 14} L ${100 + f.w + 20} ${eyeY - 30}" stroke="#f2c43a" stroke-width="5" stroke-linecap="round"/><path d="M${100 + f.w + 18} ${eyeY - 29} l 5 -3" stroke="#e8a0a0" stroke-width="5" stroke-linecap="round"/>`);

@@ -81,7 +81,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Town square (plaza, Lantern Hall, villagers).
   // (r7 blind judge: villagers too small to read, the hotbar over the fountain — a closer, lower lens
   // with the Hall's rose window still at the top and the fountain clear of the toolbar)
-  'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 19.6, season: 'spring', weather: 'sun', camera: { yaw: -26, pitch: 38, distance: 29, offsetX: 4.5, offsetZ: -5 }, showcase: ['npcs'] },
+  'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 20.1, season: 'spring', weather: 'sun', camera: { yaw: -26, pitch: 38, distance: 29, offsetX: 4.5, offsetZ: -5 }, showcase: ['npcs'] },
   // r9: a farmer a year in — every heart-event answer remembered (`&mem=all|alt|a.b,…`): keepsakes in the square.
   'town-memories': { map: 'town', x: 26.6, z: 25.6, facing: 'down', time: 16.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 33, distance: 20, offsetX: 0.6, offsetZ: -5.2 }, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).

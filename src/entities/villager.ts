@@ -1771,27 +1771,19 @@ export class Villager {
       case 'flatcap': {
         // A tweed newsboy cap: a soft crown pulled forward over the brim, eight panel seams meeting
         // at a covered button, a band round the head and a stiff curved peak.
+        // (r19: from the plaza lens the eight-panel dome with its seams read as a green umbrella / a
+        // mushroom cap — the seams are gone (the crown must stay this tall: lower, the hair showed through))
         const crown = sphG(R * 1.1, 24, 10, 0, Math.PI * 2, 0, Math.PI * 0.42);
-        rb.add(B.head, crown, H(0, R * 1.1, 0.03, -0.2, 0, 0, 1.06, 0.8, 1.14), c);
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2;
-          const seam = torG(R * 1.1, 0.006, 3, 14, Math.PI * 0.4);
-          seam.rotateZ(Math.PI * 0.1);
-          seam.rotateY(Math.PI / 2 + a);
-          rb.add(B.head, seam, H(0, R * 1.1, 0.03, -0.2, 0, 0, 1.065, 0.805, 1.145), shadeHex(c, 0.72));
-        }
+        rb.add(B.head, crown, H(0, R * 1.1, 0.04, -0.22, 0, 0, 1.03, 0.8, 1.15), c);
+        // One front seam where the top panel folds over the peak.
+        rb.add(B.head, torG(R * 0.92, 0.007, 3, 16, Math.PI), H(0, R * 1.4, R * 0.44, Math.PI / 2 - 0.1, 0, 0, 1.05, 0.5, 1), shadeHex(c, 0.72));
         rb.add(B.head, bevelCylinder(R * 1.06, R * 1.07, 0.07, 0.02, 24), H(0, R * 1.2, 0.0, -0.2, 0, 0), shadeHex(c, 0.78));
         const brim = cylG(R * 0.78, R * 0.78, 0.035, 18, 1, false, -Math.PI / 2, Math.PI);
         // (peak tipped up ~10°: the eyes read under it from the high lens)
         rb.add(B.head, brim, H(0, R * 1.28, R * 0.66, 0.09, 0, 0, 1.05, 1, 0.62), shadeHex(c, 0.66));
         rb.add(B.head, torG(R * 0.78, 0.008, 3, 16, Math.PI), H(0, R * 1.29, R * 0.66, Math.PI / 2 + 0.09, 0, 0, 1.05, 0.62, 1), shadeHex(c, 0.55));
-        rb.add(B.head, sphG(0.034, 8, 6), H(0, R * 1.97, -0.1, 0, 0, 0, 1, 0.6, 1), shadeHex(c, 0.7));
-        // Flecks of tweed.
-        for (let i = 0; i < 14; i++) {
-          const a = rng.next() * Math.PI * 2;
-          const up = 0.25 + rng.next() * 0.5;
-          rb.add(B.head, sphG(0.012, 4, 3), H(Math.sin(a) * Math.sin(up) * R * 1.16, R * 1.12 + Math.cos(up) * R * 0.86, Math.cos(a) * Math.sin(up) * R * 1.24 + 0.03), i % 2 ? shadeHex(c, 1.35) : shadeHex(c, 0.6));
-        }
+        rb.add(B.head, sphG(0.03, 8, 6), H(0, R * 1.97, -0.08, 0, 0, 0, 1, 0.6, 1), shadeHex(c, 0.7));
+        // (r19: no tweed flecks — off the crown's surface they studded the silhouette like rivets)
         break;
       }
       case 'beanie': {

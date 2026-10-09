@@ -614,7 +614,8 @@ export function buildStall(rng: Rng, stripes: [number, number], goods: 'produce'
     const col = new THREE.Color(c);
     const hsl = { h: 0, s: 0, l: 0 };
     col.getHSL(hsl);
-    return hsl.l > 0.82 ? col.multiplyScalar(0.84).getHex() : c;
+    // (r19: still clipped facing the high sun at 0.84 — a warm unbleached linen, a further step down)
+    return hsl.l > 0.82 ? col.lerp(new THREE.Color(0xd9ccb2), 0.5).multiplyScalar(0.8).getHex() : c;
   });
   for (let i = 0; i < n; i++) {
     const x = -W / 2 - 0.15 + (i + 0.5) * ((W + 0.3) / n);
@@ -1760,7 +1761,8 @@ export function buildGlasshouse(rng: Rng, s: { w: number; wallH: number }): THRE
   const zl = 1.45;
   const yOut = 2.0;
   const yIn = Math.min(0.35 + s.wallH - 0.05, 2.75);
-  const white = 0xf3efe4;
+  // (r19: an off-white — the paper-white bars and posts clipped under the noon sun in town-day)
+  const white = 0xe2dccd;
   // Posts + a plate along the outer eave, brackets at the wall.
   for (const z of [-zl, 0, zl]) {
     b.add('woodPaint', roundedBox(0.1, yOut, 0.1, 0.02), mat(xo + 0.05, yOut / 2, z), { tint: white, aoWorld: groundAO(0.3) });
@@ -1806,13 +1808,14 @@ export function buildGlasshouse(rng: Rng, s: { w: number; wallH: number }): THRE
   const len = Math.hypot(run, fall) + 0.12;
   const cxr = x0 - run / 2;
   const cyr = (yIn + yOut) / 2 + 0.06;
-  b.add('white', roundedBox(len, 0.03, 2 * zl + 0.2, 0.01), mat(cxr, cyr, 0, 0, 0, -a), { tint: 0xe2efea });
+  // (r19: sage-grey glass — the near-white slab read as boards, not glazing)
+  b.add('white', roundedBox(len, 0.03, 2 * zl + 0.2, 0.01), mat(cxr, cyr, 0, 0, 0, -a), { tint: 0x9ab8b2 });
   for (let i = 0; i <= 6; i++) {
     const z = -zl - 0.05 + (i * (2 * zl + 0.1)) / 6;
     b.add('woodPaint', roundedBox(len, 0.06, 0.05, 0.015), mat(cxr, cyr + 0.03, z, 0, 0, -a), { tint: white });
   }
   const vz = zl * 0.34;
-  b.add('white', roundedBox(len * 0.48, 0.03, (2 * zl) / 6 - 0.04, 0.01), mat(x0 - run * 0.28, yIn - fall * 0.28 + 0.18, vz, 0, 0, -a + 0.38), { tint: 0xd4e8e2 });
+  b.add('white', roundedBox(len * 0.48, 0.03, (2 * zl) / 6 - 0.04, 0.01), mat(x0 - run * 0.28, yIn - fall * 0.28 + 0.18, vz, 0, 0, -a + 0.38), { tint: 0x8eaea8 });
   b.add('woodPaint', roundedBox(len * 0.5, 0.05, 0.05, 0.01), mat(x0 - run * 0.28, yIn - fall * 0.28 + 0.22, vz - 0.22, 0, 0, -a + 0.38), { tint: white });
   b.add('metal', roundedBox(0.02, 0.3, 0.02, 0.005), mat(x0 - run * 0.5, yIn - fall * 0.5 + 0.14, vz, 0, 0, 0.3), { tint: 0x3a3634 });
   // A hanging basket from the eave plate at each end.

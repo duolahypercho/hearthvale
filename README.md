@@ -997,8 +997,27 @@ actors such as Pip the shop cat).
   villagers +0.13 (noise). The town's own JS (`cpuprof.mjs`) is ≈ 0.6 ms a frame (npcs 0.29, villagers
   0.16, town 0.15).
 
+- **Round 19** — *Portrait lab*: `src/world/town/lab/portraits.html` renders the painted busts without booting the game
+  (`node scripts/shot.mjs --url "/src/world/town/lab/portraits.html?npc=tobias,bram&light=day|dusk|night&s=360&cols=5"`,
+  ≈ 30 s a sheet instead of ≈ 3 min). *Turned heads*: a three-quarter mood swung the far eye onto the
+  cheek's silhouette (Tobias / Bram blush, thinking, sad, wistful: the far eye half under the sideburn
+  with the face's ink line through it) — the turn is gentler (0.46) and the face outline follows a third
+  of it; Bram's sideburns are slimmer. *Hats with volume*: the baker's toque is a pleated band under a
+  mushrooming starched puff (pleats, overhang shadow, far-side shade, lit crown), Tobias's flat cap wool
+  tweed (flecks, seams, shaded peak, a brim shadow on the brow), Rowan's beanie knitted (rib columns over
+  the crown, the cuff's fold shadow), Hazel's sunhat woven straw, Odessa's kerchief cloth folds — they
+  were flat fills. Bram's flour is a dry dusting high on the cheek (the blurred white wisp by the
+  moustache read as steam). The Lantern Hall card is a day place (sky, grey gable, rose window) — it
+  was a starry night at eleven in the morning; the night wash still darkens it after dusk. *3D*: the flat
+  cap loses its eight umbrella seams (from the plaza lens Tobias wore a green parasol). *Blue hour*:
+  `town-evening` now plays at 20:06 — the cobalt ambient with warm lamp pools the critic asked for (at
+  19:36 it was still sunset: a lilac-pink wash); the dusk tone is bluer and keeps its saturation /
+  contrast (`TOWN_TONE.duskSun / duskSky / duskGround / duskHemi` are live knobs). *Sun-clipped whites*:
+  the stall canopies' light stripes are unbleached linen, Hazel's glasshouse glazing sage-grey glass on
+  off-white bars (both clipped to paper white at noon).
+
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
-(the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (19:05, lamps lit, the bakery and market row), `town-commute` (r18: noon on the plaza, the schedule runs — `&seq=10`), `town-winter` (the establishing lens in snow,
+(the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (20:06, the blue hour: lamps lit, the bakery and market row), `town-commute` (r18: noon on the plaza, the schedule runs — `&seq=10`), `town-winter` (the establishing lens in snow,
 its own winter blocking), `town-winter-square` (the plaza in snow), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
 paths a real farmhand's intents take), `town-rain`,
 `town-east`, `town-south`, `town-cast`, `town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1` ·

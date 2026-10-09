@@ -17,13 +17,14 @@ import type { Game } from '../../core/game';
 import { globalUniforms } from '../../render/uniforms';
 
 /** Live-tunable (window.__townTone) for look-dev. */
-export const TOWN_TONE = { dusk: 1, night: 1, winter: 1 };
+export const TOWN_TONE = { dusk: 1, night: 1, winter: 1, duskSun: 0.22, duskSky: 0.76, duskGround: 0.45, duskHemi: 0.4 };
 (globalThis as unknown as { __townTone: typeof TOWN_TONE }).__townTone = TOWN_TONE;
 
 const _sunGold = new THREE.Color(0xffc49a);
 // (r17: bluer — the plaza still read lavender-pink against Stardew's blue-violet dusk)
-const _skyCool = new THREE.Color(0x8698e0);
-const _groundCool = new THREE.Color(0x3e4668);
+// (r19: a deeper, more saturated blue — Stardew's blue hour is cobalt, ours still read lilac-grey)
+const _skyCool = new THREE.Color(0x6f86e4);
+const _groundCool = new THREE.Color(0x34406e);
 const _fogCool = new THREE.Color(0x7e88bc);
 const _moonSky = new THREE.Color(0x5a6cae);
 const _moonGround = new THREE.Color(0x262a40);
@@ -83,10 +84,10 @@ function apply(game: Game): void {
   if (dusk < 0.002 && night < 0.002) return;
   if (dusk > 0.002) {
     L.sun.color.lerp(_sunGold, 0.55 * dusk);
-    L.sun.intensity *= 1 - 0.22 * dusk;
-    L.hemi.color.lerp(_skyCool, 0.68 * dusk);
-    L.hemi.groundColor.lerp(_groundCool, 0.45 * dusk);
-    L.hemi.intensity *= 1 + 0.4 * dusk;
+    L.sun.intensity *= 1 - TOWN_TONE.duskSun * dusk;
+    L.hemi.color.lerp(_skyCool, TOWN_TONE.duskSky * dusk);
+    L.hemi.groundColor.lerp(_groundCool, TOWN_TONE.duskGround * dusk);
+    L.hemi.intensity *= 1 + TOWN_TONE.duskHemi * dusk;
     L.bounce.color.copy(L.hemi.groundColor).lerp(L.sun.color, 0.5);
     L.fog.color.lerp(_fogCool, 0.5 * dusk);
     (rc.scene.background as THREE.Color).copy(L.fog.color);
@@ -94,11 +95,12 @@ function apply(game: Game): void {
     rc.renderer.toneMappingExposure *= 1 - 0.05 * dusk;
     const g = rc.post.grade.uniforms;
     const gain = g.uGain!.value as THREE.Vector3;
-    gain.lerp(_v.set(0.985, 0.985, 1.04), 0.7 * dusk);
+    gain.lerp(_v.set(0.97, 0.98, 1.06), 0.7 * dusk);
     const lift = g.uLift!.value as THREE.Vector3;
     lift.lerp(_v.set(0.03, 0.035, 0.07), 0.5 * dusk);
-    g.uSaturation!.value *= 1 - 0.1 * dusk;
-    g.uContrast!.value *= 1 - 0.03 * dusk;
+    // (r19: saturation and contrast held — the desaturated, flattened dusk was the 'uniform wash')
+    g.uSaturation!.value *= 1 + 0.04 * dusk;
+    g.uContrast!.value *= 1 + 0.03 * dusk;
     g.uVignette!.value *= 1 - 0.2 * dusk;
   }
   if (night > 0.002) {
