@@ -292,7 +292,8 @@ export class MeshBuilder {
     material: MaterialName | THREE.Material,
     geo: THREE.BufferGeometry,
     matrix?: THREE.Matrix4,
-    opts: { tint?: THREE.ColorRepresentation; ao?: AOFn; aoWorld?: AOFn } = {},
+    /** `detail`: force the part into the detail suffix (skips depth-only passes; see DETAIL_R). */
+    opts: { tint?: THREE.ColorRepresentation; ao?: AOFn; aoWorld?: AOFn; detail?: boolean } = {},
   ): this {
     // Material aliases: variants that only differ by base colour share one material (fewer draw
     // calls after merging); the colour moves into the vertex tint.
@@ -320,7 +321,7 @@ export class MeshBuilder {
       list = [];
       this.parts.set(material, list);
     }
-    list.push({ geo: g, small: isSmall(g) });
+    list.push({ geo: g, small: (opts.detail === true && DETAIL_R > 0) || isSmall(g) });
     g = g; // keep lint quiet
     return this;
   }

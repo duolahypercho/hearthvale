@@ -37,6 +37,7 @@ import { NPCS } from '../../data/npcs';
 import { globalUniforms } from '../../render/uniforms';
 import { createWater } from '../water';
 import { textures } from '../../render/textures';
+import { materials } from '../../render/materials';
 import { SmokeEmitter, Ambience, FireFX } from '../../render/particles';
 import { LightPools } from '../props/decals';
 import { buildLanternPost, buildBarrel, buildCrate, buildMailbox, buildDock, buildFence, type BuiltProp } from '../props/structures';
@@ -489,7 +490,7 @@ export class TownMap implements GameMap {
   private buildBuildings(): void {
     const r = this.rng.fork('buildings');
     const rd = this.rng.fork('roofs');
-    const winter = new MeshBuilder();
+    const winters: MeshBuilder[] = [];
     for (const b of BUILDINGS) {
       const bp = b.kind === 'hall' ? buildLanternHall(r) : buildTownHouse(r, HOUSES[b.kind]);
       bp.group.name = b.id;
@@ -511,6 +512,8 @@ export class TownMap implements GameMap {
           oven.group.name = 'bakery-oven';
           this.addDoorAndSmoke(oven, 'bakery-oven', 9);
         }
+        const winter = new MeshBuilder();
+        winters.push(winter);
         eaveWinter(winter, rd, spec, bp.group.matrixWorld.clone());
         roofSnowWinter(winter, this.snowRng, spec, bp.group.matrixWorld.clone());
       }
@@ -519,24 +522,34 @@ export class TownMap implements GameMap {
       this.terrain.stampCover('ao', b.x, b.z + 0.3, (x1 - x0 + 1) * 0.62, 0.55, (z1 - z0 + 1) / (x1 - x0 + 1));
       this.addDoorAndSmoke(bp, b.id, b.kind === 'store' ? 0 : b.kind === 'bakery' ? 6 : 3.5);
     }
-    this.winterB = winter;
+    this.winterB = winters;
   }
 
-  /** Winter eaves + roof snow of every house (plaza houses and the new districts), one merged mesh. */
-  private winterB: MeshBuilder | null = null;
+  /** Winter eaves + roof snow, one builder per house (plaza houses and the new districts). */
+  private winterB: MeshBuilder[] | null = null;
   private snowRngV: Rng | null = null;
   private get snowRng(): Rng {
     return (this.snowRngV ??= this.rng.fork('roof-snow'));
   }
   private buildWinterRoofs(): void {
-    const winter = this.winterB ?? new MeshBuilder();
+    // Pillar 14 (g14: one town-wide merged mesh cost 53-131k triangles in the main AND the GTAO pass in
+    // every winter town frame, houses off screen included): each house's snow is its own geometry in one
+    // BatchPool — still one multi-draw per material, but BatchedMesh frustum-culls house by house (main
+    // and AO passes), and the detail suffix (rolls, bumps, icicles) skips the AO G-buffer.
+    const pool = new BatchPool('eaves-winter');
+    const I = new THREE.Matrix4();
+    for (const w of this.winterB ?? []) {
+      for (const [m, geo] of w.geometries(true)) {
+        geo.computeBoundingSphere();
+        const material = typeof m === 'string' ? materials.get(m) : m;
+        // (thin icicles: no shadow-pass cost)
+        new InstancedSet('eaves-winter', [{ geometry: geo, material, castShadow: false, receiveShadow: true }], pool).add(I);
+      }
+    }
     this.winterB = null;
-    this.eaves = winter.build({ name: 'eaves-winter' });
+    this.eaves = pool.group;
+    this.eaves.name = 'eaves-winter';
     this.eaves.userData.perfTag = 'props';
-    this.eaves.traverse((o) => {
-      // (thin icicles: no shadow-pass cost)
-      o.castShadow = false;
-    });
     this.eaves.visible = false;
     this.root.add(this.eaves);
     // The hall's wreath centre: townkit puts it on the doors at (0, plinth 0.6 + 1.75, D/2 + 0.36).
@@ -584,7 +597,11 @@ export class TownMap implements GameMap {
       this.addDoorAndSmoke(bp, b.id, b.kind === 'inn' ? 5 : b.kind === 'forge' ? 0 : 3);
       // r15: the new districts' roofs carry winter snow packs too (fitted to the house's own spec)
       const hs = bp.group.userData.houseSpec as Parameters<typeof roofSnowWinter>[2] | undefined;
-      if (hs && this.winterB) roofSnowWinter(this.winterB, this.snowRng, hs, bp.group.matrixWorld.clone());
+      if (hs && this.winterB) {
+        const w = new MeshBuilder();
+        roofSnowWinter(w, this.snowRng, hs, bp.group.matrixWorld.clone());
+        this.winterB.push(w);
+      }
       if (b.kind === 'forge') {
         // Hearth: shed collision, flames + embers, forge smoke, a flickering practical light.
         for (let z = 14; z <= 16; z++) for (let x = 82; x <= 85; x++) this.grid.setObject(x, z, { kind: 'prop', id: 'hearth', solid: true });

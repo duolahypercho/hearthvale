@@ -1310,8 +1310,9 @@ export function eaveWinter(b: MeshBuilder, rng: Rng, s: { w: number; d: number; 
   const W = s.w + 0.9;
   const ze = s.d / 2 + 0.43;
   const ye = top + rise - tanS * ze + 0.06;
-  const add = (geo: THREE.BufferGeometry, m: THREE.Matrix4, tint: number): void => {
-    b.add('white', geo, M.clone().multiply(m), { tint });
+  // (pillar 14: bumps and icicles are AO detail — they skip the half-res GTAO G-buffer)
+  const add = (geo: THREE.BufferGeometry, m: THREE.Matrix4, tint: number, detail = false): void => {
+    b.add('white', geo, M.clone().multiply(m), { tint, detail });
   };
   const lip = new THREE.CapsuleGeometry(0.1, W - 0.2, 4, 10);
   lip.rotateZ(Math.PI / 2);
@@ -1320,15 +1321,77 @@ export function eaveWinter(b: MeshBuilder, rng: Rng, s: { w: number; d: number; 
   for (let i = 0; i < 6; i++) {
     const bump = lumpySphere(0.14 + rng.next() * 0.08, 1, 0.2, rng, 1.6);
     bump.scale(1.6, 0.55, 1);
-    add(bump, mat(-W / 2 + 0.4 + rng.next() * (W - 0.8), ye + 0.1, ze - 0.12), 0xf4f7fb);
+    add(bump, mat(-W / 2 + 0.4 + rng.next() * (W - 0.8), ye + 0.1, ze - 0.12), 0xf4f7fb, true);
   }
   for (let x = -W / 2 + 0.2; x < W / 2 - 0.1; x += 0.16 + rng.next() * 0.22) {
     if (rng.next() < 0.25) continue;
     const len = 0.12 + Math.pow(rng.next(), 1.6) * 0.42;
-    const ic = new THREE.ConeGeometry(0.025 + rng.next() * 0.02, len, 6);
+    // (open base: it sits inside the lip, never seen; 6 tris instead of 12)
+    const ic = new THREE.ConeGeometry(0.025 + rng.next() * 0.02, len, 6, 1, true);
     ic.rotateX(Math.PI);
-    add(ic, mat(x, ye - 0.02 - len / 2, ze + 0.02), 0xdcefff);
+    add(ic, mat(x, ye - 0.02 - len / 2, ze + 0.02), 0xdcefff, true);
   }
+}
+
+/**
+ * A snow slab (pillar 14): the silhouette and shading of roundedBox(w, h, d, r, 1) — 108 triangles —
+ * in 36. Each bevel is one chamfer whose vertex normals run from the face it leaves to the face it
+ * meets (the same smooth roll RoundedBoxGeometry's single segment shades), corners are one triangle,
+ * and the bottom (pressed onto the roof) is a flat octagon.
+ */
+export function snowSlab(w: number, h: number, d: number, r: number): THREE.BufferGeometry {
+  const rr = Math.max(0.001, Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3));
+  const a = w / 2 - rr;
+  const c = d / 2 - rr;
+  const X = w / 2;
+  const Z = d / 2;
+  const yt = h / 2;
+  const ym = h / 2 - rr;
+  const yb = -h / 2;
+  type V = [number, number, number, number, number, number];
+  const T = (sx: number, sz: number): V => [sx * a, yt, sz * c, 0, 1, 0];
+  const SxU = (sx: number, sz: number): V => [sx * X, ym, sz * c, sx, 0, 0];
+  const SxL = (sx: number, sz: number): V => [sx * X, yb, sz * c, sx, 0, 0];
+  const SzU = (sx: number, sz: number): V => [sx * a, ym, sz * Z, 0, 0, sz];
+  const SzL = (sx: number, sz: number): V => [sx * a, yb, sz * Z, 0, 0, sz];
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const uv: number[] = [];
+  const tri = (p: V, q: V, s: V): void => {
+    // Wind outward: the geometric normal must agree with the summed vertex normals.
+    const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2];
+    const vx = s[0] - p[0], vy = s[1] - p[1], vz = s[2] - p[2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    if (nx * (p[3] + q[3] + s[3]) + ny * (p[4] + q[4] + s[4]) + nz * (p[5] + q[5] + s[5]) < 0) [q, s] = [s, q];
+    for (const v of [p, q, s]) {
+      pos.push(v[0], v[1], v[2]);
+      nor.push(v[3], v[4], v[5]);
+      uv.push(v[0] / w + 0.5, v[2] / d + 0.5);
+    }
+  };
+  const quad = (p: V, q: V, s: V, t: V): void => {
+    tri(p, q, s);
+    tri(p, s, t);
+  };
+  quad(T(-1, -1), T(1, -1), T(1, 1), T(-1, 1));
+  for (const k of [-1, 1]) {
+    quad(T(k, -1), T(k, 1), SxU(k, 1), SxU(k, -1));
+    quad(T(-1, k), T(1, k), SzU(1, k), SzU(-1, k));
+    quad(SxU(k, -1), SxU(k, 1), SxL(k, 1), SxL(k, -1));
+    quad(SzU(-1, k), SzU(1, k), SzL(1, k), SzL(-1, k));
+    for (const j of [-1, 1]) {
+      tri(T(k, j), SxU(k, j), SzU(k, j));
+      quad(SxU(k, j), SzU(k, j), SzL(k, j), SxL(k, j));
+    }
+  }
+  const down = (v: V): V => [v[0], v[1], v[2], 0, -1, 0];
+  const ring = [SxL(1, -1), SxL(1, 1), SzL(1, 1), SzL(-1, 1), SxL(-1, 1), SxL(-1, -1), SzL(-1, -1), SzL(1, -1)].map(down);
+  for (let i = 1; i < ring.length - 1; i++) tri(ring[0]!, ring[i]!, ring[i + 1]!);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
 }
 
 let wetTiles: THREE.MeshStandardMaterial | null = null;
@@ -1383,13 +1446,14 @@ export function roofSnowWinter(b: MeshBuilder, rng: Rng, s: { w: number; d: numb
       const th = 0.11 + rng.next() * 0.05;
       const len = (run * reach) / cosS;
       const zc = run - (run * reach) / 2;
-      const slab = roundedBox(sw + 0.1, th, len, Math.min(0.055, th * 0.48), 1);
+      const slab = snowSlab(sw + 0.1, th, len, Math.min(0.055, th * 0.48));
       add(slab, mat(xc, surf(zc) + th / 2 / cosS + 0.01, sz * zc, sz * slope, 0, 0), 0xeef3fa);
       // A wind-packed roll along each step's upper edge rounds it off.
       const zt = run - run * reach + 0.06;
       const lump = lumpySphere(0.1 + rng.next() * 0.06, 0, 0.22, rng, 1.8);
       lump.scale((sw + 0.1) / 0.24, 0.42, 0.75);
-      add(lump, mat(xc, surf(zt) + th * 0.85, sz * zt, sz * slope, 0, 0), 0xf2f6fb);
+      // (AO detail: a 4 cm roll on the slab adds nothing to the half-res GTAO G-buffer)
+      b.add('white', lump, M.clone().multiply(mat(xc, surf(zt) + th * 0.85, sz * zt, sz * slope, 0, 0)), { tint: 0xf2f6fb, detail: true });
       x += sw;
     }
     // Cornice: snow creeping over the eave, drooping, with a cool shaded underside (the back eave;
