@@ -1156,7 +1156,11 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   ~45° back in the torso (it lay flat behind the neck like a bindle once the back arch added its lean), gripped at
   the butt so no handle end crosses the face. *Sprinklers* — a feathered mist sheath breaks into travelling puffs
   round each jet's apex. *Harvest* — the landing burst bursts on the bar's backpack end when the produce has no
-  slot yet, and sequence captures pin the burst at its peak on the landing frame. *Co-op* — `farm-coop-tools`
+  slot yet, draws above the HUD (it hid under the toolbar), a tier-coloured `+N` pops off the slot as the count
+  ticks, and sequence captures pin both at their peak on the landing frame. *Row markers* — hero beds carry a stake
+  + slanted sign + a sample of the crop at the walkway end of each family block (`buildRowMarkers`, one merged
+  mesh). *Perf* — the closer harvest lens costs ~15–20 % more GPU fill than the old 17 m one in A/B; all six
+  farming demos 59–118 fps avg under load ≈ 190 (history on a quiet machine: farm-harvest ~102). *Co-op* — `farm-coop-tools`
   lanes: hoer N-west, host N-east, waterer at the bed's west end pouring east into the front row, harvester at the
   east end turned 3/4 to the lens.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
