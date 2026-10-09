@@ -74,8 +74,11 @@ export type ImpactKind = 'soil' | 'tilled' | 'water' | 'refill' | 'stone' | 'woo
 
 declare module '../core/events' {
   interface GameEvents {
+    /** Fired on the hoe's impact tick (same tick as tool:impact hoe), never during the wind-up. */
     'soil:tilled': { x: number; z: number };
+    /** Fired when the water LANDS on the tile (the soak starts), not when the can tips. */
     'soil:watered': { x: number; z: number };
+    /** State flip at the press (co-op seed accounting): do NOT voice it — voice crop:sown. */
     'crop:planted': { cropId: CropId; x: number; z: number };
     /** (r17) The sow beat: seeds hit the soil (same tick as tool:impact seeds). crop:planted stays the
      *  synchronous state change (co-op seed accounting reads it during item:use) — voice this one. */
@@ -1326,6 +1329,10 @@ export class FarmingSystem implements System, FarmingApi {
         const now = this.actions?.active ? this.actions.time : (this.seq?.after ?? 0);
         for (const anim of document.getAnimations()) {
           if (before.has(anim)) continue;
+          // (r23) Only the flying icon itself: a HUD animation started in the same tick (the bar's
+          // own pop-in, fill 'both') must keep playing, or a paused one strips the bar's centring.
+          const tgt = (anim.effect as KeyframeEffect | null)?.target;
+          if (!tgt?.classList?.contains('hv-flyitem')) continue;
           anim.pause();
           this.seqFlights.push({ anim, t0: now });
         }

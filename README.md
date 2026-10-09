@@ -367,6 +367,39 @@ adapts it to game events.
   into the tenor, The Empty Chair's harp lifted off the cello. All themes recalibrated.
   Hear them: `?demo=audio-mine&floor=2&theme=mine-2`, `&floor=14&theme=mine-ice-2`, `&floor=24&theme=mine-lava-2`
   (or `&theme=mine:ice` for the band's rotation; `&fight=1` stages the combat soundcheck over it).
+- **Rounds 16-17** (audio pod r9-r10, critic r6): **rain made of drops** (`src/audio/rain.ts`): leaf / soil /
+  puddle (a Minnaert bubble chirping up) / wood impacts at their own distances, baked once into seamless
+  loops (canopy grain, near drops you can count, heavy) played by one buffer source per layer — no
+  scheduling per drop; the old hiss carpet is −10 dB under it. **Material impacts by modal synthesis**
+  (`src/audio/impacts.ts`): wood, stone, soil, steel, slime, chitin, membrane, ember, crystal — each a contact
+  pulse into its own modes and loss factor (wood swallows its highs, stone barely rings, steel rings ~0.6 s,
+  soil is a 5 ms push) plus a texture (fibre crackle, grit, chips, gloop, chitin rattle), 4 variants per
+  material baked over idle ticks; hoe / axe / pickaxe / rock break / sword blows / parry voice them. **Voice
+  characters** (`sfx.ts` `VOICES`): beyond register, each villager has a spectral tilt, a vibrato (tremor,
+  lilt or monotone), syllable length, nasality and the line-end creak. **Blind recognition**
+  (`node scripts/audio-recognize.mjs`): every surface / tool / impact / villager rendered 6 times with fresh
+  seeds and lines, classified leave-one-out by the nearest class without labels — surfaces 42/42, tools 48/48,
+  impacts 63/66, voices 44/48 (`shots/audio-r10/recognize-final.log`); it also measures each effect into a
+  limiter-bypassed graph (`GraphOptions.bypassLimiter`) so "everything peaks at the ceiling" is checkable.
+  Hear it: `?demo=audio-foley` (impacts, then each villager speaks; `&only=axe,hoe`, `&voices=0`).
+  **Whole songs**: a default `audio-render.mjs` run also renders one complete song per family
+  (`--full`, `--full all`) so B / C strains and loop seams are judged, not only 30 s openings;
+  `audio-continuity.mjs --song-end` checks the real game's between-song breaths (`shots/audio-r16/song-end.log`:
+  12.6 s and 8.7 s of rest, the next song starts by itself). `info().audio.cost` splits the audio stack's
+  main-thread ms/s into feet / decide / schedule / remote / offFrame.
+- **Round 18** (audio pod r11): **every strain crests once**. The composition critic counted its 8-bar
+  phrases from the top of the piece, so whenever an intro was not 8 bars long a "phrase" straddled the A/B
+  seam; it now counts from each section's first bar, and the strains that bumped their ceiling were re-sung
+  with one placed high point: the title (E' over the ii7 in bar 7, the only time A reaches it; phrase peak
+  25 → 100 %), Market Morning (C' over the IV, its B to B' on the iii7), Long Light (A' over the ii7; its
+  answer enters by step and the half cadence falls through the V's thirds — unrecovered leaps 11 → 3),
+  Kindling (A' over the IVmaj7, 33 → 100 %), Cinder Hymn (the first half stops on the D# so the E' is first
+  heard in bar 5, 25 → 100 %), Amber Waltz (climbs G A Bb C to D' over the tonic once — the Bb neighbour
+  was its ceiling four times), Snowlight Lullaby (an Am11 sigh instead of a third E), Fern Hollow, Clover
+  Lane, Cider & Candle; Ribbon Parade's leaps resolve (21 → 6 unrecovered; the closing F# rises to the G
+  instead of dropping a seventh). All 47 songs: mean phrase peak 99.6 %, 0 clashes, 0 b9s, no flags. New
+  critic flag `BAR-LENGTH` (a tune bar that does not fill its meter — the composer only warned). Villager
+  voices are levelled on two real lines spoken with the game's line position (spread 2.9 → ≤ 1.5 LU).
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);
@@ -780,6 +813,23 @@ actors such as Pip the shop cat).
   the lens. `town-evening` is 19:36 (violet ambient, warm lamp pools, the Hall's rose window in
   frame). *Perf*: villager mesh LOD at 15 m (was 19).
 
+- **Round 14** — *Cherries* (critic: "the cherry tree is a pink cotton-candy blob with no branch
+  breakup"): the town's blossom trees are grown one by one (`world/town/cherry.ts`): a leaning S-trunk
+  forking into four or five arching boughs that fork again, a cauliflower cluster on every fork tip (a
+  body plus three or four lobes, flat shaded undersides, gaps where the dark wood shows), crown
+  clusters over a leader, bare twigs poking out. The blossom shader paints five-petal florets (3D
+  cellular: pale petals, magenta eyes, buds, deep rose in the gaps, mauve under the clusters, sun-side
+  glow); in spring a petal drift lies under each tree (downwind-skewed) and petals flutter down out of
+  the crown (vertex-animated, one instanced draw); summer green, fall amber, winter bare boughs. One
+  BatchPool (bark + bloom), ~40k triangles in town-day. *Held props*: a heart-event prop is held, not
+  pinned to the chest — a chest prop (letters, the map, the ledger) is cradled in both forearms
+  (applied after the mood gestures), and Odessa's lantern cage hangs plumb by its ring from her raised
+  right hand (`holdProp(…, 'hand')`). *Faces*: Rowan's face is shorter with round eyes and a wider smile
+  (the sleepy lids and long jaw read as a blank stare in the cast); the doctor's eyes a touch larger;
+  Odessa's headscarf has a fine print and a slim hem (big white dots on a red dome read as a toadstool).
+  *Blocking*: town-day's Kit runs clear of the laundry line, Odessa walks up the road in view (she was
+  behind the bridge abutment / the cottage roof), Marigold and winter Linus step off the festoon poles.
+
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (19:05, lamps lit, the bakery and market row), `town-winter` (the establishing lens in snow,
 its own winter blocking), `town-winter-square` (the plaza in snow), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
@@ -1031,6 +1081,19 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   colour (tomato olive-khaki, pepper umber, gourds straw, berries mauve-grey, corn bleached straw, sunflower
   sienna). *Perf* — out-of-season husks are hidden (they were a moving shadow caster every frame), clod / leaf
   particle pools draw only up to their last live body.
+- **r23 polish**: *Fresh till* — freshness is read per TILE in the soil fragment shader (the tile's own heave
+  texel, filled out to a noise-bitten crumbly edge) instead of the bilinear per-vertex blend: the whole new square
+  turns dark, moist and crumbly on the impact frame (r10 critic: only a dark smudge in its middle, the rest as
+  bleached as the dry bed), with a soft ~0.2 spill onto neighbouring tiles. *Giant melon* — 160 × 84 rind with
+  flame-edged tiger stripes (two serrated harmonics along the length, band-to-band width variance, a darker core
+  vein inside each band), a soft waxy bloom instead of the hot painted highlight, dried soil splashed up the low
+  flank. *Giant pumpkin* — `fruit({ rind })`: fine wobbling striations inside each lobe, broad ripening mottle,
+  a green-grey shoulder round the stem and soil on the low flank (84 × 34, was a smooth 44 × 20 lathe). *Events* —
+  the soil / crop event contract is documented on the event types (soil:tilled on the hoe's impact tick,
+  soil:watered when the water lands, crop:planted is the press-time state flip — voice crop:sown). *Captures* —
+  sequence captures pause only the flying item icon (`.hv-flyitem`), never other HUD animations started that tick. *Soak* — the wet flood
+  starts with a dark spot under the splash on the landing frame and crosses the tile in ~0.35 s (was ~0.5 s from a
+  near-zero start, so the soak only read once the can was lowered).
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,
@@ -1326,6 +1389,24 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   dust bath with grit / quartz grains, hay portions as a loose heap of ~70 crossing strands. *Day-end* — the gold-star
   reason reads "well loved" only when those animals were petted; the bowl line / chore agree ("stayed full all day" →
   "Top up …'s drained bowl", the bowl empties overnight).
+- r17–r19 (round 10–11 critics): *Faces* — one eye recipe for the whole herd (thin warm rim, lens + two catchlights,
+  tipped up to the lens); joy (a pat, a treat) now shuts the eyes into dark "∩" arcs on their own `lids` bone (the old
+  10 % squash of the eye left a slanted white slit that read as a scowl on the petted goat). *Pig* — a pear in plan
+  (round hams past the shoulders, a soft waist, an arched loin, a sagging belly; no two loft stations share a width),
+  peach back / cream-pink belly / blush skin paint, and broad ears flopped forward and out over the brow, backs to the
+  sky, framing the face (they were 20 cm flaps edge-on to the lens). *Cows* — tail switch as a brush of tapered locks,
+  gentler fur grain on dark coats, the Jersey's forelock as smooth curls (8 x 6 balls read as stacked hex coins).
+  *Petting* — tall stock stands 0.72 m out (less of its rump under the farmer's face on screen), birds 0.4 m out
+  with a deeper kneel, the coop demo hen staged within arm's reach; the barn pig roots on a 30° diagonal so its snout
+  and eyes read (every stall but the goat's empty one shows a face). *Herd*
+  — local avoidance + social spacing (no fused bodies, a full pen still finds room), a semicircle of curious slots
+  behind the farmer; the paddock gets a five-bar front gate (`buildPaddockGate`). *Coop* — 9 shed feathers (was 16),
+  cream not white, under the roost / nests only; the dust bath smaller and two values darker with a sunlit lip and a
+  shaded inner slope (a dent, not a pale stain), the window's sun pool 0.3. *House* — morning shafts 1.3x with the
+  glazing bars carried down the beam and a thinning far face; the top-shelf bowls oatmeal-glazed (they bloomed into a
+  white orb at night). *Action demos* — `animals-chores` / `-rain` / `-overnight` / `-live` capture one frame per
+  milestone with `shot.mjs --frames N` (egg lift, hay, pat, rain, doorway, quilt, fade, card, wake, new coop); the
+  overnight demo now goes to bed in the farmhouse bed. `sleep.phase` exposes the bedtime stage.
 
 ## Co-op multiplayer (1–4 farmers)
 

@@ -143,7 +143,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
       );
       shader.vertexShader = vs;
       let fs = shader.fragmentShader;
-      fs = before(fs, 'void main() {', `varying float vSoilH;\nvarying float vSoilEdge;\nvarying float vSoilRim;\nvarying float vSoilFresh;\nuniform sampler2D uWetMask;\nuniform vec2 uWetSize;\n${NOISE_GLSL}\n`);
+      fs = before(fs, 'void main() {', `varying float vSoilH;\nvarying float vSoilEdge;\nvarying float vSoilRim;\nvarying float vSoilFresh;\nuniform sampler2D uWetMask;\nuniform sampler2D uHeave;\nuniform vec2 uWetSize;\n${NOISE_GLSL}\n`);
       // Crumbly fringe: the outer skirt breaks up into dirt specks over the turf.
       fs = after(
         fs,
@@ -202,6 +202,17 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           dry *= 0.7 + 0.4 * ridgeT;
           wet *= 0.86 + 0.2 * ridgeT;
           vec3 c = mix(dry, wet, hvSoilWet);
+          // (r23) Freshness per TILE, not the bilinear per-vertex blend (r10 critic: the new tile was
+          // only a dark smudge in its middle, the rest as bleached as the dry bed): read the tile's own
+          // texel and fill the square out to a crumbly, noise-bitten edge.
+          float hvFresh;
+          {
+            vec2 tq = fract(wq);
+            vec2 te = min(tq, 1.0 - tq);
+            float ed = min(te.x, te.y) + (hvNoise(wq * 9.0 + 11.0) - 0.5) * 0.09;
+            hvFresh = texture2D(uHeave, (floor(wq) + 0.5) / uWetSize).g * smoothstep(-0.02, 0.06, ed);
+            hvFresh = max(hvFresh, vSoilFresh * 0.4);
+          }
           c *= 1.0 - halo * 0.18;
           c *= 1.0 - menis * 0.3;
           // (r20) A cool sheen riding the wet edge (water standing at the meniscus), so the soak's
@@ -219,13 +230,13 @@ function soilMaterial(): THREE.MeshStandardMaterial {
             float seam = (1.0 - smoothstep(0.0, 0.045, te.x)) * 0.7 + (1.0 - smoothstep(0.0, 0.035, te.y)) * 0.45;
             // (r15: no tread across freshly hoed ground — a charged strip is one turned patch,
             // never nine floor tiles.)
-            c *= 1.0 - min(1.0, seam) * 0.05 * smoothstep(0.7, 1.0, vSoilEdge) * (1.0 - vSoilFresh);
+            c *= 1.0 - min(1.0, seam) * 0.05 * smoothstep(0.7, 1.0, vSoilEdge) * (1.0 - hvFresh);
           }
           // Freshly turned earth (r15): dark, moist, crumbly — deep furrow shading, the crests
           // breaking into paler dry crumbs — easing back to the bed's tone over a few seconds.
           // (Kept well above wet: a fresh furrow must not already look watered.)
           {
-            float fk = vSoilFresh * (1.0 - hvSoilWet);
+            float fk = hvFresh * (1.0 - hvSoilWet);
             float crumbs = smoothstep(0.6, 0.78, hvNoise(wq * 29.0 + 5.0)) * (0.4 + 0.6 * ridgeT);
             float clumps = hvNoise(wq * 11.0 + 2.0);
             // (r17) Darker than the dry bed (turned earth is moist under the crust), crumbs only a
@@ -871,8 +882,10 @@ export class SoilBeds {
         // (r16) A timed soak: a soft radial front from where the water lands reaches the far corner
         // in ~0.6 s (the length of the pour), and the whole patch deepens as it soaks in, so the
         // darkening reads as a gradient spreading under the stream rather than a snap.
-        const R = (f.t / 0.5) * 1.2;
-        const soak = 0.45 + 0.55 * THREE.MathUtils.smoothstep(f.t, 0.05, 0.75);
+        // (r23) Faster bite: a dark spot blooms under the splash on the landing frame and the front
+        // crosses the tile in ~0.35 s (the r22 soak barely showed until the can was lowered).
+        const R = 0.12 + (f.t / 0.35) * 1.2;
+        const soak = 0.62 + 0.38 * THREE.MathUtils.smoothstep(f.t, 0.03, 0.6);
         for (let jj = 0; jj < WR; jj++) {
           const row = (z * WR + jj) * this.tw + x * WR;
           for (let ii = 0; ii < WR; ii++) {

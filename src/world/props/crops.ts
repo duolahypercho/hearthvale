@@ -289,6 +289,9 @@ interface FruitOpts {
   crease?: boolean;
   /** Stripe phase offset (radians) — no two melons share a pattern. */
   phase?: number;
+  /** (r23) Rind breakup for hero fruit (giant pumpkin): fine rib striations and darker
+   *  ripening mottle — needs seg ≥ ribs × 6. */
+  rind?: boolean;
 }
 
 /** Shaded sphere-ish fruit: base colour with a darker underside, ribs / stripes / seeds. */
@@ -331,6 +334,19 @@ function fruit(r: number, base: THREE.Color, opts: FruitOpts = {}): THREE.Buffer
         c.multiplyScalar(0.55 + 0.45 * Math.pow(lobe, 0.6));
         // Paler, drier toward the stem.
         c.lerp(base.clone().lerp(new THREE.Color(0xf0c890), 0.35), THREE.MathUtils.smoothstep(n.y, 0.75, 1) * 0.5);
+        if (opts.rind) {
+          const ang = Math.atan2(q.z, q.x);
+          const ribs = opts.ribs;
+          // Fine striations running stem to blossom inside each lobe (wobbling, never ruled).
+          const stri = 0.5 + 0.5 * Math.sin(ang * ribs * 3 + Math.sin(q.y * 5.3 + ang * 2) * 0.9);
+          c.multiplyScalar(0.88 + 0.17 * stri);
+          // Ripening mottle: broad deeper red-orange blotches (no pale spots: they read as mould).
+          const m = Math.sin(q.x * 4.1 + Math.sin(q.z * 3.3) * 1.5) * Math.sin(q.z * 3.7 + Math.sin(q.y * 4.9) * 1.2) * Math.sin(q.y * 4.3 + q.x * 1.9);
+          c.lerp(base.clone().multiplyScalar(0.78).lerp(new THREE.Color(0xc0441a), 0.3), THREE.MathUtils.smoothstep(m, 0.1, 0.5) * 0.45);
+          // Green-grey shoulder round the stem (it ripens last) and soil smudged on the low flank.
+          c.lerp(new THREE.Color(0x8a8a4a), THREE.MathUtils.smoothstep(n.y, 0.86, 0.99) * 0.35);
+          c.lerp(new THREE.Color(0x6a4a2c), THREE.MathUtils.smoothstep(-n.y, 0.1, 0.6) * 0.3);
+        }
       } else c.multiplyScalar(0.82 + 0.18 * (0.5 + 0.5 * Math.cos(Math.atan2(q.z, q.x) * opts.ribs)));
     }
     if (opts.stripes && opts.stripeColor) {
@@ -1857,7 +1873,9 @@ function contactDisc(R: number, inner: THREE.Color, outer: THREE.Color): THREE.B
  * Origin on the ground; long axis along X.
  */
 function giantMelonBody(r: Rng): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(1, 96, 56);
+  // (r23) Denser (160 × 84): the rind's flame-edged stripes are vertex colour, and at 96 × 56 their
+  // edges blurred into soft painted bands (r10 critic: "a smooth CG egg with painted stripes").
+  const g = new THREE.SphereGeometry(1, 160, 84);
   g.rotateZ(Math.PI / 2);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const ph = [r.next() * 6, r.next() * 6, r.next() * 6, r.next() * 6];
@@ -1901,12 +1919,21 @@ function giantMelonBody(r: Rng): THREE.BufferGeometry {
     const xn = q.x / RX;
     const a = Math.atan2(q.z, q.y - CY);
     // Noise-warped stripe phase + band-to-band width variance.
-    const jag = Math.sin(xn * 3.7 + a * 2 + ph[0]!) * 0.32 + Math.sin(xn * 8.3 - a * 3 + ph[1]!) * 0.13 + Math.sin(xn * 19 + a * 5) * 0.05;
+    // (r23) Tiger stripes: a lazy meander along the length plus FLAME edges — short serrated
+    // tongues of dark green licking into the pale ground (two higher harmonics along the length,
+    // phase-shifted per band), so the bands read as grown rind, not a decal of clean ribbons.
     const N = 12;
+    const bandIx = Math.floor(((a + Math.PI) / (Math.PI * 2)) * N + 0.5);
+    const jag = Math.sin(xn * 3.7 + a * 2 + ph[0]!) * 0.3 + Math.sin(xn * 8.3 - a * 3 + ph[1]!) * 0.12;
+    const flame = Math.sin(xn * 27 + bandIx * 2.1 + ph[2]!) * 0.16 + Math.sin(xn * 53 + bandIx * 4.7) * 0.07 + Math.sin(xn * 97 - bandIx * 1.3) * 0.03;
     const st = 0.5 + 0.5 * Math.cos(a * N + jag);
-    const thr = 0.5 + 0.14 * Math.sin(a * 2.3 + ph[2]!) + 0.06 * Math.sin(xn * 5.2 + a * 1.7);
-    const band = THREE.MathUtils.smoothstep(st, thr, thr + 0.16);
-    const c = light.clone().lerp(lightB, 0.5 + 0.5 * Math.sin(a * 3 + xn * 2 + ph[3]!)).lerp(dark, band * 0.88);
+    // Band width varies band to band and along the length (some stripes pinch, some fork wide).
+    const thr = 0.46 + 0.12 * Math.sin(a * 2.3 + ph[2]!) + 0.07 * Math.sin(xn * 5.2 + a * 1.7) - flame * 0.9;
+    const band = THREE.MathUtils.smoothstep(st, thr, thr + 0.07);
+    // Inside the dark band: a deeper core vein (the stripes are layered, never a flat fill).
+    const core = THREE.MathUtils.smoothstep(st, thr + 0.22, thr + 0.32);
+    const c = light.clone().lerp(lightB, 0.5 + 0.5 * Math.sin(a * 3 + xn * 2 + ph[3]!)).lerp(dark, band * 0.82);
+    c.multiplyScalar(1 - core * 0.22);
     // Fine mottling + the stripes breaking up toward the poles.
     c.multiplyScalar(0.93 + 0.07 * Math.sin(q.x * 37 + q.z * 29) * Math.sin(q.y * 41 + q.x * 13));
     // (r17) Rind mottling: pale netted blotches inside the light bands, dark freckles in the stripes.
@@ -1923,8 +1950,12 @@ function giantMelonBody(r: Rng): THREE.BufferGeometry {
     const top = 0.42 + 0.58 * THREE.MathUtils.smoothstep(nn.y, -0.45, 0.85);
     const ao = 0.22 + 0.78 * THREE.MathUtils.smoothstep(q.y, 0.0, 0.55);
     c.multiplyScalar(top * ao);
-    const hl = THREE.MathUtils.smoothstep(nn.x * -0.42 + nn.y * 0.82 + nn.z * 0.38, 0.91, 0.995);
-    return c.lerp(C(0xdcecb8), hl * 0.24);
+    // (r23) A soft waxy bloom instead of a hot painted highlight (the gloss lobe does the shine), and a
+    // dusting of dried soil splashed up the lower flank.
+    const hl = THREE.MathUtils.smoothstep(nn.x * -0.42 + nn.y * 0.82 + nn.z * 0.38, 0.86, 0.995);
+    c.lerp(C(0xb8c8a0), hl * 0.12);
+    const dirt = THREE.MathUtils.smoothstep(0.34 - q.y + 0.12 * Math.sin(q.x * 7.1 + q.z * 5.3), 0.0, 0.22) * THREE.MathUtils.smoothstep(Math.sin(q.x * 31 + q.z * 17) * Math.sin(q.z * 23 - q.y * 19), -0.2, 0.6);
+    return c.lerp(C(0x6a5034), dirt * 0.45);
   });
 }
 
@@ -1969,7 +2000,7 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
     // (r19) A dark pressed-soil pool under it (weight), and a squatter, heavier body (sy 0.64 → 0.6)
     // leaning a touch off-axis (no perfect lathe).
     add(contactDisc(1.3, C(0x0c0704), C(0x2e2016)), undefined, 'wood');
-    add(fruit(1.36, C(0xe8741e), { sy: 0.6, ribs: 12, crease: true, seg: 44, rows: 20, shade: 0.3 }), mat(0, 0.6, 0, 0.04, 0, -0.03), 'skin');
+    add(fruit(1.36, C(0xe8741e), { sy: 0.6, ribs: 12, crease: true, seg: 84, rows: 34, shade: 0.3, rind: true }), mat(0, 0.6, 0, 0.04, 0, -0.03), 'skin');
     // A thick, gnarled woody stem that curls over, and a dried tendril.
     const sy0 = 0.2;
     add(tube([new THREE.Vector3(0, 1.18 + sy0, 0), new THREE.Vector3(0.03, 1.38 + sy0, 0.01), new THREE.Vector3(0.14, 1.5 + sy0, 0.07), new THREE.Vector3(0.28, 1.46 + sy0, 0.14), new THREE.Vector3(0.33, 1.36 + sy0, 0.17)], 0.1, 0.05, C(0x5e5a2c), C(0x9a8a4a), 14, 8), undefined, 'skin');
