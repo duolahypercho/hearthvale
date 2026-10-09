@@ -412,7 +412,10 @@ adapts it to game events.
   44 → 46/48 (Marigold's margin over her nearest rival 0.8 → 2.4, Linus 1.8 → 3.2; Wren is now the one
   heard twice as June, `shots/audio-r11/recognize-voices.log`). Falling snow deadens the air: the wind is
   −3 dB on a snow day (its gust² swing had lifted the snow bed 3 LU and left the winter mix 'mellow'),
-  and the snow slumps land −5 dB softer with more powder hiss.
+  and the snow slumps land −5 dB softer with more powder hiss. A windy day blows in sets — a 3-7 s gust,
+  then a 4-10 s lull — instead of independent random targets that could average into a steady roar
+  (fall-wind LRA 2.3 → 6.6 LU on the draw that flattened it); indoors the eaves drip a little quicker
+  (house rain 3.9 → 6.3 audible drops/s).
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);

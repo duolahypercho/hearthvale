@@ -46,6 +46,8 @@ export class Ambience {
   private send: GainNode;
   private gust = 0.4;
   private gustTarget = 0.4;
+  /** Windy days blow in sets (round 18): a gust, then a lull, alternating. */
+  private gustUp = false;
   private surfPhase = 0;
   /** Outdoor night lift on the night beds and critters (1 by day, 2 at full night). */
   private nightLift = 1;
@@ -263,8 +265,17 @@ export class Ambience {
 
     // Gusts: a smoothed random walk.
     if ((this.next.gust ?? 0) <= now) {
-      this.gustTarget = clamp(0.25 + r.next() * 0.9 * windy + (r.chance(0.15) ? 0.4 : 0), 0.1, 1.2);
-      this.next.gust = now + 2 + r.next() * 5;
+      if (windy >= 1) {
+        // (Round 18: a windy day blows in sets — a 3-7 s gust, then a 4-10 s lull — where an
+        // independent random target each few seconds could average out into a steady roar: the
+        // fall-wind render's loudness range fell 6.4 → 2.3 LU on a different draw.)
+        this.gustUp = !this.gustUp;
+        this.gustTarget = this.gustUp ? r.range(0.85, 1.2) : r.range(0.12, 0.35);
+        this.next.gust = now + (this.gustUp ? 3 + r.next() * 4 : 4 + r.next() * 6);
+      } else {
+        this.gustTarget = clamp(0.25 + r.next() * 0.9 * windy + (r.chance(0.15) ? 0.4 : 0), 0.1, 1.2);
+        this.next.gust = now + 2 + r.next() * 5;
+      }
     }
     this.gust += (this.gustTarget - this.gust) * 0.03;
     // Weather swell: slower than the gusts (a new target every 5–20 s = 0.05–0.2 Hz), it pushes
@@ -302,7 +313,9 @@ export class Ambience {
     // (Round 12: a storm's own wind / rain bed −4 dB so the thunder can stand +8-12 dB over it.)
     // (Plain rain: the wind wash −6 dB as well — the rain render was still broadband down to 50 Hz;
     // the patter and the drops are the sound of a wet day.)
-    const stormBed = storm ? 0.63 : raining ? 0.5 : 1;
+    // (Round 18: falling snow deadens the air — the wind −3 dB on a snow day. Its gust² swing put a
+    // 30 s window 3 LU over the last render's, and the winter mix read 'mellow' under the wash.)
+    const stormBed = storm ? 0.63 : raining ? 0.5 : s.weather === 'snow' ? 0.7 : 1;
     const wind = stormBed * (outdoors ? townBed : 1) * (outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) * hush * bedLift : mine ? 0.015 : 0);
     this.setBed('wind', wind, now, 0.8);
     const wf = this.beds.wind!.filter!;
@@ -457,8 +470,10 @@ export class Ambience {
     // shower with the roof; 20 a second at a fixed level were the flat floor of the house-rain render.)
     // (Round 16: outdoors the random puddle drips thin to one every ~0.3-1.1 s — the near drops are in
     // the rain layers now — and the eaves / water butt get their own drip train, see eaveDrip.)
-    t = s.indoor ? due('drip', 0.18, 0.7, raining) : due('drip', 0.3, 1.1, raining && !mine);
-    if (t !== null) this.drip(t, s.indoor ? 0.4 * this.shower : 0.8);
+    // (Round 18: indoors a little quicker and +2 dB — 0.14-0.5 s — the house-rain render counted 3.9
+    // audible drops a second against its own patter: a room of hiss with the odd tick.)
+    t = s.indoor ? due('drip', 0.14, 0.5, raining) : due('drip', 0.3, 1.1, raining && !mine);
+    if (t !== null) this.drip(t, s.indoor ? 0.5 * this.shower : 0.8);
     const eaves = raining && !s.indoor && (s.map === 'farm' || s.map === 'town');
     t = due('eave', this.eave.period * 0.92, this.eave.period * 1.08, eaves);
     if (t !== null) this.eaveDrip(t);
@@ -612,10 +627,12 @@ export class Ambience {
     const near = r.range(0.35, 1);
     const d = this.dest(r.range(-0.9, 0.9), 0.35 + 0.4 * (1 - near));
     const fall = r.range(0.18, 0.45);
-    noiseHit(this.g, d, t, { f: r.range(2400, 3600), q: 0.8, amp: 0.012 * near, attack: 0.05, tau: fall * 0.4, buf: this.g.pink });
-    noiseHit(this.g, d, t + fall, { type: 'lowpass', f: r.range(180, 260), amp: 0.09 * near, attack: 0.012, tau: 0.07, buf: this.g.brown });
+    // (Round 18: the whump −5 dB (0.09 → 0.05) and the powder +2.5 dB — the landings had lifted the
+    // snow bed 4 LU and darkened the winter mix to 'mellow'; the event is the hiss and the soft thud.)
+    noiseHit(this.g, d, t, { f: r.range(2400, 3600), q: 0.8, amp: 0.016 * near, attack: 0.05, tau: fall * 0.4, buf: this.g.pink });
+    noiseHit(this.g, d, t + fall, { type: 'lowpass', f: r.range(180, 260), amp: 0.05 * near, attack: 0.012, tau: 0.07, buf: this.g.brown });
     noiseHit(this.g, d, t + fall + 0.005, { f: r.range(500, 800), q: 0.9, amp: 0.025 * near, attack: 0.01, tau: 0.06, buf: this.g.pink });
-    noiseHit(this.g, d, t + fall + 0.03, { type: 'highpass', f: r.range(2200, 3200), amp: 0.014 * near, attack: 0.12, tau: r.range(0.3, 0.6), buf: this.g.pink });
+    noiseHit(this.g, d, t + fall + 0.03, { type: 'highpass', f: r.range(2200, 3200), amp: 0.019 * near, attack: 0.12, tau: r.range(0.3, 0.6), buf: this.g.pink });
     if (r.chance(0.35)) noiseHit(this.g, d, t + 0.02, { f: r.range(900, 1400), q: 5, amp: 0.02 * near, attack: 0.0008, tau: 0.012 });
   }
 

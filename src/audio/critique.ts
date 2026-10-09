@@ -375,6 +375,21 @@ export function critiquePiece(id: string, seed = 1): Critique {
     if (crowdPct > 25) flags.push(`MASKED-TUNE(${crowdWorst})`);
     if (tenorGap > 22) flags.push('HOLLOW-MIDDLE');
   }
+  // Round 18: a written tune bar that does not fill its bar (the composer only warns, then plays it
+  // late or crowds the next bar) — e.g. a 9-eighth bar slipped into a 4/4 tune.
+  const tune = th.melody?.tune as Record<string, unknown> | undefined;
+  if (tune) {
+    const bad: string[] = [];
+    for (const [sec, bars] of Object.entries(tune)) {
+      if (!Array.isArray(bars)) continue; // octave, pickup
+      bars.forEach((src: unknown, i) => {
+        if (typeof src !== 'string') return;
+        const n = src.trim().split(/\s+/).filter(Boolean).reduce((a, tok) => a + Number(/:(\d+(?:\.\d+)?)$/.exec(tok)?.[1] ?? 2), 0);
+        if (Math.abs(n - S) > 1e-6) bad.push(`${sec}${i + 1}=${n}`);
+      });
+    }
+    if (bad.length) flags.push(`BAR-LENGTH(${bad.slice(0, 3).join(' ')})`);
+  }
   const distinct = new Set(spans.map((s) => s.sym)).size;
   return {
     theme: id,

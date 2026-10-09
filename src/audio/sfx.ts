@@ -67,19 +67,19 @@ export const VOICES: Record<string, Voice> = {
   // (Round 17: every voice given a character beyond its register — see the Voice fields — and the
   // registers pulled apart: bram 118 → 100 Hz, tobias 128 → 142 Hz with a tremor, linus 150 → 162,
   // odessa 190 → 172, june 245 → 228.)
-  marigold: { base: 290, wave: 'sawtooth', formant: 1.12, spread: 5, rate: 1.15, breath: 0.08, level: 1.1, tilt: 4, vib: [7, 0.8], clip: 0.85, upturn: 1.5 },
+  marigold: { base: 278, wave: 'sawtooth', formant: 1.1, spread: 4, rate: 1.3, breath: 0.06, level: 1.12, tilt: 5, vib: [7.5, 0.6], clip: 0.74, upturn: 1.5 },
   /** Baker: big, slow, warm baritone. */
   bram: { base: 100, wave: 'sawtooth', formant: 0.8, spread: 3, rate: 0.8, breath: 0.03, presence: 1, level: 1.15, tilt: 0, vib: [4.6, 0.6], clip: 1.15 },
   /** Painter: airy, flighty, wide melodic range. */
   // (Round 17: a sawtooth source with a soft tilt — the triangle left her 0.3 % in 2-4 kHz, inaudible
   // over a score; the air is her breath.)
-  wren: { base: 330, wave: 'sawtooth', formant: 1.2, spread: 7, rate: 1.25, breath: 0.3, level: 0.83, tilt: -3, vib: [6, 1.2], upturn: 1 },
+  wren: { base: 345, wave: 'sawtooth', formant: 1.22, spread: 9, rate: 1.02, breath: 0.42, level: 1.0, tilt: -4, vib: [5.2, 1.6], clip: 1.18, upturn: 2 },
   /** Blacksmith: low, clipped, few inflections. */
   odessa: { base: 172, wave: 'sawtooth', formant: 0.93, spread: 1, rate: 1.05, breath: 0.03, presence: 0.9, level: 1.42, tilt: 5, vib: [0, 0], clip: 0.62, upturn: -1.5 },
   /** Doctor: measured, mid, precise. */
-  linus: { base: 162, wave: 'sawtooth', formant: 0.97, spread: 2, rate: 0.85, breath: 0.06, presence: 1, level: 0.8, tilt: 1, vib: [5.5, 0.4], clip: 1, nasal: 0.85 },
+  linus: { base: 166, wave: 'sawtooth', formant: 0.98, spread: 2, rate: 0.95, breath: 0.05, presence: 1, level: 0.92, tilt: 2, vib: [0, 0], clip: 0.86, nasal: 0.95 },
   /** Innkeeper: warm alto, lilting. */
-  june: { base: 228, wave: 'sawtooth', formant: 1.03, spread: 7, rate: 0.95, breath: 0.22, level: 1.04, tilt: -1, vib: [5.6, 1.8], clip: 1.2, upturn: 2.5 },
+  june: { base: 228, wave: 'sawtooth', formant: 1.03, spread: 7, rate: 0.95, breath: 0.22, level: 0.96, tilt: -1, vib: [5.6, 1.8], clip: 1.2, upturn: 2.5 },
   /** Old lamplighter: low, breathy, slow (a reedy sawtooth source: a triangle's 235 Hz centroid vanished under the score's low-mids). */
   tobias: { base: 142, wave: 'sawtooth', formant: 0.9, spread: 4, rate: 0.68, breath: 0.45, presence: 1, level: 0.92, tilt: -1, vib: [4.2, 3.2], clip: 1.3, creak: 1, upturn: -1 },
   /** Kid: high, quick, bouncy. */
