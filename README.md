@@ -1278,6 +1278,24 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   (+13 frames after `tool:swing`), `soil:watered` one frame after the pour's impact, `crop:sown` with the seed
   impact, and hoeing untillable lawn sends `tool:impact` `hit:'blocked'`. Perf: `farm-harvest` 194 draws /
   0.82 M tris (crops 228 k), `farm-harvest-fall` 193 / 0.79 M, both at 60 fps in the harness.
+- **r27 polish**: *Hoe* — the anticipation crouch is deeper and HELD two frames (sy 0.73, knees loaded, rear foot
+  planted) with the pelvis coiled away from the tile (hips twist 0.3, chest counter-turned onto the work), the coil
+  held through the top and unwound from the legs on the downswing; the wind-up raises the hoe nearly upright overhead
+  (shaft ~35° back, blade high above the hat crown, hands at the brim) instead of laying it back across the head; a
+  stronger recoil (stretch 1.16) keeps the blade pointing down at the shins (r26 flipped it blade-up mid-release).
+  `farm-tools` lens has headroom for the raised blade (offsetY 0.35, 9.3 m). *Pour* — a real dip (can cocked back,
+  knees give), an overshooting heave, then the whole body leans into the pour (chest over the front foot, shoulder
+  rolled ~20°) with the can tipped ~55° → 62° as it empties; the stream's glass sheet is ~5 cm off the rose (was
+  4 cm), more opaque; `farm-water` lensed nearer profile (yaw −20, pitch 26) so the parabola crosses the frame
+  instead of running away from the lens. *Sprinklers* — the glass core is only the first quarter of the throw
+  (fades 0.16–0.36, thinner) and the rope beads take over from ~0.14: beaded packets with gaps carry the arc, no
+  pale wire / ice rod. *Perf* — the soil shader branches out of the per-tile freshness fetches (3 texture reads +
+  noise) and the turned-earth crumb noise wherever the tile is not fresh (nearly every bed fragment).
+  Interleaved GPU-timer A/B on `farm-harvest` at 2560×1440 high (material.visible toggles, shadow cache untouched):
+  whole frame ≈ 9.5 ms GPU on a quiet window, soil ≈ 1.8 ms (the only farming system above noise: crops / farmfx /
+  grass within ±1.5 ms); harness stills at load ≈ 95: `farm-harvest` 59.4 fps p95 16.8 ms, `farm-harvest-fall` 60 /
+  16.7, `farm-tools` 61 / 16.8 (vsync-capped). Sub-40 fps critic numbers were measured with the GPU shared by ~10
+  agents' browsers — `npm run perf` flags those runs as REGR? (contended), re-run quiet.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,

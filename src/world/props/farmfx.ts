@@ -1007,9 +1007,11 @@ class Stream {
       // (r25) Gentle necking only near the break-up; a fuller sheet (the rose throws a fan, ~4 cm
       // wide off the spout, tapering to ~2 cm) so the arc reads as one body of water.
       const neck = 1 + Math.sin(s * 140 - this.t * 38) * 0.16 * f * f;
-      const r = (0.042 - 0.022 * f) * neck * dist;
+      // (r27) A fuller body of water (~5 cm off the rose, ~2.4 cm at the break-up): from the gameplay
+      // lens the r26 sheet read as a thin glass wire (r10 critic: "a tiny bead … a short bundle").
+      const r = (0.052 - 0.028 * f) * neck * dist;
       // Fades over the break-up zone (the far end) and in over the first cm off the rose.
-      const a = 0.74 * Math.min(1, (s - sa) / 0.02 + (this.on ? 1 : 0)) * (1 - THREE.MathUtils.smoothstep(f, 0.7, 1));
+      const a = 0.8 *Math.min(1, (s - sa) / 0.02 + (this.on ? 1 : 0)) * (1 - THREE.MathUtils.smoothstep(f, 0.7, 1));
       // Vertex pair k belongs to quad k (its near end) and quad k-1 (its far end).
       for (const [quad, end] of [[k, 0], [k - 1, 2]] as const) {
         if (quad < 0 || quad >= STREAM_RIB) continue;
@@ -1080,7 +1082,8 @@ void main() {
     float wr = mix(0.03, 0.17, smoothstep(0.05, 0.55, sr)) * dk;
     // (r25) A solid glass core inside the sheath (r10 critic: jets read as strings of beads): ~2.4 cm
     // off the nozzle tapering to ~1.4 cm, as a fraction of the ribbon's half-width.
-    float coreW = mix(0.036, 0.012, smoothstep(0.0, 0.66, sr)) * dk;
+    // (r27) Thinner (r10 critic: "thin segmented ice / fountain wires"): only a short pressured spout.
+    float coreW = mix(0.028, 0.01, smoothstep(0.0, 0.4, sr)) * dk;
     pr += sider * position.y * wr;
     vec4 mvr = viewMatrix * vec4(pr, 1.0);
     gl_Position = projectionMatrix * mvr;
@@ -1100,7 +1103,9 @@ void main() {
     // breaks up over the landing third.
     // (r26) The glass core breaks up past the apex (r25's full-length core read as a white wire from
     // the hero lens): solid off the nozzle, necking + fading over 0.42–0.7 where the bead packets take over.
-    vA = aA.x * smoothstep(0.0, 0.04, sr) * (0.62 - 0.22 * sr + 0.06 * pulse) * (1.0 - smoothstep(0.42, 0.7, sr));
+    // (r27) ...and it is only the first quarter of the throw: past ~0.3 the water is beads + mist, so
+    // no continuous glass tube ever spans the arc (the r26 core still read as a pale wire / ice rod).
+    vA = aA.x * smoothstep(0.0, 0.04, sr) * (0.5 - 0.22 * sr + 0.08 * pulse) * (1.0 - smoothstep(0.16, 0.36, sr));
     #ifdef USE_FOG
     vFogDepth = -mvr.z;
     #endif
@@ -1170,7 +1175,8 @@ void main() {
   // Denser near the nozzle, fading as the jet breaks up into spray; a quick fade-in at the nozzle.
   // (r25) Rope beads only show where the core breaks up (the landing third); the shed spray stays fine.
   // (r26) ...and they take over from the core as it necks (0.36–0.6), so the outer arc is a beaded throw.
-  vA = aA.x * smoothstep(0.0, 0.05, s) * (rope ? (1.0 - 0.3 * s) * (0.08 + 0.92 * smoothstep(0.36, 0.6, s)) : 0.6 - 0.25 * s) * (land > 0.0 ? 1.0 - land : 1.0);
+  // (r27) ...from ~0.14 now (the core breaks up by ~0.3): beaded packets with gaps carry the arc.
+  vA = aA.x * smoothstep(0.0, 0.05, s) * (rope ? (1.0 - 0.3 * s) * (0.12 + 0.88 * smoothstep(0.14, 0.34, s)) : 0.6 - 0.25 * s) * (land > 0.0 ? 1.0 - land : 1.0);
   #include <fog_vertex>
 }`;
 const ARC_FS = /* glsl */ `

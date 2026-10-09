@@ -205,8 +205,12 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           // (r23) Freshness per TILE, not the bilinear per-vertex blend (r10 critic: the new tile was
           // only a dark smudge in its middle, the rest as bleached as the dry bed): read the tile's own
           // texel and fill the square out to a crumbly, noise-bitten edge.
-          float hvFresh;
-          {
+          // (r27, pillar 14) Branch out of the per-tile freshness fetches / crumb noise wherever the
+          // tile is not fresh (almost every fragment of a bed): f0 = 0 makes hx / hz / hd all 0, so
+          // hvFresh is exactly the vertex term there.
+          float hvFresh = vSoilFresh * 0.4;
+          float hvF0 = texture2D(uHeave, (floor(wq) + 0.5) / uWetSize).g;
+          if (hvF0 > 0.0005) {
             vec2 tq = fract(wq);
             vec2 te = min(tq, 1.0 - tq);
             float nz = (hvNoise(wq * 9.0 + 11.0) - 0.5) * 0.09;
@@ -214,7 +218,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
             // turned patch with no tile seams (r10 critic: faint grid lines across a 3×3 slam).
             vec2 cl = floor(wq);
             vec2 sn = vec2(tq.x < 0.5 ? -1.0 : 1.0, tq.y < 0.5 ? -1.0 : 1.0);
-            float f0 = texture2D(uHeave, (cl + 0.5) / uWetSize).g;
+            float f0 = hvF0;
             float fxn = texture2D(uHeave, (cl + vec2(sn.x, 0.0) + 0.5) / uWetSize).g;
             float fzn = texture2D(uHeave, (cl + vec2(0.0, sn.y) + 0.5) / uWetSize).g;
             float fdn = texture2D(uHeave, (cl + sn + 0.5) / uWetSize).g;
@@ -246,8 +250,8 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           // Freshly turned earth (r15): dark, moist, crumbly — deep furrow shading, the crests
           // breaking into paler dry crumbs — easing back to the bed's tone over a few seconds.
           // (Kept well above wet: a fresh furrow must not already look watered.)
-          {
-            float fk = hvFresh * (1.0 - hvSoilWet);
+          float fk = hvFresh * (1.0 - hvSoilWet);
+          if (fk > 0.002) {
             float crumbs = smoothstep(0.6, 0.78, hvNoise(wq * 29.0 + 5.0)) * (0.4 + 0.6 * ridgeT);
             float clumps = hvNoise(wq * 11.0 + 2.0);
             // (r17) Darker than the dry bed (turned earth is moist under the crust), crumbs only a
