@@ -1479,6 +1479,25 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   the loop the bedtime beats run in sim time, and under automation (`navigator.webdriver`) an action demo waits 8 s
   for the capture to start it (on a loaded machine the act used to run out before frame 0 — every frame showed the
   next morning).
+- r20 (round 9 relay, stale 7.4 verdict): *Co-op chores* — the host's per-peer intent gate is a token bucket (4/s
+  sustained, burst 3) instead of a fixed 240 ms gap: a farmhand lifting the second nest box right after the first
+  had it refused (the first egg's grant came back inside 240 ms on a fast relay) and the egg went missing from their
+  run; a refused intent re-broadcasts the authoritative state at once (the farmhand's optimistic prop removal is
+  undone immediately). The host keeps `animals.intentLog` (last 24 farmhand intents + outcome: harvest / pat / eggs
+  n / refused (rate | reach)), printed by `scripts/animals-coop-test.mjs`; the matrix counts heart pops with a
+  monotonic `pops.popped` (the live-pop count raced the 1.5 s pop life on a loaded machine). *Barn* — the herd at
+  three depths instead of a back-wall lineup: Maple, Cocoa and Daisy in their stalls, Mochi in the aisle with the
+  farmer, the pig rooting the straw at the board walk's edge front-left and Poppy lying by the stock tank chewing
+  the cud front-right (two stalls stand empty; `&lineup=1` restores the old staging). *Farmhouse* — grandmother's
+  corner between the hearth and the bedroom: a walnut console with a lace runner under her portrait, now large
+  (0.62 x 0.82 m) in a carved gilt frame with the recipe card and the couple's photo tucked in its corners, a lit
+  taper whose halo warms the wall (stronger at night), dried flowers, her folded spectacles and teacup; the dog's
+  rope toy + rag ball left the walking floor. *Coop* — the nest boxes differ (straw heaped higher / lower, fresher /
+  older, a coloured name tab per lip, gingham curtains drawn aside on two boxes, the egg-tally mug on the frame);
+  shafts 0.95 -> 0.68. *Feedback* — the heart pop 52 -> 46 px, the name card 40 -> 36 px. *Lens* — inside the
+  farmhouse / coop / barn the tilt-shift clear band widens to 0.42 at 0.4 strength (held by the buildings system
+  every frame, restored on leaving): the whole room is the diorama, and the default band smeared the back wall's
+  story props (the portrait, the nest boxes, the stall row).
 
 ## Co-op multiplayer (1–4 farmers)
 

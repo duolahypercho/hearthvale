@@ -509,11 +509,11 @@ export class HouseInterior extends InteriorMap {
     k.cyl('ceramic', 0.035, 0.03, 0.12, [nx + 0.18, 0.62, 0.35], { tint: 0xd8e8f0 });
     k.add('iron', new THREE.TorusGeometry(0.035, 0.006, 5, 12), mat(nx + 0.1, 0.63, 0.42, Math.PI / 2, 0, 0), { tint: 0xc8a050 });
     k.add('iron', new THREE.TorusGeometry(0.035, 0.006, 5, 12), mat(nx + 0.19, 0.63, 0.44, Math.PI / 2, 0, 0), { tint: 0xc8a050 });
-    // Grandmother's photo wall (between the hearth and the bed window)
-    this.photo(k, 'grandma', [8.65, 1.25, 0.02], 0.55, 0.78, 'back', false);
-    this.photo(k, 'valley', [9.45, 1.85, 0.02], 0.4, 0.55, 'back', false);
-    this.photo(k, 'couple', [9.45, 1.28, 0.02], 0.3, 0.42, 'back', false);
-    this.photo(k, 'recipe', [8.0, 1.95, 0.02], 0.26, 0.38, 'back', false);
+    // Grandmother's corner (r20): the critic's "photos too small to carry emotional weight" — one big
+    // portrait in a gilt frame over a little memory table between the hearth and the bedroom, her candle
+    // lit, her spectacles folded beside her teacup, a jar of the dried meadow flowers she kept.
+    this.memoryCorner(k, rng);
+    this.photo(k, 'valley', [9.5, 1.82, 0.02], 0.4, 0.55, 'back', false);
     // Wardrobe on the right wall
     const wz = 3.9;
     k.box('paint', [0.62, 2.1, 1.3], [12.66, 0, wz], { tint: 0x9aa8b8, ao: 0.3, r: 0.03 });
@@ -645,13 +645,8 @@ export class HouseInterior extends InteriorMap {
       k.add('fabric', new THREE.TorusGeometry(0.22, 0.008, 4, 18, 1.6), mat(sbx - 0.2, 0.02, sbz + 0.22, Math.PI / 2, 0, 0.7), { tint: 0xc8504a });
       k.add('fabric', lumpySphere(0.07, 1, 0.12, rng), mat(sbx - 0.42, 0.065, sbz + 0.38), { tint: 0xc8504a });
       this.solid(sbx - 0.3, sbz - 0.25, sbx + 0.3, sbz + 0.25, 'sewing-basket');
-      // knotted rope toy: a twisted rope between two fat knots, plus a chewed tennis-style rag ball
-      const tx = 4.25;
-      const tz = 6.75;
-      k.add('fabric', new THREE.CylinderGeometry(0.03, 0.03, 0.34, 8).rotateZ(Math.PI / 2), mat(tx, 0.035, tz, 0, 0.5, 0), { tint: 0xe8d8b0 });
-      k.add('fabric', new THREE.CylinderGeometry(0.032, 0.032, 0.34, 8, 1).rotateZ(Math.PI / 2), mat(tx, 0.04, tz, 0.9, 0.5, 0), { tint: 0xd85a4a });
-      for (const s2 of [-1, 1]) k.add('fabric', lumpySphere(0.058, 1, 0.18, rng), mat(tx + Math.cos(0.5) * s2 * 0.19, 0.05, tz - Math.sin(0.5) * s2 * 0.19), { tint: 0xe8d8b0 });
-      k.add('fabric', lumpySphere(0.055, 1, 0.1, rng), mat(tx + 0.36, 0.055, tz + 0.12), { tint: 0xc8d850 });
+      // (r20: the dog's rope toy + rag ball left the walking floor — the critic's "scattered toy-like
+      // clutter"; the pet bed keeps its ring toy)
     }
     // Coat rack + straw hat + scarf, boots
     // Mudroom nook along the front knee wall left of the door (coat rack, boot tray, lantern, seed chest):
@@ -1049,6 +1044,81 @@ export class HouseInterior extends InteriorMap {
       if (size > 1) k.cyl('leaf', 0.01, 0.012, h - y - pr * 1.2, [x + Math.cos(a) * r * 0.4, y + pr * 1.2, z + Math.sin(a) * r * 0.4], { tint: 0x5a4a2a, rz: Math.cos(a) * 0.12, rx: -Math.sin(a) * 0.12 });
       k.add('leaf', leaf, mat(x + Math.cos(a) * r, h, z + Math.sin(a) * r, -0.9 + rng.next() * 0.5, -a + Math.PI / 2, 0), { tint: rng.next() < 0.5 ? 0x3f7a34 : 0x5a9a44 });
     }
+  }
+
+  /**
+   * Grandmother's corner between the hearth (x ≤ 7.7) and the bedroom partition (x 9.2), against the
+   * back wall: a slim walnut console with a lace runner, her portrait large in a carved gilt frame above
+   * it (the room's emotional focal point, read from the gameplay camera), a recipe card and the couple's
+   * photo tucked in the frame's corners, and on the table a lit taper (a warm halo on the wall behind,
+   * stronger at night), a jar of dried flowers, folded spectacles and a teacup on its saucer.
+   */
+  private memoryCorner(k: Kit, rng: Rng): void {
+    const x = 8.48;
+    const tz = 0.21;
+    const ty = 0.8;
+    // Console: top, apron with a drawer, four tapered legs, a low stretcher shelf with a sewing tin.
+    k.box('wood', [1.08, 0.045, 0.36], [x, ty, tz], { tint: WALNUT, r: 0.015 });
+    k.box('wood', [0.98, 0.12, 0.3], [x, ty - 0.12, tz], { tint: 0x5e3a24, r: 0.01 });
+    k.box('wood', [0.36, 0.08, 0.012], [x, ty - 0.1, tz + 0.152], { tint: 0x7a4c2e, r: 0.004 });
+    k.sphere('brass', 0.016, [x, ty - 0.06, tz + 0.165]);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.cyl('wood', 0.022, 0.032, ty - 0.12, [x + sx * 0.46, 0, tz + sz * 0.12], { tint: 0x5e3a24 });
+    k.box('wood', [0.94, 0.025, 0.26], [x, 0.16, tz], { tint: 0x6a4228 });
+    k.cyl('iron', 0.09, 0.09, 0.07, [x + 0.22, 0.175, tz], { tint: 0x5a7ea0, seg: 16 });
+    k.box('fabric', [0.2, 0.09, 0.16], [x - 0.22, 0.175, tz], { tint: 0xd8c8a8, r: 0.03 });
+    // Lace runner hanging over the front edge.
+    k.box('fabric', [0.5, 0.006, 0.4], [x, ty + 0.024, tz + 0.02], { tint: 0xf4eee0, r: 0.002 });
+    k.box('fabric', [0.5, 0.05, 0.006], [x, ty - 0.025, tz + 0.222], { tint: 0xf4eee0 });
+    for (let i = 0; i < 7; i++) k.sphere('fabric', 0.012, [x - 0.24 + i * 0.08, ty - 0.03, tz + 0.224], 0xf4eee0);
+    // The portrait: large, in a thick carved gilt frame with an inner dark slip.
+    // (the atlas cell is 1:2 — a tall portrait, not stretched; a cream mat round it so it reads as a framed
+    // photograph from the high camera, the frame a matte gold that holds its colour in the dim corner)
+    const pw = 0.46;
+    const ph = 0.86;
+    const py = 1.14;
+    const pz = 0.02;
+    k.add('paint', roundedBox(pw + 0.3, ph + 0.3, 0.06, 0.025, 2), mat(x, py + ph / 2, pz + 0.03), { tint: 0xd8aa50 });
+    k.add('paint', roundedBox(pw + 0.2, ph + 0.2, 0.012, 0.004), mat(x, py + ph / 2, pz + 0.064), { tint: 0x8a5a2a });
+    k.add('paint', roundedBox(pw + 0.16, ph + 0.16, 0.012, 0.004), mat(x, py + ph / 2, pz + 0.068), { tint: 0xf2e8d4 });
+    k.add('photo', atlasUV(new THREE.PlaneGeometry(pw, ph), PHOTO_CELLS.grandma), mat(x, py + ph / 2, pz + 0.078));
+    // Carved crest + corner rosettes on the frame.
+    k.add('paint', new THREE.TorusGeometry(0.08, 0.022, 6, 16, Math.PI), mat(x, py + ph + 0.15, pz + 0.05), { tint: 0xe0b45a });
+    for (const sx of [-1, 1]) for (const sy of [0, 1]) k.sphere('paint', 0.032, [x + sx * (pw / 2 + 0.12), py - 0.12 + sy * (ph + 0.24), pz + 0.07], 0xe6bc62);
+    // A pressed-flower recipe card and the little couple photo tucked into the frame's lower corners.
+    this.photo(k, 'recipe', [x - pw / 2 - 0.1, py - 0.08, pz + 0.075], 0.2, 0.28, 'back', false, 0.08);
+    this.photo(k, 'couple', [x + pw / 2 + 0.1, py - 0.06, pz + 0.075], 0.2, 0.27, 'back', false, -0.1);
+    // On the table: brass taper (lit), dried flowers in a blue jar, folded spectacles, teacup + saucer.
+    const cx = x - 0.32;
+    const cz = tz + 0.02;
+    k.cyl('brass', 0.055, 0.065, 0.02, [cx, ty + 0.024, cz]);
+    k.cyl('brass', 0.014, 0.02, 0.12, [cx, ty + 0.04, cz]);
+    k.cyl('brass', 0.03, 0.022, 0.02, [cx, ty + 0.16, cz]);
+    k.cyl('paint', 0.017, 0.019, 0.2, [cx, ty + 0.175, cz], { tint: 0xf4ecd8 });
+    k.add('glow', new THREE.SphereGeometry(0.028, 8, 6), mat(cx, ty + 0.41, cz, 0, 0, 0, 0.8, 1.9, 0.8), { tint: 0xffc060 });
+    const jx = x + 0.3;
+    k.cyl('ceramic', 0.05, 0.06, 0.15, [jx, ty + 0.024, tz - 0.02], { tint: 0x5a7ea0, seg: 14 });
+    for (let i = 0; i < 9; i++) {
+      const a = i * 0.7 + rng.next() * 0.4;
+      const r = 0.03 + rng.next() * 0.05;
+      k.cyl('leaf', 0.004, 0.004, 0.16, [jx + Math.cos(a) * r * 0.4, ty + 0.17, tz - 0.02 + Math.sin(a) * r * 0.3], { rz: Math.cos(a) * 0.35, rx: Math.sin(a) * 0.25, tint: 0x8a9a5a });
+      k.add('fabric', lumpySphere(0.022, 0, 0.3, rng, 3), mat(jx + Math.cos(a) * r, ty + 0.31 + rng.next() * 0.06, tz - 0.02 + Math.sin(a) * r * 0.6), { tint: [0xd8b0d0, 0xf0e0b0, 0xc8a0c0, 0xe8c8a0][i % 4] });
+    }
+    for (const s of [-1, 1]) k.add('iron', new THREE.TorusGeometry(0.03, 0.005, 5, 12), mat(x + 0.04 + s * 0.035, ty + 0.03, tz + 0.1, Math.PI / 2, 0, 0), { tint: 0xc8a050 });
+    k.box('iron', [0.012, 0.004, 0.004], [x + 0.04, ty + 0.03, tz + 0.1], { tint: 0xc8a050 });
+    k.cyl('ceramic', 0.075, 0.075, 0.012, [x + 0.12, ty + 0.024, tz - 0.06], { tint: 0xf2eee4, seg: 18 });
+    k.cyl('ceramic', 0.045, 0.035, 0.06, [x + 0.12, ty + 0.034, tz - 0.06], { tint: 0xf2eee4, seg: 14 });
+    k.add('ceramic', new THREE.TorusGeometry(0.02, 0.006, 5, 10), mat(x + 0.17, ty + 0.07, tz - 0.06, 0, 0, 0), { tint: 0xf2eee4 });
+    // The candle's halo on the wall + the frame (additive, warmer and stronger after dark, flickering).
+    const hm = new THREE.MeshBasicMaterial({ map: glowDisc().map, color: 0xffa860, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), hm);
+    halo.position.set(cx + 0.1, ty + 0.55, 0.1);
+    halo.userData.noAO = true;
+    halo.userData.dynamic = true;
+    halo.renderOrder = 2;
+    this.root.add(halo);
+    const c0 = new THREE.Color(0xffa860);
+    this.updaters.push((_dt, t, L) => hm.color.copy(c0).multiplyScalar((0.05 + L.night * 0.22) * (0.9 + 0.1 * Math.sin(t * 9.1) * Math.sin(t * 5.3 + 1)) * (1 - this.dim * 0.6)));
+    this.solid(7.9, 0, 9.05, 0.42, 'memory-table');
   }
 
   /** Framed picture from the atlas. `stand` = propped on a shelf (tilted back, easel foot). */

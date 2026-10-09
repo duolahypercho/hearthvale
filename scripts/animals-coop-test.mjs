@@ -114,7 +114,7 @@ const HELPERS = () => {
     click: (x, z) => g.events.emit('player:interact', { x, z }),
     rec: (id) => g.services.animals.roster().find((r) => r.id === id),
     live: (id) => g.services.animals['live'].find((l) => l.rec?.id === id),
-    hearts: () => g.services.animals['pops'].hearts().length,
+    hearts: () => g.services.animals['pops'].popped ?? g.services.animals['pops'].hearts().length,
     digest: () => {
       const A = g.services.animals;
       const st = A['st'];
@@ -307,6 +307,7 @@ try {
   await snap(ash, 'farmhand-coop.png');
 
   const rej1 = await net(host, () => window.__ac.A().rejected);
+  log('host intent log:', JSON.stringify(await net(host, () => window.__ac.A().intentLog ?? []), null, 1));
   check('no farmhand success-path intent was refused by the host', rej1 === rej0, `${rej0}→${rej1}`);
 
   // ── 8. reconnect: leave + rejoin, everything converges ──

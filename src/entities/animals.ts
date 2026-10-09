@@ -1468,7 +1468,12 @@ export class AnimalPops {
    * `tag`) the name + heart meter on the side away from the farmer. With `actor` it all rides on the
    * animal's head as it moves.
    */
+  /** Heart pops ever spawned (monotonic — the co-op matrix checks a remote pat landed without racing
+   *  the pop's 1.5 s life on a loaded machine). */
+  popped = 0;
+
   heart(at: THREE.Vector3, actor?: AnimalActor, tag?: { name: string; hearts: number }): void {
+    this.popped++;
     // (r10: hugs the head it belongs to — 0.2 m up it drifted between the petted animal and its neighbour)
     const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.06, 0) : at.clone().setY(at.y + 0.06), null, 1.55);
     h.actor = actor;
@@ -1507,7 +1512,7 @@ export class AnimalPops {
       // silhouettes; it reads as a quick tag on the pat, not a sign)
       const p = this.spawn('tag', actor ? new THREE.Vector3(0, 0, 0) : at.clone(), m, 1.45);
       p.actor = actor;
-      p.px = 40 / 1080;
+      p.px = 36 / 1080;
       p.aspect = nt.aspect;
       p.tagKey = `${tag.name}|${tag.hearts}`;
     }
@@ -1750,7 +1755,8 @@ export class AnimalPops {
 }
 
 /** Heart pop size (fraction of the view height). */
-const HEART_PX = 52 / 1080;
+// (r20: 52 -> 46 px — the critic still found the heart + card dominating the animals they belong to)
+const HEART_PX = 46 / 1080;
 const POP_CAP = 64;
 const _popM = new THREE.Matrix4();
 

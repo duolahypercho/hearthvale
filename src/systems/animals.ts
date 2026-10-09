@@ -471,16 +471,33 @@ export class AnimalSystem implements System, AnimalsApi {
     if (items?.length) this.game.services.audio?.play('pickup');
   }
 
-  private peerT = new Map<string, number>();
+  private peerT = new Map<string, { tokens: number; t: number }>();
 
-  /** Per-peer intent rate limit (pet / feed / eggs: 4 per second; anything else 8). */
+  /**
+   * Per-peer intent rate limit as a token bucket (pet / feed / eggs: 4 per second sustained; doors and
+   * buying 8), with a burst of 3. (r20: the old fixed 240 ms gap refused a second nest box lifted right
+   * after the first — on a fast relay the first egg's grant came back inside 240 ms, the farmhand
+   * clicked the next box, the host dropped it and the egg was lost from the farmhand's run.)
+   */
   private peerGate(peer: string, kind: string): boolean {
     const now = performance.now();
     const key = `${peer}:${kind}`;
-    const gap = kind === 'door' || kind === 'buy' ? 120 : 240;
-    if (now - (this.peerT.get(key) ?? -1e9) < gap) return false;
-    this.peerT.set(key, now);
+    const rate = kind === 'door' || kind === 'buy' ? 8 : 4;
+    const burst = 3;
+    const b = this.peerT.get(key) ?? { tokens: burst, t: now };
+    b.tokens = Math.min(burst, b.tokens + ((now - b.t) / 1000) * rate);
+    b.t = now;
+    this.peerT.set(key, b);
+    if (b.tokens < 1) return false;
+    b.tokens -= 1;
     return true;
+  }
+
+  /** Host: the last farmhand intents and what became of them (debug / the co-op matrix's read-out). */
+  readonly intentLog: string[] = [];
+  private logIntent(peer: string, it: AnimalIntent, outcome: string): void {
+    this.intentLog.push(`${peer}:${it.kind}${'id' in it ? `#${it.id}` : ''}${'nest' in it && it.nest != null ? `@${it.nest}` : ''} ${outcome}`);
+    if (this.intentLog.length > 24) this.intentLog.shift();
   }
 
   /**
@@ -574,9 +591,16 @@ export class AnimalSystem implements System, AnimalsApi {
     };
     // Farmhand intents are untrusted (DESIGN §13): rate-limit them per peer and kind, then check the
     // farmer really stands where the action happens (authoritative map + position + reach).
-    if (peer != null && (!this.peerGate(peer, it.kind) || !this.peerMayAct(peer, it))) {
-      this.rejected++;
-      return;
+    if (peer != null) {
+      const gate = this.peerGate(peer, it.kind);
+      if (!gate || !this.peerMayAct(peer, it)) {
+        this.rejected++;
+        const at = this.peerAt(peer);
+        this.logIntent(peer, it, gate ? `refused (reach: ${at ? `${at.map} ${at.x.toFixed(1)},${at.z.toFixed(1)}` : 'unknown'})` : 'refused (rate)');
+        // The farmhand removed the prop optimistically: push the authoritative state back at once.
+        this.touch();
+        return;
+      }
     }
     switch (it.kind) {
       case 'pet': {
@@ -596,7 +620,10 @@ export class AnimalSystem implements System, AnimalsApi {
         if (peer != null) {
           const lv = this.live.find((v) => v.rec === r);
           const from = this.peerFarmer(peer);
-          if (lv && from && Math.hypot(lv.actor.pos.x - from.x, lv.actor.pos.z - from.z) > 4.5 + lv.actor.gait.len * lv.actor.scale) break;
+          if (lv && from && Math.hypot(lv.actor.pos.x - from.x, lv.actor.pos.z - from.z) > 4.5 + lv.actor.gait.len * lv.actor.scale) {
+            this.logIntent(peer, it, 'out of reach (body)');
+            break;
+          }
         }
         // Milk / wool only for a farmer who really carries the pail / shears (host mirror of their backpack).
         const tool = r.species === 'sheep' ? 'shears' : 'milkPail';
@@ -605,7 +632,8 @@ export class AnimalSystem implements System, AnimalsApi {
           grant(produceFor(r.species, r.variant), this.quality(r), r.id, r.species);
           const l = this.live.find((v) => v.rec === r);
           if (l && r.species === 'sheep') l.actor.wool = 0.35;
-        }
+          if (peer != null) this.logIntent(peer, it, `harvest ${r.species}`);
+        } else if (peer != null) this.logIntent(peer, it, `pat ${r.species}${it.tool ? ` (tool: ready ${r.ready}, ${tool} ${this.peerCount(peer, tool, -1)})` : ''}`);
         if (!r.petted) {
           r.petted = true;
           r.friendship = Math.min(1000, r.friendship + 15);
@@ -670,6 +698,7 @@ export class AnimalSystem implements System, AnimalsApi {
       case 'eggs': {
         // One nest (per-box pickup) or the whole shelf (older co-op peers send no nest).
         const take = it.nest == null ? this.st.eggs : this.st.eggs.filter((e) => e.nest === it.nest);
+        if (peer != null) this.logIntent(peer, it, `eggs ${take.length}`);
         for (const e of take) grant(e.item, e.q, e.id ?? -1, e.sp ?? (e.item === 'duckEgg' || e.item === 'duckFeather' ? 'duck' : 'chicken'));
         this.st.eggs = this.st.eggs.filter((e) => !take.includes(e));
         this.refreshProps();
@@ -2431,7 +2460,7 @@ export class AnimalSystem implements System, AnimalsApi {
       // A living barn, not a line-up: each stall gets its own beat (head in the hay, asleep in the
       // straw, rooting, turned to watch the farmer), every animal on its own yaw, all kept inside the
       // stall's free rect (body half-width clear of both partitions).
-      type Beat = { kind: 'stand' | 'munch' | 'sleep' | 'rest' | 'root' | 'aisle'; yaw: number; back?: number; dx?: number };
+      type Beat = { kind: 'stand' | 'munch' | 'sleep' | 'rest' | 'root' | 'aisle' | 'loose'; yaw: number; back?: number; dx?: number; at?: [number, number]; act?: 'root' | 'rest' };
       // (r9: naps only on a wet day — a sheep asleep at 4:40 pm read as a bug; the pig and the end sheep
       // turn their faces to the aisle; the goat is out of its stall in the aisle with the farmer)
       const wet = this.game.calendar.weather === 'rain' || this.game.calendar.weather === 'storm';
@@ -2445,14 +2474,22 @@ export class AnimalSystem implements System, AnimalsApi {
       // (r15: still "toys on a shelf" — five chins up over five mangers. Now three behaviours side by side:
       // Maple munching, Cocoa lying in her straw chewing the cud (awake, head up, side-on), the sheep
       // 3/4, the pig rooting head-down across its stall, Daisy side-on at her door.)
+      // (r20: still "a rigid back-wall lineup" — the herd now lives at three depths: Maple + Cocoa and
+      // Daisy in their stalls at the back, Mochi in the aisle with the farmer, and in the front straw the
+      // pig rooting the straw kicked off the board walk below the loft ladder (front-left, clear of the
+      // ladder — at 2.2, 4.5 the rungs crossed its face; facing the lens-left so its snout isn't behind the
+      // grain bin) and Poppy lying by the stock tank
+      // chewing the cud (front-right). Their stalls stand empty, so the row isn't six of a kind.)
+      // &lineup=1 keeps the old all-in-stalls staging.
+      const lineup = params.get('lineup') === '1';
       const beats: Beat[] = [
         { kind: 'munch', yaw: 0.32 },
         { kind: 'rest', yaw: 0.85, back: 0.7, dx: -0.1 },
-        wet ? { kind: 'sleep', yaw: 1.05, back: 1 } : { kind: 'stand', yaw: 0.72, back: 0.4 },
+        lineup ? (wet ? { kind: 'sleep', yaw: 1.05, back: 1 } : { kind: 'stand', yaw: 0.72, back: 0.4 }) : { kind: 'loose', yaw: -0.95, at: [11.45, 5.05], act: 'rest' },
         { kind: 'aisle', yaw: 0 },
         // (r19: the pig roots on a 30° diagonal, not 66° — at -1.15 its face went to the partition; now the
         // snout disc and both eyes read from the lens while it noses the straw)
-        { kind: 'root', yaw: -0.55, back: 0.4 },
+        lineup ? { kind: 'root', yaw: -0.55, back: 0.4 } : { kind: 'loose', yaw: -0.75, at: [2.75, 3.85], act: 'root' },
         { kind: 'stand', yaw: -1.05, back: 0.05 },
       ];
       for (const l of this.live) {
@@ -2478,6 +2515,23 @@ export class AnimalSystem implements System, AnimalsApi {
           a.place(x, z, Math.atan2(dx, dz) + Math.PI);
           a.settle();
           this.demoPet = l;
+          continue;
+        }
+        const loose = beats[l.slot];
+        if (loose?.kind === 'loose' && loose.at) {
+          const [x, z] = loose.at;
+          a.stalled = false;
+          a.hungry = false;
+          a.curious = false;
+          a.calm = true;
+          a.confine = true;
+          a.walkable = () => true;
+          a.area = { x0: x - 0.03, z0: z - 0.03, x1: x + 0.03, z1: z + 0.03 };
+          a.hold = loose.act === 'root' ? 'eat' : null;
+          if (loose.act === 'rest') a.lieDown();
+          a.place(x, z, loose.yaw);
+          a.settle();
+          if (loose.act === 'root') a.snapHold();
           continue;
         }
         const s = pen.slots[l.slot % pen.slots.length]!;

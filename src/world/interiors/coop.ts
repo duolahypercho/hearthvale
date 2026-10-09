@@ -69,7 +69,7 @@ export class CoopInterior extends InteriorMap {
     this.sunPoolK = 0.3; // (r19: 0.4 -> 0.3: the pool bleached the dust bath it lands on)
     this.exposureBoost = 0.28;
     this.coolFill = 0.45;
-    this.shaftK = 0.95;
+    this.shaftK = 0.68; // (r20: 0.95 -> 0.68: the critic's "overbright sun stripe" across the middle)
     const rng = new Rng('coop-interior');
     const trough = { x0: 0.55, x1: 3.55, z: 5.35 };
     // Beds on the straw under the roost (ducks); chickens flutter up onto the perches.
@@ -129,10 +129,28 @@ export class CoopInterior extends InteriorMap {
       k.box('wood', [nw * 3 + 0.1, 0.1, 0.04], [nx0 + (nw * 3) / 2, y, 0.62], { tint: 0xc89868 });
       for (let i = 0; i < 3; i++) {
         const cx = nx0 + nw * (i + 0.5);
-        k.add('thatch', lumpySphere(0.24, 1, 0.3, rng), mat(cx, y + 0.02, 0.34, 0, rng.next() * 3, 0, 1.2, 0.35, 1), { tint: 0xe8c878 });
-        strawTufts(k, rng, cx, y + 0.1, 0.5, 5, 0.18);
+        // (r20: "repetitive nest furniture" — each box its own: straw heaped higher or lower, fresher or
+        // older, and a different chalk mark / hen's name tab on its lip)
+        const n = row * 3 + i;
+        const heap = [0.35, 0.3, 0.42, 0.32, 0.38, 0.28][n]!;
+        k.add('thatch', lumpySphere(0.24, 1, 0.3, rng), mat(cx, y + 0.02, 0.34, 0, rng.next() * 3, 0, 1.2, heap, 1), { tint: [0xe8c878, 0xdcb868, 0xf0d488, 0xd8b060, 0xe8c070, 0xf2d890][n]! });
+        strawTufts(k, rng, cx, y + 0.1, 0.5, 4 + (n % 3) * 2, 0.18);
+        k.box('paint', [0.16 + (n % 2) * 0.06, 0.05, 0.012], [cx + (n % 3 - 1) * 0.12, y + 0.05, 0.645], { tint: [0xf2e6c8, 0xe8a0a0, 0xa8c8e0, 0xf2e6c8, 0xc8e0a8, 0xf0d080][n]!, r: 0.004 });
       }
     }
+    // Two boxes hung with a gingham curtain, drawn aside on a cord (a broody hen likes the dark), and an
+    // old enamel mug on the top frame holding a pencil for the egg tally.
+    for (const [i, row, side] of [[2, 1, 1], [0, 0, -1]] as const) {
+      const x0 = nx0 + i * nw;
+      const y = 0.44 + row * 0.66;
+      const cx = side > 0 ? x0 + nw - 0.12 : x0 + 0.12;
+      k.cyl('iron', 0.006, 0.006, nw - 0.06, [x0 + nw / 2, y + 0.55, 0.64], { rz: Math.PI / 2, tint: 0x3a3634 });
+      const cur = new THREE.CylinderGeometry(0.055, 0.085, 0.5, 10, 1, true);
+      k.add('fabric', cur, mat(cx, y + 0.29, 0.64, 0, 0, 0, 1, 1, 0.35), { tint: i ? 0xd86a5a : 0x6a9ac8 });
+      k.cyl('fabric', 0.05, 0.05, 0.03, [cx, y + 0.24, 0.66], { tint: 0xf2e6c8 });
+    }
+    k.cyl('ceramic', 0.045, 0.04, 0.09, [nx0 + nw * 2.6, 1.73, 0.36], { tint: 0x5a86b8, seg: 12 });
+    k.cyl('wood', 0.006, 0.006, 0.16, [nx0 + nw * 2.6 + 0.01, 1.78, 0.36], { rz: 0.2, tint: 0xd8b070 });
     // Legs + a ramp up to the top row
     for (const x of [nx0 + 0.02, nx0 + nw * 3 - 0.02]) k.box('wood', [0.08, 0.4, 0.08], [x, 0, 0.58], { tint: DARK });
     const ramp = new THREE.Matrix4().compose(new THREE.Vector3(nx0 + nw * 3 + 0.35, 0.55, 0.9), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0.75)), new THREE.Vector3(1, 1, 1));

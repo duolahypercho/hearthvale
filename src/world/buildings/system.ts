@@ -350,8 +350,25 @@ export class BuildingSystem implements System, BuildingsApi {
     }
   }
 
+  /** r20: our interiors widen the tilt-shift's clear band while we're inside (restored on leaving). */
+  private lensInside = false;
+
   update(dt: number, game: Game): void {
     if (game.world.current?.id === 'farm') this.farm?.update(dt, game);
+    // A room is a whole diorama in frame: the default lens (clear band 0.26, 0.7 strength) smeared the
+    // back wall — grandmother's portrait, the shelves, the coop's nest boxes, the stall row — into mush.
+    // Held every frame while inside one of our rooms (a demo stage elsewhere resets the lens after load).
+    const id = game.world.current?.id;
+    const ours = id === 'house' || id === 'coop' || id === 'barn';
+    if (ours) {
+      game.rc.tiltBand = 0.42;
+      game.rc.tiltStrength = 0.4;
+      this.lensInside = true;
+    } else if (this.lensInside) {
+      game.rc.tiltBand = 0.26;
+      game.rc.tiltStrength = 0.7;
+      this.lensInside = false;
+    }
   }
 
   // ───────────────────────────────────────────── demos
