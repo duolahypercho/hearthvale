@@ -320,7 +320,9 @@ const HARVEST_ROWS: Record<Season, { rows: HarvestRow[]; giant: CropId | null; t
   // x 21 so the map's scarecrow + can stump stand ON it (a sentinel at the head of the walk, the can
   // at the cross path) instead of inside a bed; the east bed splits into species blocks both ways
   // (a hops trellis block gives the field a vineyard rhythm).
-  summer: { walk: 21, rows: [['corn', 'sunflower', 'sunflower'], ['corn', 'sunflower', 'sunflower'], ['tomato', 'hops', 'hotPepper'], ['tomato', 'hops', 'hotPepper'], null, ['melon', 'blueberry', 'blueberry'], ['melon', 'blueberry', 'blueberry'], ['hotPepper', 'tomato', 'melon'], ['hotPepper', 'tomato', 'melon']], giant: 'melon', trellis: 'hops', crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
+  // r28: the front beds are clean single-species blocks too (r10 critic: peppers, tomatoes and melons
+  // mixed inside the front beds read as a red-dot carpet): one melon patch W, blueberry | tomato E.
+  summer: { walk: 21, rows: [['corn', 'sunflower', 'sunflower'], ['corn', 'sunflower', 'sunflower'], ['tomato', 'hops', 'hotPepper'], ['tomato', 'hops', 'hotPepper'], null, ['melon', 'blueberry', 'tomato'], ['melon', 'blueberry', 'tomato'], ['melon', 'blueberry', 'tomato'], ['melon', 'blueberry', 'tomato']], giant: 'melon', trellis: 'hops', crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
   // r25: its own plan (r10 critic: "the summer layout with crops swapped"): corn + amber sunflowers
   // at the back, an eggplant | yam band, then a pumpkin patch beside a grape vineyard block up front
   // and a dense beet / yam block below the pumpkins.
@@ -3336,12 +3338,16 @@ export class FarmingSystem implements System, FarmingApi {
         // A wet disc pulsing under the fan: short-lived dark soak spots trail the landing water
         // round with the rotation (the covered soil glistens where the jets are hitting right now).
         // (r17) A dark soak crescent riding round under each rope's landing point.
-        if (fxRng.next() < dt * 6) {
-          const la = a - spinRate * T * rnd(0.85, 1.05);
-          const ld = d0 * rnd(0.82, 1.0);
+        // (r28) Denser and darker (r10 critic: no soak read under the arcs): ~14 blots a second per jet
+        // strung along the landing arc, so a dark crescent visibly sweeps round behind each rope.
+        let soakN = dt * 14 + fxRng.next();
+        while (soakN >= 1) {
+          soakN -= 1;
+          const la = a - spinRate * T * rnd(0.85, 1.12);
+          const ld = d0 * rnd(0.84, 1.0);
           const lx = base.x + Math.cos(la) * ld;
           const lz = base.z + Math.sin(la) * ld;
-          this.fx.wetSpot(new THREE.Vector3(lx, this.surfaceY(lx, lz), lz), rnd(0.26, 0.38), rnd(0.9, 1.3), 0.5);
+          this.fx.wetSpot(new THREE.Vector3(lx, this.surfaceY(lx, lz), lz), rnd(0.24, 0.34), rnd(1.0, 1.4), 0.62);
         }
         let acc = rate + fxRng.next();
         while (acc >= 1) {

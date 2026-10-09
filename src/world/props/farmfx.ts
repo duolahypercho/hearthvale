@@ -629,7 +629,8 @@ function ringTexture(): THREE.CanvasTexture {
       const rc = 0.84 + 0.025 * Math.sin(a * 5 + 1.3) + 0.015 * Math.sin(a * 11);
       const w = 0.06 * (0.8 + 0.2 * Math.sin(a * 3 + 0.4));
       const crest = Math.exp(-(((r - rc) / w) ** 2)) * (0.75 + 0.25 * Math.sin(a * 7 + 2.1));
-      const wash = 0.1 * (1 - THREE.MathUtils.smoothstep(r, 0.2, rc));
+      // (r28) A whisper of inner wash (stacked splashes summed it into a pale disc).
+      const wash = 0.03 * (1 - THREE.MathUtils.smoothstep(r, 0.2, rc));
       const v = Math.round(255 * Math.min(1, crest + wash) * (r < 1 ? 1 : 0));
       const i = (y * S + x) * 4;
       img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
@@ -1079,7 +1080,7 @@ void main() {
     // (r24) The ribbon widens into a soft mist sheath round the apex (r10 critic: "apex mist"): wide,
     // feathered and faint, so the beads ride inside a breath of spray rather than along a wire.
     float dk = clamp(length(cameraPosition - pr) / 9.0, 1.0, 1.6);
-    float wr = mix(0.03, 0.17, smoothstep(0.05, 0.55, sr)) * dk;
+    float wr = mix(0.035, 0.15, smoothstep(0.05, 0.6, sr)) * dk;
     // (r25) A solid glass core inside the sheath (r10 critic: jets read as strings of beads): ~2.4 cm
     // off the nozzle tapering to ~1.4 cm, as a fraction of the ribbon's half-width.
     // (r27) Thinner (r10 critic: "thin segmented ice / fountain wires"): only a short pressured spout.
@@ -1090,6 +1091,10 @@ void main() {
     vUv = vec2(position.y, coreW / wr);
     // Mist alpha (sheath) rides in vS below -1: vS = -1 - mist.
     float mist = aA.x * 0.12 * smoothstep(0.25, 0.45, sr) * (1.0 - smoothstep(0.62, 0.9, sr)) * (0.7 + 0.3 * sin(sr * 17.0 - uTime * 7.0 + ph * 4.0));
+    // (r28) One soft translucent ribbon per jet over the whole throw (r10 critic: the beads alone read
+    // as scattered stipple / dithering): a faint feathered veil from the nozzle to the landing, thinning
+    // toward the rim, so each jet reads as ONE arc of water with the bead packets riding inside it.
+    mist += aA.x * 0.2 * smoothstep(0.0, 0.08, sr) * (1.0 - smoothstep(0.72, 0.97, sr)) * (1.0 - 0.45 * sr);
     vS = -1.0 - clamp(mist, 0.0, 0.99);
     // (r18) The coherent body only over the first ~60 % of the throw, then it has broken into drops
     // (a full-length ribbon read as a hose / wire).
@@ -1205,7 +1210,7 @@ void main() {
   } else if (vS > 0.0) {
     // Landing crown: a thin bright ring with a faint wet fill inside.
     float ring = smoothstep(0.55, 0.78, d) * (1.0 - smoothstep(0.82, 1.0, d));
-    a = (ring * 0.85 + (1.0 - smoothstep(0.0, 0.7, d)) * 0.12) * vA;
+    a = (ring * 0.5 + (1.0 - smoothstep(0.0, 0.7, d)) * 0.08) * vA;
     c = mix(uBody, uCore, ring);
   } else {
     // Glassy drop: see-through body, denser refracting rim, bright highlight up-front (stays
@@ -1643,7 +1648,7 @@ export class FarmFX {
     this.streaks = new Streaks(1200);
     for (let i = 0; i < 1200; i++) this.drops.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), r: 0.02, age: 0, active: false, crown: false });
     this.streaks.mesh.visible = false;
-    this.wet = new Decals(96, decalTexture('wet'), 0x0e0a06, 'fx-wet');
+    this.wet = new Decals(192, decalTexture('wet'), 0x0e0a06, 'fx-wet');
     this.cracks = new Decals(24, decalTexture('crack'), 0xc9a47a, 'fx-cracks');
 
     const rg = new THREE.PlaneGeometry(2, 2);
@@ -1961,14 +1966,14 @@ export class FarmFX {
       const r0 = rnd(0.5, 0.58);
       // (r20) Earth-toned, small and quick (a soft radial breath of dust hugging the soil): the pale
       // r19 sheets lay along the furrows like frosted-glass cards.
-      this.dust.emit(center.clone().add(_v.set(Math.cos(a) * r0 * 0.7, rnd(0.03, 0.06), Math.sin(a) * r0 * 0.7)), new THREE.Vector3(Math.cos(a) * rnd(0.8, 1.2), rnd(0.15, 0.3), Math.sin(a) * rnd(0.8, 1.2)), { color: 0x6f4e30, size: rnd(0.09, 0.13) * (0.6 + 0.4 * strength), life: rnd(0.22, 0.3), grow: 1.8, alpha: 0.26 * (0.5 + 0.5 * strength), gravity: 0, drag: 4.6 });
+      this.dust.emit(center.clone().add(_v.set(Math.cos(a) * r0 * 0.7, rnd(0.03, 0.06), Math.sin(a) * r0 * 0.7)), new THREE.Vector3(Math.cos(a) * rnd(0.8, 1.2), rnd(0.15, 0.3), Math.sin(a) * rnd(0.8, 1.2)), { color: 0x6f4e30, size: rnd(0.09, 0.13) * (0.6 + 0.4 * strength), life: rnd(0.26, 0.36), grow: 1.9, alpha: 0.34 * (0.5 + 0.5 * strength), gravity: 0, drag: 4.6 });
     }
     // Dust: a full cloud for a single bite; a whisper per tile when a slam strikes a whole block.
     const np = Math.max(2, Math.round(3 * strength * strength));
     for (let i = 0; i < np; i++) {
       const a = rnd(0, Math.PI * 2);
       // (r25) Warm umber, low (< 0.25 m) and gone in ~0.3 s (r10 critic: pale grey ghost sprites).
-      this.puff(center.clone().add(new THREE.Vector3(Math.cos(a) * 0.12, 0.05, Math.sin(a) * 0.12)), new THREE.Vector3(Math.cos(a) * 0.55, rnd(0.15, 0.35), Math.sin(a) * 0.55), 0x6a4a2e, rnd(0.12, 0.17) * (0.6 + 0.4 * strength), rnd(0.24, 0.32), { alpha: 0.24 * (0.5 + 0.5 * strength), drag: 3.5 });
+      this.puff(center.clone().add(new THREE.Vector3(Math.cos(a) * 0.12, 0.05, Math.sin(a) * 0.12)), new THREE.Vector3(Math.cos(a) * 0.55, rnd(0.15, 0.35), Math.sin(a) * 0.55), 0x6a4a2e, rnd(0.13, 0.19) * (0.6 + 0.4 * strength), rnd(0.28, 0.38), { alpha: 0.32 * (0.5 + 0.5 * strength), drag: 3.5 });
     }
     // Impact flash on the blade (one bright frame, under the bloom clamp) + a pale shock ring.
     if (strength >= 0.8) {
@@ -1986,9 +1991,12 @@ export class FarmFX {
     big *= Math.sqrt(this.lensK(p));
     // One soft ripple washing out over the soil (splashes land several times a second while
     // pouring, so stacked bright rings read as a target gizmo — keep each one a whisper).
-    this.ring(p.clone().setY(p.y + 0.015), 0.05 * big, 0.3 * big, 0.45, 0x5a8cb4);
+    // (r28) Dim, quick ripples (r10 critic: stacked additive rings + pale mist puffs hung over the
+    // landing as a light glass / ice pane, so the watered tile read LIGHTER than the dry bed). The
+    // soil's own soak + the dark wet blot carry the "watered = darker" read; the rings are a glint.
+    this.ring(p.clone().setY(p.y + 0.015), 0.05 * big, 0.3 * big, 0.3, 0x2c4c66);
     // A smaller second ripple trailing the first (water rings, not a single gizmo circle).
-    if (fxr.next() < 0.5) this.ring(p.clone().add(_v.set(rnd(-0.06, 0.06), 0.016, rnd(-0.06, 0.06))), 0.03 * big, 0.17 * big, 0.38, 0x6a9cc4);
+    if (fxr.next() < 0.4) this.ring(p.clone().add(_v.set(rnd(-0.06, 0.06), 0.016, rnd(-0.06, 0.06))), 0.03 * big, 0.17 * big, 0.26, 0x34546e);
     // (r16) A short, low splash: a small crown that dies fast, no tall spray.
     this.crown(p, big * 0.75, 7);
     // A couple of fat drops skipped out sideways (they crown again where they land).
@@ -1996,8 +2004,9 @@ export class FarmFX {
       const a = rnd(0, Math.PI * 2);
       this.drop(p.clone().setY(p.y + 0.02), new THREE.Vector3(Math.cos(a) * rnd(0.5, 0.8) * big, rnd(0.5, 0.8) * big, Math.sin(a) * rnd(0.5, 0.8) * big), 0.011 * big, true);
     }
-    this.mist(p.clone().setY(p.y + 0.04), 0.2 * big, 0.1);
-    if (fxr.next() < 0.15) this.sparkle(p.clone().add(_v.set(rnd(-0.1, 0.1), rnd(0.06, 0.16), rnd(-0.1, 0.1))), _v.set(0, rnd(0.2, 0.5), 0), 0xd8f0ff, rnd(0.07, 0.11), 0.35);
+    // (r28) No mist puff / white sparkle on the landing: they outlived the pour (≤ 1.4 s) as a pale
+    // sheet with a glint cluster over the soaked tile. A dark wet blot darkens under the splash instead.
+    this.wet.add(p.clone().setY(p.y + 0.012), 0.24 * big, { life: 1.3, fadeIn: 0.12, alpha: 0.24, grow: 0.7 });
   }
 
   /** Seeds scattered into a tile + a little dust. */

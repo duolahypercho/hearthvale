@@ -1328,6 +1328,19 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   grass within ±1.5 ms); harness stills at load ≈ 95: `farm-harvest` 59.4 fps p95 16.8 ms, `farm-harvest-fall` 60 /
   16.7, `farm-tools` 61 / 16.8 (vsync-capped). Sub-40 fps critic numbers were measured with the GPU shared by ~10
   agents' browsers — `npm run perf` flags those runs as REGR? (contended), re-run quiet.
+- **r28 polish**: *Watering soak* — the can's landing no longer leaves a pale glass pane over the soaked tile: the
+  splash drops its mist puffs (they outlived the pour by ~1 s) and white glint, its ripples are dim and quick (0.3 s,
+  a whisper of inner wash) and every splash lays a dark wet blot instead, so watered = darker the whole way through.
+  *Sprinklers* — each jet carries one soft translucent ribbon over the whole throw (bead packets ride inside it: one
+  arc of water per jet, not stipple), dimmer landing crowns, and a dark soak crescent (~14 wet blots a second per
+  jet) sweeping round behind each landing arc (wet-decal pool 96 → 192). *Hero field* — the summer front beds are
+  clean single-species blocks: a melon patch west of the walk, blueberry | tomato blocks east (no pepper / tomato /
+  melon mix, no red-dot carpet). *Giant melon* — two vine runners climb the flanks onto the crown with leaves lying
+  on the rind and a tendril each (grown under its own vine, not pasted on), stronger flame-edged stripe breakup and
+  broader lumps. *Hoe* — the impact dust ring / cloud is a little denser and longer (0.26–0.38 s, warm umber).
+  `farm-coop-tools` lens pulled back (13.1 m, offsetX −1.05) so all three farmhands and the scarecrow sit in frame.
+  Note: `crop:planted` is the state flip at the press (the co-op seed-refund check reads it synchronously inside
+  `item:use`); SFX key on `crop:sown` / `tool:impact`, which land with the seeds.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,

@@ -1929,7 +1929,7 @@ function giantMelonBody(r: Rng): THREE.BufferGeometry {
     // A dent on the near flank + soft lumps.
     const dent = 1 - 0.035 * Math.exp(-(Math.pow((u - 0.35) / 0.25, 2) + Math.pow((v.y + 0.1) / 0.35, 2))) * Math.max(0, v.z);
     // (r17) Surface breakup: broad lumps + a fine pebbled bump (a real rind is never a CG egg).
-    const n = dent * (1 + 0.022 * Math.sin(v.x * 3.1 + ph[1]!) * Math.sin(v.z * 3.7 + ph[2]!) + 0.012 * Math.sin(v.y * 6.3 + v.x * 4.9 + ph[3]!) + 0.011 * Math.sin(v.x * 17.3 + v.z * 11.1) * Math.sin(v.y * 15.7 - v.z * 9.3) + 0.005 * Math.sin(v.x * 41 + v.y * 37) * Math.sin(v.z * 33 - v.y * 29));
+    const n = dent * (1 + 0.03 * Math.sin(v.x * 3.1 + ph[1]!) * Math.sin(v.z * 3.7 + ph[2]!) + 0.012 * Math.sin(v.y * 6.3 + v.x * 4.9 + ph[3]!) + 0.011 * Math.sin(v.x * 17.3 + v.z * 11.1) * Math.sin(v.y * 15.7 - v.z * 9.3) + 0.005 * Math.sin(v.x * 41 + v.y * 37) * Math.sin(v.z * 33 - v.y * 29));
     pos.setXYZ(i, x * n, y * n + CY, z * n);
   }
   g.computeVertexNormals();
@@ -1950,7 +1950,7 @@ function giantMelonBody(r: Rng): THREE.BufferGeometry {
     const flame = Math.sin(xn * 27 + bandIx * 2.1 + ph[2]!) * 0.16 + Math.sin(xn * 53 + bandIx * 4.7) * 0.07 + Math.sin(xn * 97 - bandIx * 1.3) * 0.03;
     const st = 0.5 + 0.5 * Math.cos(a * N + jag);
     // Band width varies band to band and along the length (some stripes pinch, some fork wide).
-    const thr = 0.46 + 0.12 * Math.sin(a * 2.3 + ph[2]!) + 0.07 * Math.sin(xn * 5.2 + a * 1.7) - flame * 0.9;
+    const thr = 0.46 + 0.12 * Math.sin(a * 2.3 + ph[2]!) + 0.07 * Math.sin(xn * 5.2 + a * 1.7) - flame * 1.25;
     const band = THREE.MathUtils.smoothstep(st, thr, thr + 0.07);
     // Inside the dark band: a deeper core vein (the stripes are layered, never a flat fill).
     const core = THREE.MathUtils.smoothstep(st, thr + 0.22, thr + 0.32);
@@ -2072,6 +2072,65 @@ function buildGiant(id: GiantKind, r: Rng): Map<Bucket, THREE.BufferGeometry> {
           const out = new THREE.Vector3(pp.x, 0, pp.z).normalize();
           // Leaves stand off the flank, tipped outward (lift ~0.5) — a canopy skirt over the base.
           add(leafGeo(0.36 + r.next() * 0.1, 0.42 + r.next() * 0.1, { shape: 'lobed', lift: 0.5, bend: 0.45, fold: 0.24, serrate: 0.22, c0: GREEN.dark, c1: GREEN.mid, segs: 5 }), body.clone().multiply(mat(pp.x + out.x * 0.04, pp.y + 0.02, pp.z + out.z * 0.04, 0, Math.atan2(out.x, out.z) + (k % 2 ? 0.5 : -0.5), 0)));
+        }
+      }
+      // (r28) One runner sprawls right UP and OVER the near shoulder onto the crown (r10 critic: the
+      // giant looked pasted onto the bed — a melon this big grew under its own vine), with leaves
+      // lying on the rind following its curve and a curled tendril at the tip.
+      {
+        const A = 1.24 * 1.04;
+        const B = 0.84 * 0.92;
+        const Cz = 1.1 * 1.03;
+        const surf = (x: number, z: number): number => {
+          // The rind's +X end is fatter (giantMelonBody's `fat`), so the crown rises toward it.
+          const fat = 1 + 0.12 * THREE.MathUtils.clamp(x / A, -1, 1);
+          const q = 1 - (x / A) ** 2 - (z / (Cz * fat)) ** 2;
+          return q > 0 ? Math.max(0.04, 0.56 * 0.92 + B * fat * Math.sqrt(q) + 0.045) : 0.04;
+        };
+        // Climb the flank as a meridian: elevation e (below the equator → near the crown) while the
+        // heading swings a little, hugging the rind ~4 cm off it (the lower half sags ~10 % wider).
+        const onRind = (e: number, phi: number, off = 0.045): THREE.Vector3 => {
+          const fat = 1 + 0.12 * Math.cos(e) * Math.cos(phi);
+          const sag = e < 0 ? 1 + 0.1 * Math.min(1, -Math.sin(e) / 0.8) : 1;
+          const k = Math.cos(e);
+          return new THREE.Vector3((A * k * fat * sag + off) * Math.cos(phi), Math.max(0.04, 0.56 * 0.92 + B * fat * Math.sin(e) + off * Math.sin(e)), (Cz * k * fat * sag + off) * Math.sin(phi));
+        };
+        const up = new THREE.Vector3(0, 1, 0);
+        // Two runners: one up the east shoulder, one up the lens-side flank (the body's +Z half faces
+        // the hero lenses), each ending on the crown with leaves lying on the rind and a tendril.
+        const runners: { root: number; path: [number, number][]; leaves: number }[] = [
+          { root: 1.05, path: [[-0.62, 0.97], [-0.25, 0.92], [0.2, 0.86], [0.62, 0.78], [1.0, 0.66], [1.3, 0.4]], leaves: 4 },
+          { root: 1.95, path: [[-0.6, 1.92], [-0.22, 1.86], [0.22, 1.74], [0.66, 1.58], [1.02, 1.36], [1.28, 1.02]], leaves: 3 },
+        ];
+        for (const run of runners) {
+          const pts = [new THREE.Vector3(1.38 * Math.cos(run.root) * A, 0.04, 1.38 * Math.sin(run.root) * Cz), new THREE.Vector3(1.14 * Math.cos(run.root - 0.05) * A, 0.05, 1.14 * Math.sin(run.root - 0.05) * Cz)];
+          for (const [e, phi] of run.path) pts.push(onRind(e, phi));
+          add(tube(pts, 0.032, 0.014, C(0x4a7428), C(0x7aa24a), 28, 5), body);
+          const cv = new THREE.CatmullRomCurve3(pts);
+          for (let k = 0; k < run.leaves; k++) {
+            const t = 0.36 + k * (0.58 / run.leaves) + r.next() * 0.03;
+            const pp = cv.getPointAt(t);
+            const tan = cv.getTangentAt(t);
+            // Surface normal of the rind under the leaf (ellipsoid gradient).
+            const n = new THREE.Vector3(pp.x / (A * A), (pp.y - 0.56 * 0.92) / (B * B), pp.z / (Cz * Cz)).normalize();
+            const side = k % 2 ? 1 : -1;
+            const yaw = Math.atan2(tan.x, tan.z) + side * (0.9 + r.next() * 0.35);
+            const q = new THREE.Quaternion().setFromUnitVectors(up, n).multiply(new THREE.Quaternion().setFromAxisAngle(up, yaw));
+            const m = new THREE.Matrix4().compose(pp.clone().addScaledVector(n, 0.012), q, new THREE.Vector3(1, 1, 1));
+            add(leafGeo(0.32 + r.next() * 0.08, 0.38 + r.next() * 0.08, { shape: 'lobed', lift: 0.12, bend: 0.18, fold: 0.2, serrate: 0.22, c0: GREEN.dark, c1: GREEN.mid, segs: 5 }), body.clone().multiply(m));
+          }
+          // Tendril corkscrewing off the runner's tip, lying on the crown.
+          const tip = pts[pts.length - 1]!;
+          const tp: THREE.Vector3[] = [];
+          for (let k = 0; k <= 20; k++) {
+            const u = k / 20;
+            const a = u * Math.PI * 4;
+            const rr = 0.06 * (1 - u * 0.5);
+            const x = tip.x - u * 0.22 + Math.cos(a) * rr;
+            const z = tip.z - u * 0.12 + Math.sin(a) * rr;
+            tp.push(new THREE.Vector3(x, surf(x, z) + 0.01 + Math.sin(a) * 0.015, z));
+          }
+          add(tube(tp, 0.011, 0.005, GREEN.mid, C(0xa8b060), 30, 4), body);
         }
       }
       // Big leaves rooted outside the belly, leaning their blades up against it.
