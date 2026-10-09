@@ -46,6 +46,13 @@ const MX = 0.8;
 /** The board walk: a darker weathered grey-brown (r10: it was the same orange as the straw + stalls). */
 const AISLE = 0x8e9294;
 const DOOR0 = 1.3;
+/** r24: per-stall half-door swing (rad, about its hinge post; 0 = shut). Poppy's and Truffle's stand open. */
+const BARN_DOOR_SWING = [0, 0, 1.15, 0, 0.55, 0];
+/** Where each stall's name plaque hangs: on the shut door's kick-board, or on the manger skirt for an open one. */
+function plaqueAt(i: number): THREE.Vector3 {
+  if (BARN_DOOR_SWING[i]) return new THREE.Vector3(i * SW + MX, 0.22, SF + 0.13);
+  return new THREE.Vector3(i * SW + (DOOR0 + SW - 0.09) / 2, 0.27, SF + 0.075);
+}
 
 /** A little standing hurricane lantern: tin base, glowing glass chimney in a wire cage, cap + bail handle. */
 function hurricaneLantern(k: Kit, x: number, y: number, z: number): void {
@@ -91,7 +98,9 @@ export class BarnInterior extends InteriorMap {
       exit: { to: 'farm', x: BARN_EXIT.x, z: BARN_EXIT.z, facing: 'down' },
       floor: 'straw',
       style: 'barn',
-      wallTint: 0xc89482,
+      // (r24: 0xc89482 -> a greyer weathered red: the critic's "orange livestock showroom" — the warmth now
+      // comes from the lamp pools, not from every board)
+      wallTint: 0xa69a94,
       // r10: blue-grey limewash on the lower boards (stall backs ~40 % value): the cream sheep, pink
       // pig and tan Jersey separate from the set instead of melting into one orange hue.
       wainscotTint: 0x7c8c9a,
@@ -112,7 +121,9 @@ export class BarnInterior extends InteriorMap {
     // the back wall over the stalls, a brighter sun pool where the window shaft lands, a less cool fill.
     this.sunPoolK = 0.45;
     this.exposureBoost = 0.24;
-    this.coolFill = 0.46;
+    // (r24: 0.46 -> 0.72: cooler daylight fill against the warm lantern pools — temperature contrast instead
+    // of one orange key; the critic's "vary lighting temperature")
+    this.coolFill = 0.72;
     this.shaftK = 1.1;
     this.lampEarly = 0.62;
     const rng = new Rng('barn-interior');
@@ -138,7 +149,7 @@ export class BarnInterior extends InteriorMap {
       feedTile: { x: 3, z: 2 },
       // (r9: plaques hang low on the door's kick-board, under the animals' chins — at chest height they
       // covered half of every body from the camera)
-      plaques: Array.from({ length: 6 }, (_, i) => new THREE.Vector3(i * SW + (DOOR0 + SW - 0.09) / 2, 0.27, SF + 0.075)),
+      plaques: Array.from({ length: 6 }, (_, i) => plaqueAt(i)),
       hatch: { x: HATCH_X, z: D },
     };
     // (r13: ~60 % fewer loose floor strands, kept to the walls + stall edges)
@@ -248,7 +259,7 @@ export class BarnInterior extends InteriorMap {
       wash.name = 'barn-wall-wash';
       this.root.add(wash);
       const c0 = new THREE.Color(0xffb46a);
-      this.updaters.push(() => m.color.copy(c0).multiplyScalar(0.05 + 0.17 * this.lampK * (1 - this.dim)));
+      this.updaters.push(() => m.color.copy(c0).multiplyScalar(0.035 + 0.13 * this.lampK * (1 - this.dim)));
     }
   }
 
@@ -354,22 +365,44 @@ export class BarnInterior extends InteriorMap {
     strawTufts(k, rng, x, 0.02, z + 0.45, 8, 0.35);
   }
 
-  /** Planked half-door with a Z brace, iron strap hinges and a latch. */
+  /**
+   * Planked half-door with a Z brace, iron strap hinges and a latch.
+   * r24 (critic: "repeated stalls … perfectly repeated silhouettes"): each door its own — mostly sage, one
+   * stripped back to bare weathered oak, one an older faded barn red; the doors of the stalls whose animals
+   * are usually out (Poppy's, Truffle's) stand swung open into the aisle on their strap hinges.
+   */
   private halfDoor(k: Kit, x0: number, x1: number, i: number): void {
     const w = x1 - x0;
+    const swing = BARN_DOOR_SWING[i] ?? 0;
+    const ca = Math.cos(swing);
+    const sa = Math.sin(swing);
+    // A door-local point (x, z) rotated about the hinge post (x1, SF).
+    const P = (x: number, y: number, z: number): [number, number, number] => {
+      const dx = x - x1;
+      const dz = z - SF;
+      return [x1 + dx * ca + dz * sa, y, SF - dx * sa + dz * ca];
+    };
     const cx = (x0 + x1) / 2;
-    // Sage-painted doors (worn back to wood on the ledges): a cool rhythm along the stall row.
-    const tint = i % 2 ? 0x86a486 : 0x90ac8c;
+    const paint = [0x86a486, 0x90ac8c, 0xb0906c, 0x8aa88a, 0xa65e4c, 0x96aa8e][i] ?? 0x86a486;
+    const ledge = i === 2 ? 0x9a7a5a : i === 4 ? 0x8a6a4a : 0x8a6a4a;
+    const alt = i === 2 ? 0xa88664 : i === 4 ? 0x9a5444 : 0x8aa88a;
     const n = 4;
-    for (let b = 0; b < n; b++) k.box('paint', [w / n - 0.012, 1.02, 0.05], [x0 + (b + 0.5) * (w / n), 0.06, SF], { tint: b % 2 ? tint : 0x8aa88a, r: 0.012 });
-    for (const y of [0.18, 0.9]) k.box('wood', [w - 0.02, 0.1, 0.04], [cx, y, SF + 0.04], { tint: 0x8a6a4a });
+    for (let b = 0; b < n; b++) k.box('paint', [w / n - 0.012, 1.02 - (i === 2 && b === 1 ? 0.06 : 0), 0.05], P(x0 + (b + 0.5) * (w / n), 0.06, SF), { tint: b % 2 ? paint : alt, r: 0.012, ry: swing });
+    for (const y of [0.18, 0.9]) k.box('wood', [w - 0.02, 0.1, 0.04], P(cx, y, SF + 0.04), { tint: ledge, ry: swing });
     const len = Math.hypot(w - 0.12, 0.72);
-    k.box('wood', [len, 0.09, 0.035], [cx, 0.54 - 0.045, SF + 0.045], { rz: Math.atan2(0.72, w - 0.12) * (i % 2 ? 1 : -1), tint: 0x8a6a4a });
-    for (const y of [0.22, 0.94]) k.box('iron', [0.3, 0.035, 0.012], [x1 - 0.15, y, SF + 0.07], { tint: 0x2a2624, r: 0.006 });
-    k.box('iron', [0.08, 0.05, 0.03], [x0 + 0.06, 0.66, SF + 0.07], { tint: 0x2a2624, r: 0.01 });
-    // Plaque board (the animal's name is painted on by the animal system)
-    k.box('iron', [0.04, 0.04, 0.06], [cx - 0.26, 0.4, SF + 0.07], { tint: 0x2a2624, r: 0.01 });
-    k.box('iron', [0.04, 0.04, 0.06], [cx + 0.26, 0.4, SF + 0.07], { tint: 0x2a2624, r: 0.01 });
+    k.box('wood', [len, 0.09, 0.035], P(cx, 0.54 - 0.045, SF + 0.045), { ry: swing, rz: Math.atan2(0.72, w - 0.12) * (i % 2 ? 1 : -1), tint: ledge });
+    for (const y of [0.22, 0.94]) k.box('iron', [0.3, 0.035, 0.012], P(x1 - 0.15, y, SF + 0.07), { tint: 0x2a2624, r: 0.006, ry: swing });
+    k.box('iron', [0.08, 0.05, 0.03], P(x0 + 0.06, 0.66, SF + 0.07), { tint: 0x2a2624, r: 0.01, ry: swing });
+    if (swing === 0) {
+      // Plaque board (the animal's name is painted on by the animal system)
+      k.box('iron', [0.04, 0.04, 0.06], [cx - 0.26, 0.4, SF + 0.07], { tint: 0x2a2624, r: 0.01 });
+      k.box('iron', [0.04, 0.04, 0.06], [cx + 0.26, 0.4, SF + 0.07], { tint: 0x2a2624, r: 0.01 });
+    } else {
+      // an open door: the latch hook hangs loose from the post, the farmer can't walk through the leaf
+      k.box('iron', [0.012, 0.12, 0.012], [x0 - 0.02, 0.55, SF + 0.09], { tint: 0x2a2624, r: 0.004, rz: 0.2 });
+      const [ex, , ez] = P(x0, 0, SF);
+      this.solid(Math.min(ex, x1) - 0.05, SF, Math.max(ex, x1) + 0.05, Math.max(ez, SF + 0.1) + 0.05, 'stall-door');
+    }
   }
 
   /** Hay loft on posts along the left wall, bales up top, ladder; stool + pails by the cow stalls. */

@@ -98,9 +98,6 @@ interface Lamp {
 
 const _c = new THREE.Color();
 const _c2 = new THREE.Color();
-const _a = new THREE.Vector3();
-const _b = new THREE.Vector3();
-const _f = new THREE.Vector3();
 
 export abstract class InteriorMap implements GameMap {
   readonly id: string;
@@ -826,7 +823,7 @@ export abstract class InteriorMap implements GameMap {
     L.sunI = day * 5.2 * (1 - overcast * 0.85) * this.dayScale + night * 1.35 * this.moonScale * (1 - overcast * 0.6);
     // Ambient: warm wood bounce by day; at night a cool moonlight fill through the windows so the
     // floor never crushes to black (the lamps then paint warm pools over it).
-    L.hemiSky.setHex(0xf2dcc0).lerp(new THREE.Color(0x8a9ac8), overcast * 0.4).lerp(new THREE.Color(0x6f86c9), night);
+    L.hemiSky.setHex(0xf2dcc0).lerp(new THREE.Color(0x8a9ac8), overcast * 0.4).lerp(new THREE.Color(0x7684b4), night);
     if (this.coolFill > 0) L.hemiSky.lerp(new THREE.Color(0xb4c8ee), this.coolFill * day * (1 - overcast * 0.5));
     L.hemiSky.lerp(_c2.setHex(0xc2d0f2), cool * 0.68);
     L.hemiGround.setHex(0x8a5a36).lerp(new THREE.Color(0x3a2a24), night).lerp(_c2.setHex(0x665a54), cool * 0.5);
@@ -837,7 +834,9 @@ export abstract class InteriorMap implements GameMap {
     L.exposure = (1.0 + night * 0.18 + overcast * 0.1 + this.exposureBoost * day) * (1 + night * 0.42);
     L.bg.setHex(0x1c140e).lerp(new THREE.Color(0x0a0a12), night);
     // Night lift keeps the corners readable (the lamps stay the key, the shadows stay blue-brown).
-    L.lift = [0.025 + night * 0.028, 0.018 + night * 0.02, 0.012 + night * 0.05];
+    // (r24: a warmer night lift — the critic's "night edges fall into cyan-black": the shadow floor is a
+    // dim walnut brown now, the moonlight only a cool fill on top)
+    L.lift = [0.025 + night * 0.036, 0.018 + night * 0.024, 0.012 + night * 0.034];
     L.gain = [1.06 + warm * 0.04 - this.coolFill * day * 0.02 - cool * 0.045, 1.0, 0.93 - warm * 0.03 + night * 0.06 + this.coolFill * day * 0.05 + cool * 0.06];
     L.sat = 1.1 - night * 0.05;
     L.contrast = 1.06 + night * 0.04;
@@ -892,7 +891,8 @@ export abstract class InteriorMap implements GameMap {
     // Window views: bright painted day, deep blue at night.
     const vu = this.viewMat.uniforms;
     vu.uNight!.value = L.night;
-    vu.uDayK!.value = 0.35 + 0.95 * L.day;
+    // (r24: 1.3 -> 1.0 peak — un-tonemapped, the coop's back window bloomed into a blank white slab)
+    vu.uDayK!.value = 0.3 + 0.7 * L.day;
     vu.uInvExp!.value = 1 / Math.max(0.5, L.exposure);
     this.updateDust(dt, t, L);
     for (const u of this.updaters) u(dt, t, L);
@@ -907,19 +907,34 @@ export abstract class InteriorMap implements GameMap {
     this.dust.visible = nb > 0;
     if (!nb) return;
     const s = this.dustSeeds;
-    const bil = (q: THREE.Vector3[], u: number, w: number, out: THREE.Vector3) =>
-      out.copy(q[0]!).lerp(q[1]!, u).lerp(_b.copy(q[3]!).lerp(q[2]!, u), w);
-    for (let i = 0; i < pos.count; i++) {
+    // (r24: scalar maths straight into the attribute array — the closure + Vector3 lerps per mote showed
+    // up as ~7 KB/frame of allocation churn in the interiors' alloc profile)
+    const arr = pos.array as Float32Array;
+    const n = pos.count;
+    for (let i = 0; i < n; i++) {
       const beam = this.dustBeams[i % nb]!;
-      const ph = s[i * 4 + 3]! * 100;
-      const u = 0.1 + 0.8 * (s[i * 4]! + Math.sin(t * 0.13 + ph) * 0.06);
-      const w = 0.1 + 0.8 * (s[i * 4 + 1]! + Math.cos(t * 0.11 + ph) * 0.06);
+      const i4 = i * 4;
+      const s0 = s[i4]!;
+      const ph = s[i4 + 3]! * 100;
+      const u = 0.1 + 0.8 * (s0 + Math.sin(t * 0.13 + ph) * 0.06);
+      const w = 0.1 + 0.8 * (s[i4 + 1]! + Math.cos(t * 0.11 + ph) * 0.06);
       // Motes drift slowly down the beam and wrap.
-      const k = (s[i * 4 + 2]! + t * 0.008 * (0.6 + s[i * 4]!)) % 1;
-      bil(beam.win, u, w, _a);
-      bil(beam.floor, u, w, _f);
-      _a.lerp(_f, 0.05 + k * 0.85);
-      pos.setXYZ(i, _a.x, _a.y + Math.sin(t * 0.7 + ph) * 0.03, _a.z);
+      const k = 0.05 + ((s[i4 + 2]! + t * 0.008 * (0.6 + s0)) % 1) * 0.85;
+      const a = beam.win;
+      const f = beam.floor;
+      const a0 = a[0]!, a1 = a[1]!, a2 = a[2]!, a3 = a[3]!;
+      const f0 = f[0]!, f1 = f[1]!, f2 = f[2]!, f3 = f[3]!;
+      // bilinear: lerp(lerp(q0, q1, u), lerp(q3, q2, u), w)
+      const ax = a0.x + (a1.x - a0.x) * u, ay = a0.y + (a1.y - a0.y) * u, az = a0.z + (a1.z - a0.z) * u;
+      const bx = a3.x + (a2.x - a3.x) * u, by = a3.y + (a2.y - a3.y) * u, bz = a3.z + (a2.z - a3.z) * u;
+      const cx = f0.x + (f1.x - f0.x) * u, cy = f0.y + (f1.y - f0.y) * u, cz = f0.z + (f1.z - f0.z) * u;
+      const dx = f3.x + (f2.x - f3.x) * u, dy = f3.y + (f2.y - f3.y) * u, dz = f3.z + (f2.z - f3.z) * u;
+      const wx = ax + (bx - ax) * w, wy = ay + (by - ay) * w, wz = az + (bz - az) * w;
+      const gx = cx + (dx - cx) * w, gy = cy + (dy - cy) * w, gz = cz + (dz - cz) * w;
+      const j = i * 3;
+      arr[j] = wx + (gx - wx) * k;
+      arr[j + 1] = wy + (gy - wy) * k + Math.sin(t * 0.7 + ph) * 0.03;
+      arr[j + 2] = wz + (gz - wz) * k;
     }
     pos.needsUpdate = true;
     void dt;

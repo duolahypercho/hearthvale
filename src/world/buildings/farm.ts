@@ -16,7 +16,7 @@ import { Rng } from '../../core/rng';
 import { mergeStatic, MeshBuilder, mat, lumpySphere } from '../geom';
 import { buildFence } from '../props/structures';
 import { PondBuilder } from './pond';
-import { buildCoopExterior, buildBarnExterior, buildConstruction, buildCarpenterBoard, buildDoghouse, buildBowl, buildWaterTrough, buildHayRack, buildPigArk, buildHenFeeders, buildPaddockGate, barnLeaf, coopHatch, COOP_SIZE, COOP_RUN, BARN_SIZE, BARN_SILO } from './models';
+import { buildCoopExterior, buildBarnExterior, buildConstruction, buildCarpenterBoard, buildDoghouse, buildBowl, buildWaterTrough, buildHayRack, buildPigArk, buildHenFeeders, buildPaddockGate, buildPaddockFence, barnLeaf, coopHatch, COOP_SIZE, COOP_RUN, BARN_SIZE, BARN_SILO } from './models';
 
 export type BuildingKind = 'coop' | 'barn';
 
@@ -337,7 +337,10 @@ export class FarmBuildings {
       arc.push([p.x0 + R + Math.cos(a) * R, p.z1 - R + Math.sin(a) * R]);
     }
     runs.push([...bowPts(FRONT_GATE[0], p.x0 + R), ...arc, ...pts([p.x0, p.z1 - R], [p.x0, p.z0]).slice(1)]);
-    const fence = buildFence(runs, (fx, fz) => this.h(fx, fz), rng.fork('pasture-fence'));
+    // r24: the paddock's own two-tone split-rail fence (`?pfence=0` = the shared farm fence, A/B)
+    const fence = typeof location !== 'undefined' && new URLSearchParams(location.search).get('pfence') === '0'
+      ? buildFence(runs, (fx, fz) => this.h(fx, fz), rng.fork('pasture-fence'))
+      : buildPaddockFence(runs, (fx, fz) => this.h(fx, fz), rng.fork('pasture-fence'));
     parts.push(fence);
     {
       const gx = (FRONT_GATE[0] + FRONT_GATE[1]) / 2;

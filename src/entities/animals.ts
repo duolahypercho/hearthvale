@@ -1746,6 +1746,21 @@ export class AnimalPops {
       p.vel = new THREE.Vector3(Math.cos(a) * 0.7, 0.8 + Math.random() * 0.5, Math.sin(a) * 0.7);
       p.sprite.scale.setScalar(0.1 + Math.random() * 0.06);
     }
+    // r24 (critic: "the same oversized heart/banner language for every species"): a species accent on
+    // the contact — a couple of feathers shaken loose off a bird, a wisp of fleece off a sheep — so the pat
+    // lands on that animal's body, not just as a sticker over it.
+    const sp = actor?.species;
+    if (sp === 'chicken' || sp === 'duck' || sp === 'sheep') {
+      const wool = sp === 'sheep';
+      for (let i = 0; i < (wool ? 4 : 3); i++) {
+        const a = away + Math.PI + (Math.random() - 0.5) * 2.2;
+        const p = this.spawn('fluff', at.clone().add(_cp2.set(Math.cos(a) * 0.12, -0.12 - Math.random() * 0.1, Math.sin(a) * 0.12)), null, wool ? 0.9 + Math.random() * 0.4 : 1.1 + Math.random() * 0.5);
+        p.delay = 0.06 + i * 0.05;
+        p.vel = new THREE.Vector3(Math.cos(a) * 0.45, wool ? 0.35 + Math.random() * 0.3 : 0.55 + Math.random() * 0.35, Math.sin(a) * 0.45);
+        p.sprite.visible = false;
+        p.size = wool ? 0.07 + Math.random() * 0.04 : 0.045 + Math.random() * 0.025;
+      }
+    }
     // (r10: a repeat pat while the animal's card is still up keeps that card — a fresh card popping in
     // over the fading one showed two overlapping name cards)
     const live = tag && actor ? this.pops.find((q) => q.kind === 'tag' && q.actor === actor && q.t < q.life - 0.35 && q.tagKey === `${tag.name}|${tag.hearts}`) : undefined;
@@ -1758,7 +1773,7 @@ export class AnimalPops {
       // silhouettes; it reads as a quick tag on the pat, not a sign)
       const p = this.spawn('tag', actor ? new THREE.Vector3(0, 0, 0) : at.clone(), m, 1.45);
       p.actor = actor;
-      p.px = 36 / 1080;
+      p.px = 33 / 1080;
       p.aspect = nt.aspect;
       p.tagKey = `${tag.name}|${tag.hearts}`;
     }
@@ -2002,7 +2017,8 @@ export class AnimalPops {
 
 /** Heart pop size (fraction of the view height). */
 // (r20: 52 -> 46 px — the critic still found the heart + card dominating the animals they belong to)
-const HEART_PX = 46 / 1080;
+// (r24: 46 -> 40 px — restrained world-space feedback; the critic still saw it dominating the animals)
+const HEART_PX = 40 / 1080;
 const POP_CAP = 64;
 const _popM = new THREE.Matrix4();
 

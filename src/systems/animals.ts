@@ -1243,8 +1243,9 @@ export class AnimalSystem implements System, AnimalsApi {
           // name + a heart meter stay legible at gameplay zoom.
           const hearts = Math.round(a.friendship / 100) / 2;
           const m = new THREE.Mesh(plaqueGeo(), nameMaterial(`${a.name}\n${hearts}`, 'plaque'));
-          m.position.set(at.x, at.y, at.z + 0.1);
-          m.rotation.x = -0.5;
+          // (r24: hung by hand — each sign a little askew / off-centre, not six identical labels in a row)
+          m.position.set(at.x + [0.02, -0.04, 0.0, 0.05, -0.02, 0.03][i % 6]!, at.y + [0.0, 0.02, -0.01, 0.015, 0.0, -0.015][i % 6]!, at.z + 0.1);
+          m.rotation.set(-0.5, 0, [0.05, -0.07, 0.02, 0.09, -0.04, 0.06][i % 6]!, 'XYZ');
           m.castShadow = true;
           m.userData.noAO = true;
           this.props.add(m);

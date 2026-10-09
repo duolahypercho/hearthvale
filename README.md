@@ -1799,6 +1799,28 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   on the stall pegs (single tori read as floating donuts). Perf (contended, load 200-300): house 59.6 fps /
   night 58.8 / coop 60 / barn 60 / pasture 60 / petting 60, p95 16.7-16.8 ms, 126-225 draws, 0.28-1.0 M tris.
   Shots: `shots/animals-r23/` (`base-*` before, `v3/` + `v2/` after).
+- r24 (round 10 relay of the r9 critic + blind judge): *Pasture* — the paddock's own two-tone split-rail fence
+  (`buildPaddockFence`: hewn seven-sided posts a value darker than the grass, pale sun-silvered rails a value lighter,
+  sagging half-rails, the odd fresher replacement, contact AO + an uncropped grass tuft at every post foot; the
+  five-bar gate matches; `?pfence=0` = the shared farm fence for A/B); the barn roof a full value lighter (weathered
+  slate with lighter / darker shingle courses — the judge's "black roof is heavy"); the silo 5.2 -> 4.6 m; the duck pond mirrors
+  its far grassy bank as a soft green-dark band along the rim ("the pond is a bit flat"); the
+  barn's wall shell now leaves the big doorway open (the r15 vestibule sat inside one solid box: the open leaf
+  showed more red boards) — a dim straw-floored way in with a lit lantern hanging inside; `animals-pasture` lens
+  re-framed (pitch 52, 24 m) so the barn's cupola + the silo dome sit whole in frame, farmer + goat a step north
+  clear of the hotbar. *Coats* — a soft albedo ceiling on coat parts (whites no longer clip; eyes / catchlights
+  keep their white), colour cavities that follow the relief (wool darkens between its curls, feathers at each
+  scale row's tucked edge) and per-coat roughness (wool 0.97 matte, hair 0.88, feathers 0.74, pig skin 0.64).
+  *Feedback* — heart 46 -> 40 px, name card 36 -> 33 px; a pat shakes a couple of feathers off a bird / a wisp of
+  fleece off a sheep. *Barn* — half-doors each their own (sage, bare oak, faded red), Poppy's + Truffle's stand
+  swung open on their hinges (solid leaf, plaque moved to the manger skirt), hand-hung plaques askew, greyer wall
+  boards + a cooler daylight fill against the lantern pools. *Interiors* — window views 1.3 -> 1.0 peak (the coop's
+  back window was a blank white slab), a warmer night lift + less saturated moon fill (no cyan-black edges), the
+  moon's indoor shadow 20 -> 8 % (the farmer's long wedge across the night floor), grandmother's portrait
+  0.46 x 0.86 -> 0.54 x 0.98 m, dust motes updated with scalar maths (~7 KB/frame less churn). Co-op matrix
+  `scripts/animals-coop-test.mjs` 25/25. Perf (2560x1440 high, contended load 40-105): house 144 fps p99 14.4 ms /
+  night 141 / 13.4 · coop 187 / 7.7 · barn 149 / 10.9 · pasture 109 / 12.2 · chores 150 / 9.7 · co-op pasture 99.5 /
+  24.0, 125-223 draws, 0.28-1.06 M tris. Shots: `shots/animals-r24/` (`base/` before, `final/` after).
 
 ## Co-op multiplayer (1–4 farmers)
 

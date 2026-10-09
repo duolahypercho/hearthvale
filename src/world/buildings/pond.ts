@@ -186,6 +186,16 @@ function pondMaterial(): THREE.ShaderMaterial {
           c = mix(lit, sky * 0.9, fres);
           // Bank shade: the rim's own dark reflection, a smooth band (no noise).
           c *= 1.0 - 0.22 * smoothstep(0.32, 0.1, d) * smoothstep(0.0, 0.08, d);
+          // r24 (the judge: "the pond with its ripple rings is a bit flat"): the far bank's reflection —
+          // on the side of the basin away from the lens (depth falls towards the top of the screen) the
+          // grassy bank mirrors in as a soft green-dark band hugging the rim, the near side keeps the sky.
+          {
+            float gy = dFdy(d);
+            float sgn = gy / (abs(dFdx(d)) + abs(gy) + 1e-5);
+            float far = smoothstep(0.1, 0.75, -sgn);
+            float band = smoothstep(0.55, 0.14, d) * smoothstep(0.02, 0.1, d);
+            c = mix(c, c * vec3(0.62, 0.8, 0.58) + vec3(0.0, 0.025, 0.0), far * band * 0.7 * (1.0 - uNight * 0.6));
+          }
           // Wind sparkle: sparse soft glints drifting across the open water (sunny days only).
           // (tiny twinkles on a jittered cell grid, each fading in and out on its own clock — big noise
           // blobs read as white paint spills)

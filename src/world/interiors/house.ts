@@ -1073,9 +1073,10 @@ export class HouseInterior extends InteriorMap {
     // The portrait: large, in a thick carved gilt frame with an inner dark slip.
     // (the atlas cell is 1:2 — a tall portrait, not stretched; a cream mat round it so it reads as a framed
     // photograph from the high camera, the frame a matte gold that holds its colour in the dim corner)
-    const pw = 0.46;
-    const ph = 0.86;
-    const py = 1.14;
+    // (r24: 0.46 x 0.86 -> 0.54 x 0.98: the critic's "photographs too small to carry emotional weight")
+    const pw = 0.54;
+    const ph = 0.98;
+    const py = 1.08;
     const pz = 0.02;
     k.add('paint', roundedBox(pw + 0.3, ph + 0.3, 0.06, 0.025, 2), mat(x, py + ph / 2, pz + 0.03), { tint: 0xd8aa50 });
     k.add('paint', roundedBox(pw + 0.2, ph + 0.2, 0.012, 0.004), mat(x, py + ph / 2, pz + 0.064), { tint: 0x8a5a2a });

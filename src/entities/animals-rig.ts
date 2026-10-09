@@ -136,7 +136,35 @@ export function animalMaterial(): THREE.MeshStandardMaterial {
             float coat = (1.0 - step(0.965, mn)) * smoothstep(0.06, 0.16, mx);
             // (pale coats get a whisper of it: at full strength it read as grime specks on white cows / fleece)
             diffuseColor.rgb *= 1.0 + fv * mix(0.045, 0.022, smoothstep(0.55, 0.85, mx)) * fa * coat;
+          }
+          if (vCoat > 0.5) {
+            // r24 (critic: "sheep and bird whites clip, coats read as smooth plastic"): a soft albedo
+            // ceiling on coat parts (catchlights / eyes are coat 0 and keep their white), plus colour
+            // cavities that follow the relief — wool darkens down between its curls, feathers at each
+            // scale row's tucked edge — so fleece and plumage read as fibre, not a lit white shell.
+            vec3 q = vRest;
+            float mxc = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
+            diffuseColor.rgb *= 1.0 - 0.11 * smoothstep(0.72, 1.0, mxc);
+            if (vCoat > 1.5 && vCoat < 2.5) {
+              float a = hvNoise3(q * 24.0, 1.0);
+              float b = hvNoise3(q * 52.0 + 3.0, 2.0);
+              float hc = abs(a) * 0.55 + abs(b) * 0.3;
+              float fc = 1.0 - smoothstep(0.4, 1.1, fwidth(hc) * 3.0);
+              diffuseColor.rgb *= mix(1.0, mix(0.8, 1.0, smoothstep(0.04, 0.42, hc)), fc);
+            } else if (vCoat > 2.5 && vCoat < 3.5) {
+              float row = q.z * 15.0 - q.y * 7.0 + hvNoise3(q * 5.0, 5.0) * 0.3;
+              float fr = fract(row);
+              float fc = 1.0 - smoothstep(0.3, 0.9, fwidth(row));
+              diffuseColor.rgb *= mix(1.0, mix(0.9, 1.0, smoothstep(0.0, 0.35, fr)), fc);
+            }
           }`,
+        )
+        // r24: species-specific sheen — dry wool fully matte, hair matte-velvet, feathers a little satin,
+        // pig skin a soft sheen (one roughness for everything read as one plastic).
+        .replace(
+          '#include <roughnessmap_fragment>',
+          `#include <roughnessmap_fragment>
+          if (vCoat > 0.5) roughnessFactor = vCoat < 1.5 ? 0.88 : vCoat < 2.5 ? 0.97 : vCoat < 3.5 ? 0.74 : 0.64;`,
         )
         .replace(
           '#include <emissivemap_fragment>',
