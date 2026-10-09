@@ -54,7 +54,7 @@ import {
 } from '../data/crops';
 import { itemDef } from '../data/items';
 import { SoilBeds, SOIL_HEIGHT, SOIL_LIFT } from '../world/props/soil';
-import { CropVisuals, produceGeometry, cropTriangleStats, buildProduceCrate, type CropHandle, type GiantKind } from '../world/props/crops';
+import { CropVisuals, produceGeometry, cropTriangleStats, buildProduceCrate, buildRowMarkers, type CropHandle, type GiantKind } from '../world/props/crops';
 import { FarmFX } from '../world/props/farmfx';
 import { TileCursor, type CursorState } from '../world/props/tilecursor';
 import { CrowFlock } from '../world/props/crows';
@@ -2668,6 +2668,27 @@ export class FarmingSystem implements System, FarmingApi {
       const edging = buildBedEdging(beds, (x, z) => map.heightAt(x, z), 7);
       map.root.add(edging);
       this.stageProps.push(edging);
+      // (r24) A row marker (stake + sign + a sample of the crop) at the walkway end of each family
+      // block: the bed's crops read from the path, and the frame gets small hand-made props.
+      const spots: { id: CropId; x: number; y: number; z: number; rot: number }[] = [];
+      for (const bed of beds) {
+        const west = bed.x1 < walk;
+        const seen = new Set<CropId>();
+        for (let z = bed.z0; z <= bed.z1; z++) {
+          const row = plan.rows[z - Z0];
+          const cell = Array.isArray(row) ? row[west ? 0 : 1] : row;
+          if (!cell || cell === 'gap' || seen.has(cell)) continue;
+          seen.add(cell);
+          const mx = west ? walk + 0.16 : walk + 0.84;
+          const mz = z + 0.5;
+          spots.push({ id: cell, x: mx, y: map.heightAt(mx, mz), z: mz, rot: (west ? -0.25 : 0.25) });
+        }
+      }
+      if (spots.length) {
+        const markers = buildRowMarkers(spots, 3);
+        map.root.add(markers);
+        this.stageProps.push(markers);
+      }
     }
     if (plan.crate.length) {
       this.stageProp(buildProduceCrate(plan.crate, 11, 'crate'), walk + 0.5, Z1 + 1.35, 0.25);
