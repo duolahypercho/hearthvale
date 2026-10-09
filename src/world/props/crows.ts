@@ -43,6 +43,8 @@ interface Crow {
   shadow: THREE.Mesh;
   /** Length of the current hop → look → peck cycle (s). */
   cycle: number;
+  /** (r30) A flutter-hop on the plant: wings spread, tail cocked (one bird in a staged raid). */
+  display: boolean;
 }
 
 let crowMat: THREE.MeshStandardMaterial | null = null;
@@ -300,7 +302,8 @@ export class CrowFlock {
         // Closed wings: thin curved shells hugging the flanks, primaries meeting over the tail.
         for (const sd of [-1, 1]) b.add(M, wingShell(sd), mat(0, 0.21, 0, -0.52, 0, 0));
         // Tail: a rounded, bevelled fan angled down behind the body (the crow's tell-tale tail).
-        b.add(M, tailFan(), mat(0, 0.135, -0.13, -0.85, 0, 0));
+        // (r30) Cocked up a little (r10 critic: no tail silhouette — it lay flat on the soil).
+        b.add(M, tailFan(), mat(0, 0.15, -0.135, -0.5, 0, 0, 1.15, 1, 1.2));
         // Legs: feathered thighs, then long scaly shanks + spread toes (three forward, one back), a
         // warm grey so they read against dark soil.
         for (const sd of [-1, 1]) {
@@ -321,14 +324,16 @@ export class CrowFlock {
         // Heavy crow bill: horn-grey (lighter than the plumage so it reads at gameplay zoom), a deep
         // curved upper mandible over a thinner lower one, bristles at the base.
         // A heavy black bill (a grey one read as a toy's).
-        b.add(M, billGeo(0.03, 0.12, 0.1), mat(0, 0.016, 0.07, 0, 0, 0), { tint: 0x3a3a40 });
-        b.add(M, billGeo(0.02, 0.09, -0.05), mat(0, -0.004, 0.07, 0.1, 0, 0), { tint: 0x26262a });
+        // (r30) A pale horn bill (r10 critic: no readable beak against the dark head at gameplay zoom).
+        b.add(M, billGeo(0.032, 0.13, 0.1), mat(0, 0.016, 0.07, 0, 0, 0), { tint: 0xb4aa98 });
+        b.add(M, billGeo(0.021, 0.095, -0.05), mat(0, -0.004, 0.07, 0.1, 0, 0), { tint: 0x8a8274 });
         b.add(M, new THREE.SphereGeometry(0.03, 8, 6), mat(0, 0.02, 0.07, 0, 0, 0, 1, 0.9, 0.7), { tint: 0x2a2e3c });
         for (const sd of [-1, 1]) {
           // Dark eye in a slate ring with a hard white glint (reads at gameplay zoom).
-          b.add(M, new THREE.SphereGeometry(0.017, 10, 8), mat(sd * 0.044, 0.036, 0.048), { tint: 0x2a2e38 });
-          b.add(M, new THREE.SphereGeometry(0.0145, 10, 8), mat(sd * 0.048, 0.037, 0.05), { tint: 0x050507 });
-          b.add(M, new THREE.SphereGeometry(0.0075, 6, 4), mat(sd * 0.058, 0.045, 0.058), { tint: 0xffffff });
+          // (r30) A bigger, brighter glint + a pale lid ring: the eye reads at gameplay zoom.
+          b.add(M, new THREE.SphereGeometry(0.02, 10, 8), mat(sd * 0.043, 0.036, 0.048), { tint: 0x6a6e78 });
+          b.add(M, new THREE.SphereGeometry(0.0165, 10, 8), mat(sd * 0.048, 0.037, 0.05), { tint: 0x050507 });
+          b.add(M, new THREE.SphereGeometry(0.0095, 6, 4), mat(sd * 0.06, 0.046, 0.058), { tint: 0xffffff });
         }
       }, 'crow-head'),
     );
@@ -388,7 +393,7 @@ export class CrowFlock {
    * `opts.eatAt`). `opts.landed` starts it already on the ground mid-raid (demos); `opts.stay`
    * keeps it pecking until the farmer scares it; `opts.onPeck` fires on every peck.
    */
-  spawn(x: number, z: number, onEat: () => void, delay = 0, opts: { landed?: boolean; stay?: boolean; eatAt?: number; onPeck?: (p: THREE.Vector3) => void; scale?: number; side?: number } = {}): void {
+  spawn(x: number, z: number, onEat: () => void, delay = 0, opts: { landed?: boolean; stay?: boolean; eatAt?: number; onPeck?: (p: THREE.Vector3) => void; scale?: number; side?: number; display?: boolean } = {}): void {
     if (this.crows.length >= 5) return;
     const parts = this.build();
     const a = this.rng.next() * Math.PI - Math.PI;
@@ -416,6 +421,7 @@ export class CrowFlock {
       bob: this.rng.next() * 6,
       face: Math.atan2(x - lx, z - lz),
       cycle: 0.8,
+      display: !!opts.display,
     };
     crow.root.position.copy(from);
     if (opts.landed) {
@@ -426,7 +432,8 @@ export class CrowFlock {
       crow.root.rotation.y = crow.face;
     }
     // ~0.25 m body: a real crow beside a knee-high plant (the old 1.5× read as head-sized).
-    crow.root.scale.setScalar(opts.scale ?? 0.92);
+    // (r30) 0.62 (r10 critic: each crow was ~half a tile, as big as a pepper plant).
+    crow.root.scale.setScalar(opts.scale ?? 0.62);
     crow.root.visible = delay <= 0;
     this.group.add(crow.root);
     this.crows.push(crow);
@@ -558,6 +565,23 @@ export class CrowFlock {
         this.showWings(c, false);
         c.folded.visible = flick > 0.08;
         c.folded.scale.set(1 + flick * 0.25, 1 + flick * 0.25, 1);
+        if (c.display) {
+          // (r30) Flutter-hop: up off the soil with both wings spread wide and the tail cocked, the
+          // body pitched chest-up (the raid's action beat; the others stay heads-down tearing).
+          const fl = Math.sin(c.flap * 13);
+          this.showWings(c, true);
+          c.wingL.rotation.y = 0;
+          c.wingR.rotation.y = 0;
+          c.wingL.scale.set(1.15, 1, 1.15);
+          c.wingR.scale.set(1.15, 1, 1.15);
+          c.wingL.rotation.z = -(0.55 + 0.35 * fl);
+          c.wingR.rotation.z = 0.55 + 0.35 * fl;
+          c.body.rotation.x = -0.22;
+          c.body.scale.set(1, 1.04, 1);
+          c.head.position.set(0, HEAD_Y + 0.01, HEAD_Z);
+          c.head.rotation.set(-0.15, 0, 0);
+          root.position.y = c.to.y + 0.12 + 0.03 * Math.sin(c.flap * 6.5);
+        }
         if ((c.pecks >= 6 && !c.stay) || near(root.position, 2.6)) {
           c.state = 'out';
           c.t = 0;

@@ -1406,6 +1406,30 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   pour); `farm-water` lens 8.3 m, yaw −34 (face + can + arc + tile in frame, no cropped hat on the lift).
   *Sprinklers* — the per-jet veil is broken into travelling slugs of water (impact-head pressure pulses) with clear
   gaps, so a jet never reads as one continuous glass wire.
+- **r30 polish** (r10 critic 7.4 — contact, impact juice, water, blueberries, crows): *Hands on the tool* — two-hand
+  swings solve the tool FIRST (pose + blade-tip IK in an unstretched arm frame, so the cartoon reach never shears the
+  hoe), then IK BOTH arms onto grip sockets on the shaft (top hand on the butt at y −0.2, lead hand ~40 % down at
+  +0.2) and pin the tool back to its solved world transform under the re-aimed arm (`FarmerActions.solveTool` /
+  `gripSolve`, raw `matrix` while posed); farmhands get it too (same class). *Big produce* — `FarmerActions.hug`
+  (held half-width) IKs both palms onto the rind's flanks, seated a touch low and forward, and the produce rides
+  `hugCenter()` against the bib (host + staged farmhand). *Swing* — body yaw locked (no hip / chest twist through the
+  swing), a front lens winds up over the FAR shoulder (`cameraAhead`) with the shaft rolled out so the blade clears
+  the hat, chin-up impact; `farm-tools` lensed 3/4 front-side (yaw −46, pitch 26, 8.7 m) — face and blade both read.
+  *Impact* — 4 tumbling big chunks + 14-18 clods in three classes that bounce once, a dry-soil dust bloom (lighter
+  than the bed, ~0.4 s), a spill lip of crumbs that rolls over the tile rim and stays ~4 s, a double shock ring,
+  hit-stop 65 ms, camera kick 0.34. *Water* — the can's glass rope ~2× (10 → 5 cm), denser with a blue rim, beads
+  ~1.7× breaking off along the whole arc, splash crown ~2× with four bounce drops; sprinkler rope drops ~1.7× with a
+  bright highlight + blue rim, sparser shed spray, wider landing mist rings, a firmer veil. *Harvest pop* — the
+  ground plant is gone within ~2 frames of the yank (no double parsnip); the toolbar icon flies at 104 px with two
+  ghost trails, stretches on the drop and squashes into the slot. *Hat* — no 85 % shrink while working (the hair
+  poked through the brim and read as a see-through hat). *Blueberry* — 3-4 overlapping top-lit leaf clumps (no
+  spiral crown seam), leaves laid along the surface, ripe fruit = 5-8 dusty-blue berries a cluster with a dark crown
+  dimple, hung off the upper flanks; the hero bed is staged ~all ripe. *Crows* — 0.62 (staged 0.66) of the old size,
+  pale horn bill, bigger eye glint + lid ring, cocked tail; one staged bird flutter-hops with its wings spread
+  (`display`); torn leaf litter round the chewed stub; `farm-crows` shows the scarecrow reach by default (`&ring=0`
+  hides it). *Litter* — fallen leaves are veined maple / oval-on-stalk atlas cards (alpha-cut, two-tone, sunk a few
+  mm), not orange chips. *Withered* — every dead plant gets a ~0.3 m stalk that flops over with curled leaves (husks
+  read at the gameplay lens). *Cursor* — the neutral held-tool bracket is firmer (0.7).
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,

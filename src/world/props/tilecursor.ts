@@ -161,7 +161,8 @@ const COLORS: Record<CursorState, THREE.Color> = {
   neutral: new THREE.Color(0xdfe6ee),
   hover: new THREE.Color(0xf4ead2),
 };
-const ALPHA: Record<CursorState, number> = { valid: 0.8, blocked: 0.9, charge: 0.85, neutral: 0.5, hover: 0.28 };
+// (r30) Neutral (a held tool's resting target) a little firmer: it read as nothing at the gameplay lens.
+const ALPHA: Record<CursorState, number> = { valid: 0.85, blocked: 0.9, charge: 0.85, neutral: 0.7, hover: 0.32 };
 
 export class TileCursor {
   /** (r25) Charged-area wash multiplier: the slam turns it off for good (per-tile quads at different

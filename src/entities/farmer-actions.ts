@@ -56,14 +56,16 @@ const TRACKS: Record<ActionKind, Key[]> = {
   // The wind-up swings the tool up over the shoulder on the camera side (see FarmerActions.side),
   // torso twisted and leaning back, so the tool head clears the hat silhouette at the top.
   chop: [
+    // (r30) Body yaw LOCKED through the whole swing (no hip / chest twist): r10 critic saw the farmer
+    // turn ~90° between the crouch and the raise, reading as a facing snap rather than a wind-up.
     { t: 0 },
     // (r22) Gather: a deep crouch — knees give, hips sit back and coil a touch toward the tile, both
     // hands low on the handle with the blade drawn back along the ground toward the boots.
     // (r27) Deeper and HELD (two frames): the r10 critic found the anticipation frames interchangeable
     // and the legs passive — the knees load, the pelvis coils away from the tile (hips twist with the
     // chest counter-turned so it stays on the work), the rear foot plants.
-    { t: 0.1, ease: 'out', aR: [-0.5, -0.1], aL: [-0.44, 0.12], torso: [0.32, 0.02, 0.05], head: -0.3, sy: 0.74, bob: -0.04, hips: [0.22, 0.3], stance: 0.42, tool: [Math.PI / 2 + 0.24, 0, 0] },
-    { t: 0.13, ease: 'linear', aR: [-0.56, -0.1], aL: [-0.5, 0.12], torso: [0.3, 0.0, 0.05], head: -0.3, sy: 0.73, bob: -0.042, hips: [0.2, 0.34], stance: 0.44, tool: [Math.PI / 2 + 0.3, 0, 0] },
+    { t: 0.1, ease: 'out', aR: [-0.5, -0.1], aL: [-0.44, 0.12], torso: [0.32, 0, 0.05], head: -0.3, sy: 0.74, bob: -0.04, hips: [0.22, 0], stance: 0.42, tool: [Math.PI / 2 + 0.24, 0, 0] },
+    { t: 0.13, ease: 'linear', aR: [-0.56, -0.1], aL: [-0.5, 0.12], torso: [0.3, 0, 0.05], head: -0.3, sy: 0.73, bob: -0.042, hips: [0.2, 0], stance: 0.44, tool: [Math.PI / 2 + 0.3, 0, 0] },
     // (r22) Rising (r9 critic: "wind-up lacks bodily commitment"): an overhead heave out of the
     // crouch — the body arches back and stretches tall in a wide split stance (rear foot planted),
     // both fists climb past the hat brim on the camera side and the shaft lays back over the
@@ -76,7 +78,7 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // hoe a flagpole behind the head): a cartoon STRETCH — the arms rubber-hose up (reach 1.75 → 2.0) so
     // both fists clear the hat crown and the whole shaft rides above the head, blade cocked high behind,
     // the face open underneath; the downswing snaps the arms back to length (squash on the bite).
-    { t: 0.17, ease: 'out', aR: [-2.45, -0.3], aL: [-2.35, -0.12], torso: [-0.1, -0.12, -0.04], head: 0.02, sy: 1.1, hips: [-0.06, 0.2], stance: 0.56, grip: 0.2, reach: 1.75, toolT: [-0.55, 0, 0.3] },
+    { t: 0.17, ease: 'out', aR: [-2.45, -0.3], aL: [-2.35, -0.12], torso: [-0.1, 0, -0.04], head: 0.02, sy: 1.1, hips: [-0.06, 0], stance: 0.56, grip: 0.2, reach: 1.75, toolT: [-0.55, 0, 0.5] },
     // Top: the held beat before the blow — arched back, fists high over the head, the hoe laid back
     // ~45° in the torso (≈ 65° from plumb once the back arch adds its lean) so the blade stands HIGH
     // above and behind the hat, chin up (exertion). (r24: at 79° + the arch the shaft lay flat behind
@@ -86,25 +88,28 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // (A light arch only: a deep one turned the face up into a high lens, reading as a turn to camera.)
     // (r27) The pelvis stays coiled at the top (hips 0.22 back, chest counter-turned onto the tile), so
     // the downswing is a visible unwinding from the legs up rather than arms alone.
-    { t: 0.205, ease: 'out', aR: [-2.62, -0.3], aL: [-2.52, -0.12], torso: [-0.14, -0.12, -0.05], head: 0.04, sy: 1.14, hips: [-0.1, 0.22], stance: 0.64, grip: 0.24, reach: 2.0, toolT: [-0.72, 0, 0.32] },
+    // (r30) The shaft leans out over the wind-up shoulder (roll 0.58) so the blade clears the hat's
+    // silhouette from a 3/4-front lens too (it hid behind the crown).
+    { t: 0.205, ease: 'out', aR: [-2.62, -0.3], aL: [-2.52, -0.12], torso: [-0.14, 0, -0.05], head: 0.04, sy: 1.14, hips: [-0.1, 0], stance: 0.64, grip: 0.24, reach: 2.0, toolT: [-0.72, 0, 0.58] },
     // Downswing (two readable frames, ~70 ms): the hips fire first, the body jack-knifes forward, the
     // arms whip down; the blade sweeps over OUT FRONT of the face (shaft ~50° forward, never across it).
-    { t: 0.24, ease: 'in', aR: [-2.05, -0.3], aL: [-1.95, -0.42], torso: [0.1, 0.0, -0.08], head: -0.2, sy: 1.02, hips: [0.08, -0.08], stance: 0.56, grip: 0.06, reach: 1.24, toolT: [0.85, 0, 0.35] },
-    { t: 0.258, ease: 'in', aR: [-1.25, -0.2], aL: [-1.12, -0.12], torso: [0.32, -0.04, -0.02], head: -0.36, sy: 0.86, hips: [0.12, -0.02], stance: 0.56, grip: 0.04, reach: 1.24, toolT: [1.45, 0, 0.14] },
+    { t: 0.24, ease: 'in', aR: [-2.05, -0.3], aL: [-1.95, -0.42], torso: [0.1, 0, -0.08], head: -0.2, sy: 1.02, hips: [0.08, 0], stance: 0.56, grip: 0.06, reach: 1.24, toolT: [0.85, 0, 0.35] },
+    { t: 0.258, ease: 'in', aR: [-1.25, -0.2], aL: [-1.12, -0.12], torso: [0.28, 0, -0.02], head: -0.46, sy: 0.86, hips: [0.12, 0], stance: 0.56, grip: 0.04, reach: 1.24, toolT: [1.45, 0, 0.14] },
     // Impact: the torso whips over, knees drop into a lunge, the body squashes hard; the blade bites
     // below the surface (blade-tip IK, see `aim`).
-    { t: 0.275, ease: 'in', aR: [-0.42, -0.05], aL: [-0.3, 0.05], torso: [0.38, -0.02, 0], head: -0.4, sy: 0.76, bob: -0.02, hips: [0.12, 0.08], stance: 0.56, tool: [Math.PI / 2 - 0.15, 0, 0] },
+    // (r30) Less forward pitch, chin further up: from the 3/4-front lens the hat brim hid the face on the hit.
+    { t: 0.275, ease: 'in', aR: [-0.42, -0.05], aL: [-0.3, 0.05], torso: [0.3, 0, 0], head: -0.58, sy: 0.76, bob: -0.02, hips: [0.12, 0], stance: 0.56, tool: [Math.PI / 2 - 0.15, 0, 0] },
     // Bite: held two frames in the ground, the body still sinking into it (exertion). (r22) The head
     // stays tipped back against the body's lean (negative = chin up) so the face never hides under the hat.
-    { t: 0.32, ease: 'linear', aR: [-0.38, -0.05], aL: [-0.27, 0.05], torso: [0.4, 0.02, 0], head: -0.4, sy: 0.77, bob: -0.02, hips: [0.13, 0.08], stance: 0.56, tool: [Math.PI / 2 - 0.12, 0, 0] },
+    { t: 0.32, ease: 'linear', aR: [-0.38, -0.05], aL: [-0.27, 0.05], torso: [0.32, 0, 0], head: -0.56, sy: 0.77, bob: -0.02, hips: [0.13, 0], stance: 0.56, tool: [Math.PI / 2 - 0.12, 0, 0] },
     // Recoil: the hoe is ripped back toward the boots (blade LOW, in front of the shins — never up
     // by the face), the body springs up past rest and rocks back.
     // (r27) A stronger recoil: the body springs up well past rest (stretch 1.16) and rocks back, the
     // blade kept pointing down at the shins (r26 flipped it blade-up in front of the knees mid-release).
-    { t: 0.42, ease: 'out', aR: [-0.44, -0.08], aL: [-0.34, 0.06], torso: [-0.12, 0.08, 0.02], head: 0.1, sy: 1.16, bob: 0.03, hips: [-0.08, 0.04], stance: 0.24, tool: [Math.PI / 2 + 0.22, 0, 0] },
+    { t: 0.42, ease: 'out', aR: [-0.44, -0.08], aL: [-0.34, 0.06], torso: [-0.12, 0, 0.02], head: 0.1, sy: 1.16, bob: 0.03, hips: [-0.08, 0], stance: 0.24, tool: [Math.PI / 2 + 0.22, 0, 0] },
     // (r20) Recovery to a blade-down rest: the hoe settles with its blade on the ground in front of
     // the boots (never a shaft carried across the hips).
-    { t: 0.54, ease: 'inout', aR: [-0.5, -0.08], aL: [-0.36, 0.08], torso: [0.1, 0.04, 0], head: -0.06, sy: 0.99, hips: [0.02, 0.02], stance: 0.1, tool: [Math.PI / 2 + 0.05, 0, 0] },
+    { t: 0.54, ease: 'inout', aR: [-0.5, -0.08], aL: [-0.36, 0.08], torso: [0.1, 0, 0], head: -0.06, sy: 0.99, hips: [0.02, 0], stance: 0.1, tool: [Math.PI / 2 + 0.05, 0, 0] },
     { t: 0.68, ease: 'inout' },
   ],
   // Released from the charge hold: it starts up beside the hat (same as the charge pose, no pop
@@ -260,6 +265,15 @@ const _aT = new THREE.Vector3();
 const _aB = new THREE.Vector3();
 const _hT = new THREE.Vector3();
 const _DOWN = new THREE.Vector3(0, -1, 0);
+const _W = new THREE.Matrix4();
+const _M = new THREE.Matrix4();
+const _gp = new THREE.Vector3();
+/**
+ * (r30) Grip sockets on a two-hand tool's shaft (tool-local Y; the shaft runs from the knob at -0.28
+ * to the head at ~0.72): the top hand closes on the butt, the lead hand ~40 % down the shaft.
+ */
+const GRIP_TOP = -0.2;
+const GRIP_LEAD = 0.2;
 
 export interface ActionOpts {
   tool?: THREE.Object3D | null;
@@ -306,6 +320,12 @@ export class FarmerActions {
   private hatK = 1;
   /** The can is carried in the LEFT hand (a pour on the camera's left side): arms swap roles. */
   private leftHand = false;
+  /**
+   * (r30) Radius (world m) of the produce hugged by a 'lift' (set by the farming system once the
+   * held size is known): both palms are IK'd onto its flanks, seated a few cm into the rind
+   * (r10 critic: the melon floated in front of the belly, the hands beside it).
+   */
+  hug: number | null = null;
 
   constructor(private player: Player) {
     this.rig = player.rig;
@@ -375,6 +395,7 @@ export class FarmerActions {
       prev = p;
     }
     this.charging = null;
+    if (kind !== 'lift') this.hug = null;
     // The can goes in the camera-side hand (never carried behind the body, never crossing it).
     this.setHand((kind === 'pour' || kind === 'refill') && this.side < 0);
     this.cur = { kind, t: 0, keys, times: track, opts, fired: false, dur: track[track.length - 1]!.t };
@@ -406,6 +427,7 @@ export class FarmerActions {
     this.charging = null;
     this.player.busy = false;
     this.rig.tool.visible = false;
+    this.rig.tool.matrixAutoUpdate = true;
   }
 
   /** World position of a point in the held tool's local space (e.g. the can spout). */
@@ -427,14 +449,16 @@ export class FarmerActions {
     const pts = locals.map(() => new THREE.Vector3());
     for (const t of times) {
       a.t = t;
-      this.apply(this.rig, this.sample(a));
-      this.aimTool(a, t);
+      const sp = this.sample(a);
+      this.apply(this.rig, sp);
+      this.solveTool(a, sp);
       locals.forEach((l, i) => this.toolPoint(l, pts[i]));
       each(pts);
     }
     a.t = now;
-    this.apply(this.rig, this.sample(a));
-    this.aimTool(a, now);
+    const sp = this.sample(a);
+    this.apply(this.rig, sp);
+    this.solveTool(a, sp);
   }
 
   /** World direction of a tool-local axis. */
@@ -462,6 +486,8 @@ export class FarmerActions {
       L.x = lerp(L.x, p.aL[0], w);
       L.z = lerp(L.z, mz(p.aL[1], REST.aL[1]), w);
     }
+    R.y = lerp(R.y, 0, w);
+    L.y = lerp(L.y, 0, w);
     rig.torso.rotation.x = lerp(rig.torso.rotation.x, p.torso[0], w);
     rig.torso.rotation.y = lerp(rig.torso.rotation.y, p.torso[1] * sd, w);
     rig.torso.rotation.z = lerp(rig.torso.rotation.z, p.torso[2] * sd, w);
@@ -479,6 +505,7 @@ export class FarmerActions {
       rig.hat.rotation.x = HAT_TILT - Math.max(0, p.torso[0]) * 0.9 * w;
     }
     const tool = rig.tool;
+    tool.matrixAutoUpdate = true;
     tool.position.set(0, -0.3, 0.02);
     if (p.level !== null) {
       // The can's orientation is set in the torso frame (undo the arm's pitch AND roll exactly), so
@@ -543,6 +570,92 @@ export class FarmerActions {
     // Hand sphere sits 0.3 down the arm: stretch / squash the arm to reach the handle exactly.
     const k = THREE.MathUtils.clamp(len / 0.3, 0.6, 1.6);
     arm.scale.y = lerp(arm.scale.y, k, w);
+  }
+
+  /**
+   * (r30) Tool-first solve for the two-hand swings (r10 critic: at impact neither mitten was on the
+   * shaft — the blade-tip IK slid the hoe out of the hands): the tool's world transform is solved
+   * first (pose + blade-tip IK, in an UNSTRETCHED arm frame so the cartoon reach never shears the
+   * hoe), then BOTH arms are aimed onto grip sockets on the shaft (top hand at the butt, lead hand
+   * ~40 % down) and the tool is pinned back to its solved world transform under the re-aimed arm.
+   */
+  private solveTool(a: Active, sp: Pose, w2 = this.twoHandWeight(a)): void {
+    const swing = a.kind === 'chop' || a.kind === 'slam' || a.kind === 'sweep';
+    if (!swing || !this.held || this.leftHand) {
+      this.aimTool(a, a.t);
+      this.twoHand(w2, sp.grip);
+      return;
+    }
+    const rig = this.rig;
+    // The hand rides at the stretched arm's end, but the tool hangs off an unscaled frame.
+    rig.armR.scale.y = 1;
+    rig.tool.position.y *= sp.reach;
+    this.aimTool(a, a.t);
+    this.gripSolve(w2, sp.reach);
+  }
+
+  private gripSolve(w: number, reach: number): void {
+    const rig = this.rig;
+    const tool = rig.tool;
+    tool.updateMatrix();
+    tool.updateWorldMatrix(true, false);
+    _W.copy(tool.matrixWorld);
+    // Top hand: from the socket (hand at the tool origin, slid by the key's `grip`) onto the butt.
+    this.aimArm(rig.armR, _gp.set(0, GRIP_TOP, 0).applyMatrix4(_W), w, reach);
+    this.aimArm(rig.armL, _gp.set(0, GRIP_LEAD, 0).applyMatrix4(_W), w, reach);
+    rig.armR.updateWorldMatrix(false, false);
+    _M.copy(rig.armR.matrixWorld).invert().multiply(_W);
+    tool.matrixAutoUpdate = false;
+    tool.matrix.copy(_M);
+    tool.matrixWorldNeedsUpdate = true;
+  }
+
+  /** One-bone arm IK: the hand sphere (0.3 down the arm) onto a world point, stretching to reach it. */
+  private aimArm(arm: THREE.Object3D, world: THREE.Vector3, w: number, reach: number): void {
+    const parent = arm.parent;
+    if (!parent || w <= 0.001) {
+      if (w <= 0.001) arm.scale.y = reach;
+      return;
+    }
+    parent.updateWorldMatrix(true, false);
+    _hT.copy(world);
+    parent.worldToLocal(_hT);
+    _hT.sub(arm.position);
+    const len = _hT.length();
+    if (len < 1e-4) return;
+    _hT.divideScalar(len);
+    _qAim.setFromUnitVectors(_DOWN, _hT);
+    arm.quaternion.slerp(_qAim, w);
+    const k = THREE.MathUtils.clamp(len / 0.3, 0.55, 2.3);
+    arm.scale.y = lerp(reach, k, w);
+  }
+
+  /** Centre of the hugged produce (world): in front of the chest, pressed against the bib. */
+  hugCenter(out = new THREE.Vector3()): THREE.Vector3 {
+    const R = this.hug ?? 0.3;
+    const torso = this.rig.torso;
+    torso.updateWorldMatrix(true, false);
+    return out.set(0, 0.1, 0.16 + R * 0.72).applyMatrix4(torso.matrixWorld);
+  }
+
+  private hugWeight(t: number): number {
+    const ss = THREE.MathUtils.smoothstep;
+    return ss(t, 0.27, 0.37) * (1 - ss(t, 1.04, 1.2));
+  }
+
+  /** Both palms onto the produce's flanks (a touch low and forward: cradled, not pinched). */
+  private hugSolve(t: number): void {
+    const R = this.hug;
+    if (R === null) return;
+    const w = this.hugWeight(t);
+    if (w <= 0.001) return;
+    const torso = this.rig.torso;
+    torso.updateWorldMatrix(true, false);
+    const y = 0.1 - R * 0.28;
+    const z = 0.16 + R * 0.72 + R * 0.12;
+    const x = Math.sqrt(Math.max(0, 1 - 0.28 * 0.28 - 0.12 * 0.12)) * R * 0.97;
+    this.aimArm(this.rig.armR, _gp.set(x, y, z).applyMatrix4(torso.matrixWorld), w, this.rig.armR.scale.y);
+    this.aimArm(this.rig.armL, _gp.set(-x, y, z).applyMatrix4(torso.matrixWorld), w, this.rig.armL.scale.y);
   }
 
   /** Two-hand grip weight: swings (hoe / scythe / slam) grip with both hands, eased in and out. */
@@ -641,7 +754,10 @@ export class FarmerActions {
   private pose(rig: PlayerRig, dt: number): ActionPose | null {
     const d = dt * this.timeScale;
     // Hat: ease to 85 % while an action runs, back to full size after (real time, so stills keep it).
-    const want = this.cur || this.charging ? 0.85 : 1;
+    // (r30) No shrink any more: at 85 % the lumpy hair poked through the brim and crown and the hat
+    // read as see-through (r10 critic, pour / pop frames). The tilt-back alone keeps the work visible.
+    // A touch LARGER while working: tipped back by the pose, the bangs otherwise rose through the brim.
+    const want = this.cur || this.charging ? 1.07 : 1;
     this.hatK += (want - this.hatK) * (1 - Math.exp(-dt * 14));
     if (!this.cur && !this.charging && rig.hat) rig.hat.scale.setScalar(this.hatK);
     if (!this.cur && !this.charging && rig.hat && rig.hat.rotation.x !== HAT_TILT) rig.hat.rotation.x = HAT_TILT;
@@ -667,7 +783,11 @@ export class FarmerActions {
       p.toolQ = _qOut.slerpQuaternions(q0, q1, up);
       rig.tool.visible = true;
       const cp = this.apply(rig, p);
-      this.twoHand(up, p.grip);
+      if (this.held) {
+        rig.armR.scale.y = 1;
+        rig.tool.position.y *= p.reach;
+        this.gripSolve(up, p.reach);
+      }
       return cp;
     }
     const a = this.cur;
@@ -690,8 +810,8 @@ export class FarmerActions {
     rig.tool.visible = !!this.held;
     const sp = this.sample(a);
     const pose = this.apply(rig, sp);
-    this.aimTool(a, a.t);
-    this.twoHand(this.twoHandWeight(a), sp.grip);
+    this.solveTool(a, sp);
+    if (a.kind === 'lift') this.hugSolve(a.t);
     // After the pose is applied: toolPoint() now reads this frame's arm + tool transforms (the
     // player's idle animation overwrites the arms before actionPose runs).
     a.opts.onUpdate?.(a.t);
@@ -699,6 +819,7 @@ export class FarmerActions {
       this.cur = null;
       this.player.busy = false;
       rig.tool.visible = false;
+      rig.tool.matrixAutoUpdate = true;
       this.recover = 0;
       a.opts.onDone?.();
     }

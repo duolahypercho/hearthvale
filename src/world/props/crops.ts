@@ -1186,63 +1186,109 @@ const BUILDERS: Record<CropId, Builder> = {
     }
   },
   blueberry(add, r, k) {
-    // A woody, rounded shrub (r15: no more hosta rosette): a few grey-brown canes that show at the
-    // base, under a dense ball of SMALL glossy oval leaves (blue-green, some reddening in late
-    // summer). Ripe berry clusters sit on the outer shell, mostly on the crown and the lens-facing
-    // (+Z) flank, dusty blue with a pale bloom, so a ripe bush reads blue from the game camera.
+    // (r30) A rounded, IRREGULAR shrub (r10 critic: uniform spiky teal "hedgehog" domes with a radial
+    // seam at the crown, berries that read as grapes / hydrangea): a few grey-brown canes at the base
+    // under 3-4 overlapping leaf clumps of different sizes (a lumpy, asymmetric mass), top-lit (the
+    // crowns lighter and warmer, the undersides deep), small oval leaves laid ALONG each clump's
+    // surface at random spots (never a golden spiral converging on a pole). Ripe fruit: individual
+    // dusty-blue berries with a dark crown dimple, in tight clusters of 5-8 that hang just below the
+    // leaf edge on the flanks.
     const R = 0.11 + k * 0.048;
     const bark0 = C(0x5a4636);
     const bark1 = C(0x8a7058);
-    for (let i = 0; i < 4 + k; i++) {
-      const a = (i / (4 + k)) * Math.PI * 2 + r.next() * 0.6;
+    for (let i = 0; i < 3 + k; i++) {
+      const a = (i / (3 + k)) * Math.PI * 2 + r.next() * 0.6;
       const ca = Math.cos(a);
       const sa = Math.sin(a);
       const reach = R * (0.45 + r.next() * 0.3);
-      add(tube([new THREE.Vector3(ca * 0.012, 0, sa * 0.012), new THREE.Vector3(ca * reach * 0.55, R * 0.45, sa * reach * 0.55), new THREE.Vector3(ca * reach, R * 1.15, sa * reach)], 0.013 + k * 0.002, 0.005, bark0, bark1, 5, 4), mat());
+      add(tube([new THREE.Vector3(ca * 0.012, 0, sa * 0.012), new THREE.Vector3(ca * reach * 0.55, R * 0.45, sa * reach * 0.55), new THREE.Vector3(ca * reach, R * 1.1, sa * reach)], 0.013 + k * 0.002, 0.005, bark0, bark1, 5, 4), mat());
     }
-    const deep = C(0x234e30);
-    const mid = C(0x4c8a4e);
-    const blue = C(0x5a8a80);
-    const cy = R * 1.05;
+    const deep = C(0x183e26);
+    const mid = C(0x356f40);
+    const top = C(0x6a9a4e);
+    const teal = C(0x4a7a70);
+    const cy = R * 1.0;
+    // Clumps: [x, y, z, radius] — one main mass + 2-3 smaller lobes pushed out unevenly.
+    const clumps: [number, number, number, number][] = [[0, cy, 0, R * 0.82]];
+    const nLobe = k >= 1 ? 2 + (k >= 2 ? 1 : 0) : 0;
+    const a0 = r.next() * Math.PI * 2;
+    for (let i = 0; i < nLobe; i++) {
+      const a = a0 + (i / nLobe) * Math.PI * 2 + (r.next() - 0.5) * 1.1;
+      const d = R * (0.36 + r.next() * 0.18);
+      clumps.push([Math.cos(a) * d, cy + R * (-0.12 + r.next() * 0.32), Math.sin(a) * d, R * (0.5 + r.next() * 0.2)]);
+    }
+    const shade = (y: number, ny: number): THREE.Color => {
+      // Top light: deep underside → mid flank → a warm, lighter crown.
+      const u = THREE.MathUtils.clamp(0.5 + ny * 0.5, 0, 1);
+      const c = deep.clone().lerp(mid, THREE.MathUtils.smoothstep(u, 0.15, 0.6)).lerp(top, THREE.MathUtils.smoothstep(u, 0.7, 1.0) * 0.6);
+      return c.lerp(teal, 0.15).multiplyScalar(0.92 + 0.1 * (y / (R * 2)));
+    };
     if (k >= 1) {
-      // Inner canopy shell: a lumpy dark ball just inside the leaf tips (closes the bush).
-      const shell = new THREE.SphereGeometry(R * 0.86, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.72);
-      const sp = shell.attributes.position as THREE.BufferAttribute;
-      const ph = r.next() * 6;
-      for (let i = 0; i < sp.count; i++) {
-        const x = sp.getX(i), y = sp.getY(i), z = sp.getZ(i);
-        const lump = 1 + 0.1 * Math.sin(Math.atan2(z, x) * 5 + ph) * Math.sin(y * 30 + ph);
-        sp.setXYZ(i, x * lump, y * 0.88 * lump, z * lump);
+      for (const [x, y, z, cr] of clumps) {
+        const shell = new THREE.SphereGeometry(cr * 0.9, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.78);
+        const sp = shell.attributes.position as THREE.BufferAttribute;
+        const ph = r.next() * 6;
+        for (let i = 0; i < sp.count; i++) {
+          const px = sp.getX(i), py = sp.getY(i), pz = sp.getZ(i);
+          const lump = 1 + 0.12 * Math.sin(Math.atan2(pz, px) * 4 + ph) * Math.sin(py * 26 + ph);
+          sp.setXYZ(i, px * lump, py * 0.84 * lump, pz * lump);
+        }
+        shell.computeVertexNormals();
+        add(colored(shell, (p, n) => shade(p.y + y, n.y).multiplyScalar(0.82)), mat(x, y - cr * 0.1, z));
       }
-      shell.computeVertexNormals();
-      add(colored(shell, (p, n) => deep.clone().lerp(blue, 0.2).multiplyScalar(0.7 + 0.35 * Math.max(0, n.y) + 0.12 * (p.y / R))), mat(0, cy - R * 0.08, 0));
     }
-    const nl = 34 + k * 30;
+    // Leaves strewn over each clump, lying along its surface (low lift), facing outward.
+    const nl = 22 + k * 22;
     for (let i = 0; i < nl; i++) {
-      const t = (i + 0.5) / nl;
-      const el = Math.acos(1 - t * 1.55);
-      const az = i * 2.39996 + (r.next() - 0.5) * 0.3;
-      // Rooted just inside the shell so the blades lie over it (no spiky fringe on the silhouette).
-      const rr = R * (0.76 + r.next() * 0.16);
-      const p = new THREE.Vector3(Math.sin(el) * Math.cos(az) * rr, cy + Math.cos(el) * rr * 0.88, Math.sin(el) * Math.sin(az) * rr);
-      const tint = r.next();
-      const c0 = deep.clone().lerp(blue, tint * 0.45);
-      const c1 = mid.clone().lerp(blue, tint * 0.3);
-      if (k === 3 && r.next() < 0.08) c1.lerp(C(0xb4523c), 0.6);
-      const L = (0.056 + r.next() * 0.03) * (k === 0 ? 1.15 : 1);
-      add(leafGeo(L, L * 0.62, { shape: 'oval', lift: 0.15 + (1 - el / 1.9) * 0.5 + r.next() * 0.2, bend: 0.35, fold: 0.35, cup: 0.4, rib: C(0x96bc9c), c0, c1, segs: 3 }), mat(p.x, p.y, p.z, 0, Math.atan2(Math.cos(az), Math.sin(az)) + (r.next() - 0.5) * 0.8, 0));
+      const [x, y, z, cr] = clumps[i % clumps.length]!;
+      const el = 0.3 + r.next() * 1.25; // never at the pole: no crown seam
+      const az = r.next() * Math.PI * 2;
+      const rr = cr * (0.84 + r.next() * 0.14);
+      const p = new THREE.Vector3(x + Math.sin(el) * Math.cos(az) * rr, y + Math.cos(el) * rr * 0.84, z + Math.sin(el) * Math.sin(az) * rr);
+      const ny = Math.cos(el);
+      const c1 = shade(p.y, ny).offsetHSL((r.next() - 0.5) * 0.03, 0, (r.next() - 0.5) * 0.06);
+      const c0 = c1.clone().multiplyScalar(0.72);
+      if (k === 3 && r.next() < 0.05) c1.lerp(C(0xb4523c), 0.55);
+      const L = (0.058 + r.next() * 0.03) * (k === 0 ? 1.15 : 1);
+      add(leafGeo(L, L * 0.6, { shape: 'oval', lift: 0.05 + (1 - el / 1.6) * 0.35 + r.next() * 0.15, bend: 0.3, fold: 0.3, cup: 0.35, rib: C(0x9cc4a0), c0, c1, segs: 3 }), mat(p.x, p.y, p.z, 0, Math.atan2(Math.cos(az), Math.sin(az)) + (r.next() - 0.5) * 1.0, 0));
     }
     if (k >= 2) {
-      const n = k === 3 ? 13 : 6;
+      const n = k === 3 ? 12 : 5;
       for (let i = 0; i < n; i++) {
-        // 3 of 4 clusters on the lens-facing half (+Z), the rest round the crown.
+        const [x, y, z, cr] = clumps[(i + 1) % clumps.length]!;
+        // Most clusters on the lens-facing half (+Z), hung off the upper flank so they read from the
+        // high game lens (on the lower rim they only showed as a purple fringe under the leaves).
         const front = i % 4 !== 3;
         const a = front ? Math.PI / 2 + (r.next() - 0.5) * 2.6 : r.next() * Math.PI * 2;
-        const e = front ? 0.55 + r.next() * 0.7 : 0.15 + r.next() * 0.5;
-        const m = mat(Math.sin(e) * Math.cos(a) * R * 1.04, cy + Math.cos(e) * R * 0.92 + 0.012, Math.sin(e) * Math.sin(a) * R * 1.04);
-        // Unripe: hard green and a blush of red-violet (pale lilac read as flowers).
-        if (k === 2) bunch(add, r, 4, 0.017, 0.035, r.next() < 0.6 ? C(0x9ab86a) : C(0x8a3a5a), m);
-        else bunch(add, r, 6, 0.024, 0.045, i % 5 === 4 ? C(0x5a2a6a) : C(0x2f44aa), m, 0.35);
+        const e = 0.6 + r.next() * 0.55;
+        const hang = new THREE.Vector3(x + Math.sin(e) * Math.cos(a) * cr * 1.08, y + Math.cos(e) * cr * 0.9 + 0.01, z + Math.sin(e) * Math.sin(a) * cr * 1.08);
+        const out = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+        if (k === 2) {
+          for (let j = 0; j < 4; j++) {
+            // Hard green with a lilac blush (paired dark-red berries read as a creature's eyes).
+            const col = r.next() < 0.75 ? C(0xa8c078) : C(0xa890b0);
+            add(berry(0.013 * (0.85 + r.next() * 0.3), col), mat(hang.x + (r.next() - 0.5) * 0.04, hang.y - r.next() * 0.03, hang.z + (r.next() - 0.5) * 0.04), 'skin');
+          }
+          continue;
+        }
+        const nb = 5 + Math.floor(r.next() * 4);
+        for (let j = 0; j < nb; j++) {
+          // A tight, hanging cluster: berries packed round a short drooping raceme.
+          const t = j / nb;
+          const ang = j * 2.39996 + r.next() * 0.5;
+          const ring = (0.012 + 0.016 * Math.sqrt(t)) * (0.8 + r.next() * 0.4);
+          const br = 0.025 * (0.85 + r.next() * 0.3);
+          const bp = hang.clone().addScaledVector(out, 0.012 + Math.cos(ang) * ring * 0.5).add(new THREE.Vector3(-out.z * Math.sin(ang) * ring, -t * 0.045 - r.next() * 0.008, out.x * Math.sin(ang) * ring));
+          // Dusty blue with a pale bloom (a few riper indigo, one or two still blushing).
+          const pick = r.next();
+          const col = (pick < 0.08 ? C(0x8a5a8a) : pick < 0.3 ? C(0x34489a) : C(0x4f68b8)).lerp(C(0x9cb0dc), 0.12 + r.next() * 0.2);
+          add(berry(br, col), mat(bp.x, bp.y, bp.z), 'skin');
+          // Crown dimple: a dark five-point calyx ring on the berry's outer face.
+          const dim = new THREE.CircleGeometry(br * 0.42, 5);
+          const dn = new THREE.Vector3(out.x * 0.8, -0.2, out.z * 0.8).normalize();
+          const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dn);
+          add(colored(dim, () => C(0x2a2242)), new THREE.Matrix4().compose(bp.clone().addScaledVector(dn, br * 0.93), q, new THREE.Vector3(1, 1, 1)), 'skin');
+        }
       }
     }
   },
@@ -1556,6 +1602,17 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
   // Dead leaves: petal-marked (no fall hue shift, no painted veins) so they stay grey-brown; rolled
   // up along the midrib and curled back at the tip (a crumpled husk, never a flat paper square).
   const curled = (len: number, w: number, lift = 0.05, bend = 0.4): THREE.BufferGeometry => asPetal(leafGeo(len, w * 0.8, { shape: 'oval', lift, bend, fold: 0.8, curl: 1.4 + r.next() * 0.8, ruffle: 0.45, cup: 0.7, c0: leaf0, c1: leaf1, segs: 5 }));
+  // (r30) A dead stalk that stands up then FLOPS over (r10 critic: season-change husks were tiny pale
+  // specks at the gameplay lens): ~0.3 m tall, bent over at the top with a curled leaf hanging off it.
+  const flop = (h: number, a: number): void => {
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const pts = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(ca * 0.02, h * 0.55, sa * 0.02), new THREE.Vector3(ca * 0.07, h * 0.95, sa * 0.07), new THREE.Vector3(ca * 0.16, h * 0.9, sa * 0.16), new THREE.Vector3(ca * 0.22, h * 0.62, sa * 0.22)];
+    add(tube(pts, 0.014, 0.007, stem0, stem1, 10, 5));
+    const tip = pts[4]!;
+    add(curled(0.12, 0.08, -1.0, 1.1), mat(tip.x, tip.y, tip.z, 0, -a + Math.PI / 2, 0));
+    add(curled(0.1, 0.07, -0.7, 0.9), mat(pts[2]!.x, pts[2]!.y, pts[2]!.z, 0, -a + Math.PI / 2 + 1.6, 0));
+  };
   const fallen = (n: number, rad: number): void => {
     for (let i = 0; i < n; i++) {
       const a = r.next() * Math.PI * 2;
@@ -1680,6 +1737,7 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
         const a = r.next() * Math.PI * 2;
         add(curled(0.1, 0.07, -0.6, 0.9), mat(Math.cos(a) * 0.1, 0.12 + r.next() * 0.1, Math.sin(a) * 0.1, 0, a, 0));
       }
+      flop(0.32, r.next() * Math.PI * 2);
       const bc = accent === 'berry' ? C(0x2e2c40) : C(0x4a3a2a);
       for (let i = 0; i < 4; i++) {
         const a = r.next() * Math.PI * 2;
@@ -1696,6 +1754,7 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
       const beet = accent === 'beet';
       add(lumpyColored(beet ? 0.05 : 0.04, beet ? C(0x4e1f2a) : C(0xb2a587), r, 2, 0.25), mat(0, 0.01, 0, 0, 0, 0, 1, beet ? 0.85 : 1.5, 1), 'skin');
       const side = r.next() * Math.PI * 2;
+      flop(0.28 + r.next() * 0.06, side + Math.PI * 0.7);
       for (let k = 0; k < 4; k++) {
         const a = side + (k - 1.5) * 0.45;
         add(stalk(0.16 + r.next() * 0.05, 0.007, 0.004, beet ? C(0x4a2228) : stem0, beet ? C(0x6e3a40) : stem1, 0.0, 3), mat(0, 0.04, 0, 0, a, 1.15 + r.next() * 0.25));
@@ -1723,6 +1782,7 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
       // A slumped rosette of dead leaves flat on the soil (0) or a leaning tuft (1).
       rosette(add, r, 6, 0.19, 0.11, { shape: 'lance', lift, bend: 1.0, fold: 0.5, ruffle: 0.35, c0: leaf0, c1: leaf1, segs: 4 }, 0, 0.01);
       add(stalk(v === 1 ? 0.22 : 0.12, 0.013, 0.007, stem0, stem1, 0.12, 4));
+      flop(0.26 + r.next() * 0.08, r.next() * Math.PI * 2);
     }
     fallen(1, 0.2);
   }

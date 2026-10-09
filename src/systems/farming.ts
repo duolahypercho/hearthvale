@@ -666,7 +666,10 @@ export class FarmingSystem implements System, FarmingApi {
       const hw = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2;
       const heroS = THREE.MathUtils.clamp(0.35 / hw, 1.6, 3.6);
       const hb = (bb.max.y + bb.min.y) / 2;
-      this.fx.pop(geo, this.center(cx, cz, 0.15), { to: hands, lift: -hb * heroS, flight: 0.24, hold: 600, star: QUALITY_COLORS[2], scale: heroS, face: 0.6, pivot: () => c.headWorld(new THREE.Vector3()) });
+      // (r30) The farmhand's palms close on the rind too (the same hug IK as the host's lift).
+      const cActs = (c as unknown as { actions?: FarmerActions }).actions;
+      if (cActs) cActs.hug = hw * heroS;
+      this.fx.pop(geo, this.center(cx, cz, 0.15), { to: cActs ? () => cActs.hugCenter() : hands, lift: -hb * heroS, flight: 0.24, hold: 600, star: QUALITY_COLORS[2], scale: heroS, face: 0.6, pivot: () => c.headWorld(new THREE.Vector3()) });
     });
   }
 
@@ -1254,6 +1257,8 @@ export class FarmingSystem implements System, FarmingApi {
    * touch forward of them (palms press on its sides) — in front of the chest, under the chin.
    */
   private liftPos(): THREE.Vector3 {
+    // (r30) The farmer's hug IK cradles the produce at this centre (palms seated on its flanks).
+    if (this.actions?.hug != null) return this.actions.hugCenter();
     const r = this.game.player.rig;
     r.armR.updateWorldMatrix(true, false);
     r.armL.updateWorldMatrix(true, false);
@@ -1312,6 +1317,8 @@ export class FarmingSystem implements System, FarmingApi {
     const heroS = big ? THREE.MathUtils.clamp(0.35 / hw, 1.6, 3.6) : THREE.MathUtils.clamp(0.7 / rad, 2.05, 2.5);
     const bottom = geo.boundingBox ? -geo.boundingBox.min.y : rad;
     const hb = bb ? (bb.max.y + bb.min.y) / 2 : 0;
+    // (r30) The hug IK closes both palms on the rind of THIS produce (its held half-width).
+    if (big && style === 'pull' && this.actions?.kind === 'lift') this.actions.hug = hw * heroS;
     for (let i = 0; i < n; i++) {
       const hero = i === 0 && style === 'pull';
       const off = new THREE.Vector3((i - (n - 1) / 2) * 0.22, i * 0.05, 0);
@@ -1367,8 +1374,12 @@ export class FarmingSystem implements System, FarmingApi {
       const slots2 = target ? [] : this.toolbarSlots();
       const end = slots2.length ? slots2[slots2.length - 1]! : null;
       landEnd = end;
-      if (target) flyItemTo(itemId, { x: sx, y: sy }, target, quality, land, 58, { duration: 460, bounce: 1.15 });
-      else if (end) flyItemTo(itemId, { x: sx, y: sy }, end, quality, land, 58, { duration: 460, bounce: 1.12 });
+      // (r30) ~2x icon (r10 critic: "a tiny dot that's barely visible") with a short ghost trail and a
+      // squash as it drops into the slot (+ the slot's own bounce).
+      const pre = new Set(document.body.children);
+      if (target) flyItemTo(itemId, { x: sx, y: sy }, target, quality, land, 104, { duration: 480, bounce: 1.22 });
+      else if (end) flyItemTo(itemId, { x: sx, y: sy }, end, quality, land, 104, { duration: 480, bounce: 1.18 });
+      if (target || end) this.juiceFlight(pre);
       else {
         flyItemToToolbar(this.game.opts.uiRoot, itemId, { x: sx, y: sy }, idx, quality, { duration: 460, bounce: 1.15 });
         land();
@@ -1388,6 +1399,38 @@ export class FarmingSystem implements System, FarmingApi {
     } catch {
       /* HUD not mounted (tests) */
       if (hold) this.releaseHold(hold);
+    }
+  }
+
+  /**
+   * (r30) Dress the item icon that just took off (`pre` = body children before the launch): a squash
+   * on arrival (wide + flat on the last frames, a stretch along the fall just before) and two fading
+   * ghosts trailing it along the same arc. The ghosts carry the `hv-flyitem` class, so sequence
+   * captures pause + scrub them with the icon.
+   */
+  private juiceFlight(pre: Set<Element>): void {
+    const el = [...document.body.children].find((c) => !pre.has(c) && c.classList.contains('hv-flyitem')) as HTMLElement | undefined;
+    const anim = el?.getAnimations()[0];
+    const fx = anim?.effect as KeyframeEffect | null | undefined;
+    if (!el || !anim || !fx) return;
+    const kf = fx.getKeyframes().map((k) => {
+      const o = k.computedOffset ?? 0;
+      let tr = String(k.transform ?? '');
+      // Stretch along the fall, then a wide squash as it hits the slot.
+      const sq = o > 0.9 ? [1.32, 0.7] : o > 0.78 ? [0.86, 1.18] : null;
+      if (sq) tr = tr.replace(/scale\(([\d.]+)\)/, (_m, v: string) => `scale(${(Number(v) * sq[0]!).toFixed(3)}, ${(Number(v) * sq[1]!).toFixed(3)})`);
+      return { transform: tr, opacity: k.opacity, offset: o };
+    });
+    fx.setKeyframes(kf);
+    const timing = fx.getTiming();
+    for (const [lag, alpha, k] of [[0.045, 0.42, 0.82], [0.09, 0.2, 0.66]] as const) {
+      const g = el.cloneNode(true) as HTMLElement;
+      g.style.opacity = '0';
+      g.style.filter = 'blur(1px)';
+      document.body.appendChild(g);
+      const gk = kf.map((f) => ({ ...f, transform: `${f.transform} scale(${k})`, opacity: Number(f.opacity ?? 1) * alpha }));
+      const ga = g.animate(gk, { duration: Number(timing.duration), easing: String(timing.easing), delay: Number(timing.duration) * lag });
+      ga.onfinish = () => g.remove();
     }
   }
 
@@ -1537,7 +1580,9 @@ export class FarmingSystem implements System, FarmingApi {
     this.actTile = { x, z };
     this.actTiles = { tiles: [[x, z]], state: 'neutral' };
     // Swings wind up over the camera-side shoulder; the harvest show-off always uses the right hand.
-    acts.side = kind === 'pull' || kind === 'lift' ? 1 : this.cameraSide();
+    // (r30) A swing seen from the front (lens ahead of the farmer) winds up over the FAR shoulder: on the
+    // near side both IK'd arms climbed across the face to the shaft.
+    acts.side = kind === 'pull' || kind === 'lift' ? 1 : this.cameraSide() * ((kind === 'chop' || kind === 'slam') && this.cameraAhead() ? -1 : 1);
     const tier = toolId && (TOOLS as string[]).includes(toolId) ? this.tiers[toolId as FarmTool] : 0;
     this.game.events.emit('tool:swing', { tool: toolId ?? kind, tier, charge: 0 });
     acts.start(kind, {
@@ -1546,7 +1591,7 @@ export class FarmingSystem implements System, FarmingApi {
         onImpact();
         this.cursor.pulse();
         this.doneTile = { x, z };
-        if (kind === 'chop' || kind === 'slam' || kind === 'sweep') this.hitStop = kind === 'slam' ? 0.09 : 0.05;
+        if (kind === 'chop' || kind === 'slam' || kind === 'sweep') this.hitStop = kind === 'slam' ? 0.09 : 0.065;
       },
       onUpdate: this.withTrail(kind, toolId, extra.onUpdate, TIER_TRAIL[tier] ?? 0xfff6e0),
       onDone: extra.onDone,
@@ -1557,6 +1602,17 @@ export class FarmingSystem implements System, FarmingApi {
       aim: toolId === 'hoe' && (kind === 'chop' || kind === 'slam') ? { target: new THREE.Vector3(x + 0.5, this.surfaceY(x + 0.5, z + 0.5) + (extra.glance ? 0.03 : -0.05), z + 0.5), local: HOE_EDGE, drag: extra.glance ? undefined : this.dragToward(x, z) } : undefined,
     });
     return IMPACT[kind];
+  }
+
+  /** The lens sits in front of the farmer (it sees the face more than the back of the head). */
+  private cameraAhead(): boolean {
+    const pl = this.game.player;
+    const { dx, dz } = this.dirVec();
+    const cam = this.game.rc.camera.position;
+    const ox = cam.x - pl.position.x;
+    const oz = cam.z - pl.position.z;
+    const L = Math.hypot(ox, oz) || 1;
+    return (dx * ox + dz * oz) / L > 0.35;
   }
 
   /** +1 if the camera sits on the farmer's right-hand side (wind-ups go over that shoulder). */
@@ -1637,7 +1693,7 @@ export class FarmingSystem implements System, FarmingApi {
             // Torn sod: blades of grass flicked up with the clods — they flutter off and are gone
             // within ~0.6 s (nothing green is left lying on the fresh soil).
             for (let i = 0; i < 8; i++) this.fx.blade(c.clone().add(new THREE.Vector3(rnd(-0.3, 0.3), 0.06, rnd(-0.3, 0.3))), new THREE.Vector3(rnd(-1.4, 1.4), rnd(2, 3.4), rnd(-1.4, 1.4)), i % 2 ? 0x6fae45 : 0x8cc05a, rnd(0.035, 0.05));
-            this.shake(0.22);
+            this.shake(0.34);
           } else if (blockedTile) {
             // (r17) Untillable ground answers: the blade glances off (thunk), a few grass flecks
             // and a dust whisper, and the red ✕ pops on the tile so the player sees why.
@@ -2421,7 +2477,9 @@ export class FarmingSystem implements System, FarmingApi {
       const t = this.tiles.get(key(x, z));
       if (!t?.crop || t.crop.dead) return;
       // Profile views (east / west of the plant) with one pecking from the near side.
-      this.crows.spawn(x + 0.5, z + 0.5, this.crowMeal(t), 0, { landed: true, stay: true, eatAt, onPeck: this.crowPeck(t), scale: 1.1, side: [Math.PI, 0.35, 0, Math.PI * 0.72][i]! });
+      // (r30) Crow-sized (0.66; r10 critic: half-tile birds as big as the pepper plants), one of them
+      // caught mid flutter-hop with its wings spread.
+      this.crows.spawn(x + 0.5, z + 0.5, this.crowMeal(t), 0, { landed: true, stay: true, eatAt, onPeck: this.crowPeck(t), scale: 0.72, side: [Math.PI, 0.35, 0, Math.PI * 0.72][i]!, display: i === 2 });
       this.later(0.4 + i * 0.3, () => this.game.events.emit('crow:arrive', { x, z }));
     });
     // (r22) `&raid=beats`: staged beats (r9 critic: parked birds) — a late-comer swooping in over the
@@ -2442,6 +2500,14 @@ export class FarmingSystem implements System, FarmingApi {
       const fx = 24 + rnd(0, 3);
       const fz = 30 + rnd(0, 2.6);
       this.fx.leaf(new THREE.Vector3(fx, this.surfaceY(fx, fz) + 0.2, fz), new THREE.Vector3(0, 0, 0), 0x5e9a3a, rnd(0.03, 0.045), 60);
+    }
+    // (r30) The chewed stub's own litter: torn leaf bits strewn round it (the meal the crows made).
+    for (let k = 0; k < 12; k++) {
+      const a = rnd(0, Math.PI * 2);
+      const rr = rnd(0.12, 0.5);
+      const fx = 25.5 + Math.cos(a) * rr;
+      const fz = 30.5 + Math.sin(a) * rr;
+      this.fx.leaf(new THREE.Vector3(fx, this.surfaceY(fx, fz) + 0.15, fz), new THREE.Vector3(0, 0, 0), k % 3 ? 0x5e9a3a : 0x7fb24a, rnd(0.035, 0.055), 60);
     }
   }
 
@@ -2637,7 +2703,8 @@ export class FarmingSystem implements System, FarmingApi {
         const redFruit = id === 'tomato' || id === 'hotPepper';
         // (r18) Peppers ripe ~2/3 of the time: their stage-4 flowering sprigs read as bare soil between bushes.
         // (r25) Eggplants almost always ripe (their stage-4 sprigs left the fall front beds bare).
-        const stage = dense ? (roll < (id === 'hotPepper' ? 68 : id === 'eggplant' ? 88 : redFruit ? 45 : 70) ? RIPE_STAGE : 4) : roll < 62 ? RIPE_STAGE : roll < 90 ? 4 : 3;
+        // (r30) The hero blueberry bed is staged fully ripe (r10 critic: 9 of 16 bushes unripe).
+        const stage = dense ? (id === 'blueberry' ? (roll < 97 ? RIPE_STAGE : 4) : roll < (id === 'hotPepper' ? 68 : id === 'eggplant' ? 88 : redFruit ? 45 : 70) ? RIPE_STAGE : 4) : roll < 62 ? RIPE_STAGE : roll < 90 ? 4 : 3;
         this.plant(id, x, z, this.daysAt(id, stage), h);
       }
     }
@@ -2909,7 +2976,9 @@ export class FarmingSystem implements System, FarmingApi {
     if (!showcase.includes('wither') && !showcase.includes('harvest')) this.plantGarden(season, true);
     // farm-crows shows the scarecrow's reach by default (r16: cause and effect); `&ring=0` hides it.
     // (r20) Opt-in only (`&ring`): by default farm-crows shows the raid, not the reach.
-    this.ringDemo = params.has('ring') && params.get('ring') !== '0';
+    // (r30) farm-crows shows the scarecrow's reach by default (r10 critic: the raid story needs the
+    // guarded ring next to the unguarded, raided row); `&ring=0` hides it.
+    this.ringDemo = params.get('ring') !== '0';
     const tier = params.get('tier');
     if (tier) for (const t of TOOLS) this.setToolTier(t, Math.max(0, Math.min(3, Number(tier))) as ToolTier);
     const q = params.get('quality');
@@ -3252,17 +3321,12 @@ export class FarmingSystem implements System, FarmingApi {
           break;
         }
         case 'harvest': {
-          // Squash down (anticipation), then stretch up and vanish.
-          if (t < 0.08) {
-            const k = t / 0.08;
-            sy = 1 - 0.3 * k;
-            sxz = 1 + 0.2 * k;
-          } else {
-            const k = Math.min(1, (t - 0.08) / 0.16);
-            sy = (0.7 + 0.7 * k) * (1 - k);
-            sxz = (1.2 - 0.6 * k) * (1 - k * 0.8);
-          }
-          done = t > 0.24;
+          // (r30) The yank: the plant stretches up out of the soil and is GONE within ~2 frames (the
+          // produce pops from the hole on the same tick — r10 critic: two parsnips for three frames).
+          const k = Math.min(1, t / 0.035);
+          sy = 1 + 0.35 * k;
+          sxz = 1 - 0.75 * k;
+          done = t > 0.035;
           break;
         }
       }
