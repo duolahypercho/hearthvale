@@ -1334,7 +1334,7 @@ export class FarmingSystem implements System, FarmingApi {
       // (r24) Produce with no slot of its own lands on the bar's backpack end: burst there too (the
       // landing beat showed no burst at all for a first parsnip).
       const at = target ?? landEnd;
-      if (at) slotBurst(at, quality);
+      if (at) slotBurst(at, quality, qty);
     };
     let landEnd: HTMLElement | null = null;
     let target: HTMLElement | null = null;
@@ -3555,12 +3555,33 @@ export class FarmingSystem implements System, FarmingApi {
  * pale sparks, gold = more and warmer, iridium = a violet ring of stars (normal quality: a small dust
  * of light). DOM only; removes itself.
  */
-function slotBurst(slot: HTMLElement, quality: number): void {
+function slotBurst(slot: HTMLElement, quality: number, qty = 1): void {
   const r = slot.getBoundingClientRect();
   if (!r.width || typeof document === 'undefined') return;
   const cx = r.left + r.width / 2;
   const cy = r.top + r.height / 2;
   const col = ['#fff6dc', '#e6eef8', '#ffd34a', '#d7a2ff'][quality] ?? '#fff6dc';
+  // (r24) A "+N" pops up off the slot as the count ticks (the reward reads at the bar, not just a burst).
+  {
+    const tag = document.createElement('div');
+    tag.textContent = `+${qty}`;
+    Object.assign(tag.style, {
+      position: 'fixed', left: `${cx + r.width * 0.28}px`, top: `${r.top + 4}px`, width: '0', height: '0', pointerEvents: 'none', zIndex: '1000',
+      fontFamily: 'Fredoka, Nunito, sans-serif', fontWeight: '700', fontSize: '20px', lineHeight: '0', whiteSpace: 'nowrap',
+      color: quality ? col : '#fffaf0', textShadow: '0 2px 0 #6b3f1c, 0 0 2px #6b3f1c, 1px 0 0 #6b3f1c, -1px 0 0 #6b3f1c',
+    } as Partial<CSSStyleDeclaration>);
+    document.body.appendChild(tag);
+    const a = tag.animate(
+      [
+        { transform: 'translate(-50%, 0) scale(0.4)', opacity: 0 },
+        { transform: 'translate(-50%, -18px) scale(1.2)', opacity: 1, offset: 0.25 },
+        { transform: 'translate(-50%, -26px) scale(1)', opacity: 1, offset: 0.7 },
+        { transform: 'translate(-50%, -34px) scale(0.9)', opacity: 0 },
+      ],
+      { duration: 900, easing: 'ease-out' },
+    );
+    a.onfinish = () => tag.remove();
+  }
   const n = [4, 7, 10, 14][quality] ?? 4;
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 - Math.PI / 2 + (i % 2) * 0.2;
