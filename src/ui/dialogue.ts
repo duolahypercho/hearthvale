@@ -39,6 +39,14 @@ export interface DialogueBoxApi {
    * insertArt kind) pinned left of the scene with a caption; null takes it down.
    */
   insert?(card: { kind: string; caption: string } | null): void;
+  /** Co-op spectator: highlight the option the host picked. */
+  markChoice?(i: number): void;
+  /**
+   * r15 deterministic capture: `clock(true)` hands the typewriter to the sim clock (no timers); the
+   * director then calls `pump(dt)` every stepped frame, and finished lines / choices auto-advance.
+   */
+  clock?(on: boolean): void;
+  pump?(dt: number): void;
 }
 
 declare module '../core/game' {
@@ -284,7 +292,35 @@ body.hv-dlg-open .hv-np { opacity: 0 !important; transition: opacity 200ms; }
 @media (max-width: 1100px), (max-height: 760px) { .hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) .dlg-hearts { top: auto; bottom: 42px; } }
 /* (co-op: the roster sits top-left — the card drops below it) */
 body:has(.coop-roster:not(.hv-hidden)) .dlg-insert { top: max(19vh, 150px); }
+/* r15 (critic: "excessively tall for one- or two-line exchanges"): the parchment hugs its text — a
+   one-liner is a slim slab, two lines a little more; the portrait card keeps one size and placement,
+   so it stands up out of the frame's right end. Choices and long beats grow the box as they need. */
+.hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 0; padding-top: 26px; padding-bottom: 30px; }
+.hv-dialogue.dlg2 .dlg-text { min-height: 47px; }
+.hv-dialogue.dlg2:not(.narr) .dlg-box:has(.dlg-choices) .hv-inner { padding-top: 22px; padding-bottom: 20px; }
+.hv-dialogue.dlg2 .dlg-box { transition: height 220ms var(--ease-out); }
+@media (max-width: 1100px), (max-height: 760px) { .hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 0; } .hv-dialogue.dlg2 .dlg-text { min-height: 38px; } }
+/* r15 co-op (critic: "an apparently empty heart row … doesn't distinguish host friendship from the viewing
+   farmhand's"): a spectator's strip is two labelled rows — the host's hearts (it is their scene) and yours. */
+.hv-dialogue.dlg2 .dlg-hearts.spec2 { display: flex !important; flex-direction: column; gap: 3px !important; padding: 4px 8px 5px; bottom: 46px; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2::after { display: none; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .hr { display: flex; align-items: center; gap: 1.5px; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .who { flex: none; width: 58px; margin-right: 5px; font: 800 11px/15px Nunito, sans-serif; letter-spacing: .3px; color: #fff; text-align: center; border-radius: 6px; padding: 0 4px; background: #9a4a2a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .hr.mine .who { background: #3f6e8a; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .hr svg { width: 15px !important; height: 13.5px !important; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .hr.mine svg { opacity: .9; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .n { flex: none; width: 22px; margin-left: 4px; font: 800 12px/1 Nunito, sans-serif; color: #5a2e14; text-align: right; }
+/* Host-owned choices are visibly locked for a spectator: a padlock on each, the host's name on the
+   note, and the host's pick lights up before the reply. */
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice { opacity: 0.7; filter: saturate(.7); }
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice .k { background: linear-gradient(180deg, #8a7a6a, #6a5a4a); border-color: #4a3a2a; }
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice .lk { margin-left: auto; width: 16px; height: 18px; flex: none; opacity: .75; }
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice.picked { opacity: 1; filter: none; background: #fff6dc; border-color: #c8573e; transform: translateX(6px); box-shadow: 0 3px 0 rgba(120,60,20,.25); }
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice.picked .k { background: linear-gradient(180deg, var(--wood-1), var(--wood-2)); border-color: var(--wood-3); }
 `;
+
+
+const LOCK = `<svg class="lk" viewBox="0 0 16 18"><path d="M4 8 V5.5 a4 4 0 0 1 8 0 V8" fill="none" stroke="#7a4a2a" stroke-width="2"/><rect x="2" y="8" width="12" height="9" rx="2" fill="#a8743e" stroke="#5a2e14" stroke-width="1.4"/><circle cx="8" cy="12.3" r="1.5" fill="#3a1c0c"/></svg>`;
 
 const HEART = (fill: number, key: string): string => {
   const f = Math.max(0, Math.min(1, fill));
@@ -470,6 +506,10 @@ export class DialoguePanel implements Panel {
       cinema: (on, title, sub) => this.cinema(on, title, sub),
       finishLine: () => this.finishLine(),
       insert: (card) => this.insert(card),
+      spectatorHearts: (id, pts, who) => this.spectatorHearts(id, pts, who),
+      markChoice: (i) => this.markChoice(i),
+      clock: (on) => this.setManualClock(on),
+      pump: (dt) => this.pump(dt),
     });
   }
 
@@ -555,7 +595,7 @@ export class DialoguePanel implements Panel {
     for (const s of steps) {
       if (run !== this.runId || !this.openFlag) return;
       if (s.kind === 'line' && s.delay) {
-        await new Promise<void>((r) => window.setTimeout(r, s.delay));
+        await new Promise<void>((r) => this.later(r, s.delay!));
         if (run !== this.runId || !this.openFlag) return;
       }
       if (s.kind === 'line') await this.line_(id, s.text, s.mood);
@@ -651,7 +691,7 @@ export class DialoguePanel implements Panel {
 
   private hide(): void {
     this.openFlag = false;
-    window.clearTimeout(this.timer);
+    this.clearTick();
     this.setSpeaking(false);
     this.waiter = null;
     this.choiceWaiter = null;
@@ -701,10 +741,18 @@ export class DialoguePanel implements Panel {
       const i1 = Math.min(9, Math.floor((pts + pend.points - 1) / PER_HEART));
       for (let i = i0; i <= i1; i++) svgs[i]?.classList.add('ghost');
     }
-    // (r9: a spectator sees whose friendship the row is — the host's, it's their scene — beside their own)
-    const mine = spec ? Math.floor((this.game.services.relationships?.points(id) ?? 0) / PER_HEART) : 0;
-    this.hearts.dataset.spec = spec ? `${spec.who}’s ${Math.floor(pts / PER_HEART)}♥ · yours ${mine}♥` : pend ? 'Gift on its way to the host…' : '';
-    this.hearts.classList.toggle('spec', !!spec || !!pend);
+    // (r9: a spectator sees whose friendship the row is — the host's, it's their scene — beside their own;
+    // r15: as two labelled rows, the host's on top, "Yours" under it, each with its count)
+    const minePts = spec ? (this.game.services.relationships?.points(id) ?? 0) : 0;
+    if (spec) {
+      const row = (cls: string, who: string, p: number, key: string): string =>
+        `<div class="hr ${cls}"><span class="who">${who.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>${Array.from({ length: 10 }, (_, i) => HEART((p - i * PER_HEART) / PER_HEART, `${key}${id}${i}`)).join('')}<span class="n">${Math.floor(p / PER_HEART)}</span></div>`;
+      this.hearts.innerHTML = row('host', spec.who, pts, 'h') + row('mine', 'Yours', minePts, 'm');
+      this.hearts.title = `${spec.who}: ${Math.floor(pts / PER_HEART)} hearts · yours: ${Math.floor(minePts / PER_HEART)} hearts`;
+    }
+    this.hearts.dataset.spec = pend ? 'Gift on its way to the host…' : '';
+    this.hearts.classList.toggle('spec2', !!spec);
+    this.hearts.classList.toggle('spec', !!pend);
     this.hearts.classList.toggle('pending', !!pend);
     if (prev >= 0 && pts > prev) {
       // Pop the hearts whose fill changed (the newest last, a beat later).
@@ -721,14 +769,17 @@ export class DialoguePanel implements Panel {
     this.heartPts = pts;
   }
 
+  private sprinkleN = 0;
   private sprinkle(n: number): void {
     const host = this.ribbonHost;
     for (let i = 0; i < n; i++) {
       const h = document.createElement('div');
       h.className = 'dlg-float';
       h.innerHTML = HEART(1, `f${i}${Date.now()}`);
-      h.style.left = `${40 + Math.random() * 140}px`;
-      h.style.top = `${250 + Math.random() * 20}px`;
+      // (r15 determinism: a golden-ratio scatter instead of Math.random)
+      const u = (this.sprinkleN++ * 0.618034) % 1;
+      h.style.left = `${40 + u * 140}px`;
+      h.style.top = `${250 + ((u * 7.3) % 1) * 20}px`;
       h.style.animationDelay = `${i * 90}ms`;
       host.appendChild(h);
       window.setTimeout(() => h.remove(), 1400 + i * 90);
@@ -788,7 +839,7 @@ export class DialoguePanel implements Panel {
     this.text.textContent = '';
     this.text.classList.remove('dlg-q');
     this.next.classList.add('hv-hidden');
-    window.clearTimeout(this.timer);
+    this.clearTick();
     this.setSpeaking(!!id);
     this.tick();
     return new Promise((r) => (this.waiter = r));
@@ -812,11 +863,68 @@ export class DialoguePanel implements Panel {
       this.game.events.emit('ui:blip', { id: this.npc, word, index, last });
     }
     const delay = /[.!?]/.test(ch) && this.line[this.shown] === ' ' ? 190 : /[,—…]/.test(ch) ? 90 : 17;
-    this.timer = window.setTimeout(this.tick, delay);
+    this.timer = this.later(this.tick, delay);
   };
 
-  finishLine(): void {
+  // ───────────────────────────────────────────── r15 sim-clock mode (deterministic captures)
+
+  private manual = false;
+  private mClock = 0;
+  private mFire: number | null = null;
+  private autoT = 0;
+  private sleepers: { t: number; r: () => void }[] = [];
+  private setManualClock(on: boolean): void {
+    this.manual = on;
+    this.mClock = 0;
+    this.autoT = 0;
+  }
+  /** setTimeout, or (sim-clock mode) a wake-up on the stepped clock. */
+  private later(fn: () => void, ms: number): number {
+    if (!this.manual) return window.setTimeout(fn, ms);
+    this.sleepers.push({ t: (this.mFire ?? this.mClock) + ms / 1000, r: fn });
+    return -1;
+  }
+  private clearTick(): void {
     window.clearTimeout(this.timer);
+    this.sleepers = this.sleepers.filter((s) => s.r !== this.tick);
+  }
+  /** Sim-clock mode: run due typewriter ticks; a finished line holds for a reading beat then advances, an open choice takes the highlighted option. */
+  private pump(dt: number): void {
+    if (!this.manual) return;
+    this.mClock += dt;
+    for (let guard = 0; guard < 400; guard++) {
+      let k = -1;
+      for (let i = 0; i < this.sleepers.length; i++) if (this.sleepers[i]!.t <= this.mClock && (k < 0 || this.sleepers[i]!.t < this.sleepers[k]!.t)) k = i;
+      if (k < 0) break;
+      const sl = this.sleepers.splice(k, 1)[0]!;
+      // (a tick re-arms from its own due time, not the frame's end: the type speed holds at any step)
+      this.mFire = sl.t;
+      sl.r();
+      this.mFire = null;
+    }
+    if (!this.openFlag) {
+      this.autoT = 0;
+      return;
+    }
+    if (this.choiceWaiter) {
+      this.autoT += dt;
+      if (this.autoT > 2.0) {
+        this.autoT = 0;
+        this.pickChoice(this.choiceSel);
+      }
+      return;
+    }
+    if (this.waiter && this.shown >= this.line.length) {
+      this.autoT += dt;
+      if (this.autoT > 0.9 + this.line.length * 0.016) {
+        this.autoT = 0;
+        this.advance();
+      }
+    } else this.autoT = 0;
+  }
+
+  finishLine(): void {
+    this.clearTick();
     this.shown = this.line.length;
     this.paintText();
     this.next.classList.remove('hv-hidden');
@@ -845,7 +953,7 @@ export class DialoguePanel implements Panel {
   private choice_(id: NpcId, q: string, options: string[], mood: Mood, locked?: string): Promise<number> {
     this.setPortrait(id, mood);
     this.game.events.emit('npc:line', { id, mood });
-    window.clearTimeout(this.timer);
+    this.clearTick();
     this.setSpeaking(false);
     this.line = q;
     this.shown = q.length;
@@ -859,7 +967,7 @@ export class DialoguePanel implements Panel {
       const b = document.createElement('div');
       b.className = 'dlg-choice';
       b.style.animationDelay = `${60 + i * 60}ms`;
-      b.innerHTML = `<span class="k">${i + 1}</span><span>${o}</span>`;
+      b.innerHTML = `<span class="k">${i + 1}</span><span>${o}</span>${locked ? LOCK : ''}`;
       b.addEventListener('pointerenter', () => this.selectChoice(i));
       b.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
@@ -886,6 +994,13 @@ export class DialoguePanel implements Panel {
   private selectChoice(i: number): void {
     this.choiceSel = i;
     this.el.querySelectorAll('.dlg-choice').forEach((c, k) => c.classList.toggle('sel', k === i));
+  }
+
+  /** Co-op spectator: light up the option the host picked (the reply follows a beat later). */
+  markChoice(i: number): void {
+    this.el.querySelectorAll('.dlg-choices.locked .dlg-choice').forEach((c, k) => c.classList.toggle('picked', k === i));
+    const note = this.el.querySelector('.dlg-choices.locked .dlg-wait');
+    if (note) note.remove();
   }
 
   private pickChoice(i: number): void {

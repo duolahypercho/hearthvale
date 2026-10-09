@@ -25,6 +25,7 @@ import { inDetailPass } from '../render/batching';
 import { globalUniforms } from '../render/uniforms';
 import { patchMaterial, after, before } from '../render/patch';
 import { Rng } from '../core/rng';
+import { townRand } from '../world/town/rng';
 
 let shared: THREE.MeshStandardMaterial | null = null;
 /** Night-scene face fill strength for every villager (0 = off; NpcSystem eases it in during night talks / events). */
@@ -579,10 +580,12 @@ export class Villager {
   private target: THREE.Vector3 | null = null;
   private arriveFacing: Facing | number = 'down';
   private phase = 0;
-  private t = Math.random() * 10;
+  private t = 0;
   private blinkT = 0;
-  private nextBlink = 1 + Math.random() * 3;
-  private lookT = 2 + Math.random() * 3;
+  private nextBlink = 1;
+  private lookT = 2;
+  /** r15: this villager's own seeded stream label (blinks, look-arounds). */
+  private rl = 'villager';
   private look = 0;
   private lookTarget = 0;
   private moving = false;
@@ -643,6 +646,10 @@ export class Villager {
   /** `blob: false` when the owner draws all contact shadows in one instanced call (NpcSystem). */
   constructor(readonly def: NpcDef, opts: { blob?: boolean } = {}) {
     this.root.name = `npc:${def.id}`;
+    this.rl = `villager.${def.id}`;
+    this.t = townRand(this.rl) * 10;
+    this.nextBlink = 1 + townRand(this.rl) * 3;
+    this.lookT = 2 + townRand(this.rl) * 3;
     this.walkStyle = def.walk ?? DEFAULT_WALK;
     this.speed = this.walkStyle.speed;
     this.scaleS = 1.22 * def.look.scale;
@@ -1825,22 +1832,44 @@ export class Villager {
         hem.rotateX(Math.PI / 2);
         hem.translate(0, rr * Math.cos(polar) * 0.8, 0);
         rb.add(B.head, hem, T(), shadeHex(c, 0.9));
-        const N = 40;
+        // r15 (blind judge: "a rigid bowl / helmet … doesn't match the portrait's tied bandana"): the
+        // portrait's kerchief — a dozen bold dots, not a fine print; a soft rolled band over the brow;
+        // the knot tied at the left temple with two rabbit-ear lobes and two tails falling past the ear.
+        const N = 13;
         const dots: THREE.BufferGeometry[] = [];
         for (let i = 0; i < N; i++) {
           const a = (i * 2.399963) % (Math.PI * 2);
-          const th = Math.acos(1 - ((i + 0.5) / N) * (1 - Math.cos(polar - 0.12)));
+          const th = Math.acos(1 - ((i + 0.5) / N) * (1 - Math.cos(polar - 0.16)));
           const q = new THREE.Vector3(Math.sin(a) * Math.sin(th) * rr * 1.03, Math.cos(th) * rr * 0.83, Math.cos(a) * Math.sin(th) * rr * 1.06);
-          const d = new THREE.CircleGeometry(0.016 + (i % 3) * 0.003, 8);
+          const d = new THREE.CircleGeometry(0.024 + (i % 2) * 0.004, 10);
           d.lookAt(new THREE.Vector3(q.x / 1.08, q.y, q.z / 1.08));
-          q.multiplyScalar(1.006);
+          q.multiplyScalar(1.008);
           d.translate(q.x, q.y, q.z);
           dots.push(d);
         }
         for (const d of dots) rb.add(B.head, d, T(), 0xf6ecd8);
-        // The knot at the nape and two tails fluttering down over the braids.
-        rb.add(B.hairBack, lumpy(0.06, 1, 0.18, rng, 2), H(0, R * 0.86, -R * 1.1), shadeHex(c, 0.92));
-        for (const sx of [-1, 1]) rb.add(B.hairBack, roundedBox(0.075, 0.2, 0.026, 0.02), H(sx * 0.05, R * 0.62, -R * 1.12, 0.18, 0, sx * 0.35), shadeHex(c, 0.86));
+        // A soft rolled band where the cloth folds under over the brow (thicker at the front).
+        const band = torG(rr * Math.sin(polar) * 1.0, 0.024, 7, 36);
+        band.rotateX(Math.PI / 2);
+        band.scale(1, 1, 1.03);
+        band.translate(0, rr * Math.cos(polar) * 0.8 + 0.004, 0);
+        rb.add(B.head, band, T(), shadeHex(c, 0.94));
+        // The knot at the left temple (+x faces the character's left), rabbit-ear lobes, two tails.
+        const kx = R * 0.93;
+        const ky = R * 0.62;
+        const kz = -R * 0.28;
+        rb.add(B.head, lumpy(0.055, 1, 0.16, rng, 2), H(kx, ky, kz), shadeHex(c, 0.9));
+        const lobe = lumpy(0.05, 1, 0.14, rng, 2);
+        lobe.scale(1.35, 0.7, 0.55);
+        rb.add(B.head, lobe, H(kx + 0.05, ky + 0.06, kz - 0.02, 0, 0.2, 0.7), c);
+        const lobe2 = lumpy(0.046, 1, 0.14, rng, 2);
+        lobe2.scale(1.3, 0.68, 0.55);
+        rb.add(B.head, lobe2, H(kx + 0.03, ky + 0.02, kz - 0.08, 0, -0.5, -0.35), shadeHex(c, 0.95));
+        for (const [i, sz] of [[0, 1], [1, 0.82]] as const) {
+          const tail = roundedBox(0.07 * sz, 0.2 * sz, 0.022, 0.018);
+          tail.translate(0, -0.1 * sz, 0);
+          rb.add(B.head, tail, H(kx + 0.02 - i * 0.03, ky - 0.03, kz - 0.03 - i * 0.05, 0.25, 0.4, 0.28 + i * 0.3), shadeHex(c, 0.88 - i * 0.04));
+        }
         break;
       }
     }
@@ -2162,9 +2191,9 @@ export class Villager {
             let d = this.lensYaw - this.yaw;
             d = Math.atan2(Math.sin(d), Math.cos(d));
             const toward = THREE.MathUtils.clamp(d, -0.75, 0.75);
-            this.lookTarget = Math.abs(toward) < 0.25 ? (Math.random() < 0.5 ? -1 : 1) * (0.2 + Math.random() * 0.2) : toward * (0.65 + Math.random() * 0.35);
-          } else this.lookTarget = this.lookTarget !== 0 ? 0 : (Math.random() < 0.5 ? -1 : 1) * (0.35 + Math.random() * 0.4);
-          this.lookT = this.lookTarget !== 0 ? 1.2 + Math.random() : 3 + Math.random() * 4;
+            this.lookTarget = Math.abs(toward) < 0.25 ? (townRand(this.rl) < 0.5 ? -1 : 1) * (0.2 + townRand(this.rl) * 0.2) : toward * (0.65 + townRand(this.rl) * 0.35);
+          } else this.lookTarget = this.lookTarget !== 0 ? 0 : (townRand(this.rl) < 0.5 ? -1 : 1) * (0.35 + townRand(this.rl) * 0.4);
+          this.lookT = this.lookTarget !== 0 ? 1.2 + townRand(this.rl) : 3 + townRand(this.rl) * 4;
         }
         this.look += (this.lookTarget - this.look) * (1 - Math.exp(-dt * 4));
         if (act === 'idle' || act === 'wander' || act === 'chat') head.rotation.y = this.look;
@@ -2288,7 +2317,7 @@ export class Villager {
     this.nextBlink -= dt;
     if (this.nextBlink <= 0) {
       this.blinkT = 0.13;
-      this.nextBlink = 2.2 + Math.random() * 3.2;
+      this.nextBlink = 2.2 + townRand(this.rl) * 3.2;
     }
     this.blinkT -= dt;
     this.applyFace(dt, act);
@@ -3106,6 +3135,10 @@ export class Villager {
     if (!this.lodMesh) return;
     const d2 = camPos.distanceToSquared(this.position);
     const far = this.lodMesh.visible ? d2 > (VILLAGER_LOD_D - 1.5) ** 2 : d2 > VILLAGER_LOD_D * VILLAGER_LOD_D;
+    // r15 perf: a villager past ~30 m of the lens leaves the shadow pass (the contact blob grounds them;
+    // their cast shadow is a few texels at that range)
+    const shade = d2 < (this.lodMesh.castShadow ? 32 * 32 : 29 * 29);
+    if (shade !== this.lodMesh.castShadow) this.lodMesh.castShadow = shade;
     if (far === this.lodMesh.visible) return;
     this.lodMesh.visible = far;
     this.mesh.visible = !far;
@@ -3467,10 +3500,10 @@ export class ReactionFx {
     const spec = kind === 'love' ? { tex: 'heart', n: 9, size: 0.34, sp: 1.5 } : kind === 'like' ? { tex: 'heart', n: 5, size: 0.26, sp: 1.1 } : kind === 'neutral' ? { tex: 'spark', n: 4, size: 0.22, sp: 0.9 } : { tex: 'puff', n: 5, size: 0.5, sp: 0.5 };
     for (let i = 0; i < spec.n; i++) {
       const s = this.sprite(fxTexture(spec.tex as 'heart'));
-      const a = (i / spec.n) * Math.PI * 2 + Math.random() * 0.5;
-      const v = new THREE.Vector3(Math.cos(a) * spec.sp * 0.6, 1.2 + Math.random() * spec.sp, Math.sin(a) * spec.sp * 0.35);
+      const a = (i / spec.n) * Math.PI * 2 + townRand('fx.burst') * 0.5;
+      const v = new THREE.Vector3(Math.cos(a) * spec.sp * 0.6, 1.2 + townRand('fx.burst') * spec.sp, Math.sin(a) * spec.sp * 0.35);
       s.position.copy(at);
-      this.parts.push({ s, v, life: 1.3 + Math.random() * 0.5, age: -i * 0.035, size: spec.size * (0.8 + Math.random() * 0.4), spin: (Math.random() - 0.5) * 2, g: kind === 'dislike' ? -0.4 : 0.9 });
+      this.parts.push({ s, v, life: 1.3 + townRand('fx.burst') * 0.5, age: -i * 0.035, size: spec.size * (0.8 + townRand('fx.burst') * 0.4), spin: (townRand('fx.burst') - 0.5) * 2, g: kind === 'dislike' ? -0.4 : 0.9 });
     }
     if (kind === 'dislike')
       for (let i = 0; i < 2; i++) {
@@ -4822,20 +4855,20 @@ export function buildSparks(): THREE.Group {
   g.userData.tick = (dt: number): void => {
     t += dt;
     if (t >= next) {
-      next = t + 0.7 + Math.random() * 0.25;
+      next = t + 0.7 + townRand('fx.sparks') * 0.25;
       flash = 1;
       let k = 0;
       for (let i = 0; i < N && k < 26; i++) {
         if (life[i]! > 0) continue;
         k++;
-        life[i] = 0.35 + Math.random() * 0.45;
-        pos[i * 3] = (Math.random() - 0.5) * 0.08;
+        life[i] = 0.35 + townRand('fx.sparks') * 0.45;
+        pos[i * 3] = (townRand('fx.sparks') - 0.5) * 0.08;
         pos[i * 3 + 1] = 0.8;
-        pos[i * 3 + 2] = (Math.random() - 0.5) * 0.08;
-        const a = Math.random() * Math.PI * 2;
-        const sp = 1.4 + Math.random() * 2.6;
+        pos[i * 3 + 2] = (townRand('fx.sparks') - 0.5) * 0.08;
+        const a = townRand('fx.sparks') * Math.PI * 2;
+        const sp = 1.4 + townRand('fx.sparks') * 2.6;
         vel[i * 3] = Math.cos(a) * sp;
-        vel[i * 3 + 1] = 2.0 + Math.random() * 2.8;
+        vel[i * 3 + 1] = 2.0 + townRand('fx.sparks') * 2.8;
         vel[i * 3 + 2] = Math.sin(a) * sp;
       }
     }

@@ -140,6 +140,8 @@ export function installDebugApi(game: Game): DebugApi {
       drawCalls: game.rc.renderer.info.render.calls,
       triangles: game.rc.renderer.info.render.triangles,
       audio: game.services.audio?.state(),
+      // (town pod r15) the seeded town RNG: active seed, draws per named stream, the capture sequence
+      town: game.services.npcs?.debugState?.(),
     }),
     demos: Object.keys(DEMOS),
   };

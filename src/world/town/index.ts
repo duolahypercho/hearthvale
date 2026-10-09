@@ -32,6 +32,7 @@ import { buildTownHedge } from './hedge';
 import { CherryTrees } from './cherry';
 import { buildSnowmen, buildSweptPaths, buildWreathDressing, buildWinterWear, buildWinterShade } from './winter';
 import { findPath } from './pathfind';
+import { installTownTone } from './tone';
 import { NPCS } from '../../data/npcs';
 import { globalUniforms } from '../../render/uniforms';
 import { createWater } from '../water';
@@ -101,6 +102,7 @@ import {
   deckY,
   buildRoofDressing,
   eaveWinter,
+  roofSnowWinter,
   buildStoreFront,
   buildBakeryFront,
   buildGlasshouse,
@@ -186,6 +188,7 @@ export class TownMap implements GameMap {
 
   constructor(private game: Game) {
     this.root.name = 'map:town';
+    installTownTone(game);
     this.rng = game.rng.fork('town');
     this.noise = new Noise2D(this.rng.fork('n').seed);
     this.sampleRiver();
@@ -213,6 +216,7 @@ export class TownMap implements GameMap {
     this.cherries = new CherryTrees(this.rng.fork('cherries'), (x, z) => this.terrain.heightAt(x, z));
     this.buildBuildings();
     this.buildNewBuildings();
+    this.buildWinterRoofs();
     this.buildProps();
     this.buildExtraProps();
     this.buildFestoons();
@@ -454,10 +458,12 @@ export class TownMap implements GameMap {
         continue;
       }
       l.light.castShadow = false;
-      l.light.color.setHex(0xffb45e);
-      l.light.distance = 6.5;
-      l.light.decay = 2;
-      this.game.lighting.addNightLight(l.light, Math.max(l.max, 6) * 1.6);
+      // (r15: a warm-gold, broader, softer pool — the r14 0xffb45e at decay 2 burned orange-red
+      // hot spots into the cobbles and crushed everything between them)
+      l.light.color.setHex(0xffc890);
+      l.light.distance = 8.5;
+      l.light.decay = 1.45;
+      this.game.lighting.addNightLight(l.light, Math.max(l.max, 6) * 1.15);
     }
     for (const [tx, tz] of solid ?? []) this.grid.setObject(tx, tz, { kind: 'prop', id: bp.group.name, solid: true });
     return bp;
@@ -506,12 +512,25 @@ export class TownMap implements GameMap {
           this.addDoorAndSmoke(oven, 'bakery-oven', 9);
         }
         eaveWinter(winter, rd, spec, bp.group.matrixWorld.clone());
+        roofSnowWinter(winter, this.snowRng, spec, bp.group.matrixWorld.clone());
       }
       const [x0, z0, x1, z1] = b.block;
       for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) this.grid.setFlag(x, z, TileFlag.Blocked);
       this.terrain.stampCover('ao', b.x, b.z + 0.3, (x1 - x0 + 1) * 0.62, 0.55, (z1 - z0 + 1) / (x1 - x0 + 1));
       this.addDoorAndSmoke(bp, b.id, b.kind === 'store' ? 0 : b.kind === 'bakery' ? 6 : 3.5);
     }
+    this.winterB = winter;
+  }
+
+  /** Winter eaves + roof snow of every house (plaza houses and the new districts), one merged mesh. */
+  private winterB: MeshBuilder | null = null;
+  private snowRngV: Rng | null = null;
+  private get snowRng(): Rng {
+    return (this.snowRngV ??= this.rng.fork('roof-snow'));
+  }
+  private buildWinterRoofs(): void {
+    const winter = this.winterB ?? new MeshBuilder();
+    this.winterB = null;
     this.eaves = winter.build({ name: 'eaves-winter' });
     this.eaves.userData.perfTag = 'props';
     this.eaves.traverse((o) => {
@@ -563,6 +582,9 @@ export class TownMap implements GameMap {
       for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) this.grid.setFlag(x, z, TileFlag.Blocked);
       this.terrain.stampCover('ao', b.x, b.z, (x1 - x0 + 1) * 0.62, 0.55, (z1 - z0 + 1) / (x1 - x0 + 1));
       this.addDoorAndSmoke(bp, b.id, b.kind === 'inn' ? 5 : b.kind === 'forge' ? 0 : 3);
+      // r15: the new districts' roofs carry winter snow packs too (fitted to the house's own spec)
+      const hs = bp.group.userData.houseSpec as Parameters<typeof roofSnowWinter>[2] | undefined;
+      if (hs && this.winterB) roofSnowWinter(this.winterB, this.snowRng, hs, bp.group.matrixWorld.clone());
       if (b.kind === 'forge') {
         // Hearth: shed collision, flames + embers, forge smoke, a flickering practical light.
         for (let z = 14; z <= 16; z++) for (let x = 82; x <= 85; x++) this.grid.setObject(x, z, { kind: 'prop', id: 'hearth', solid: true });
@@ -1105,6 +1127,12 @@ export class TownMap implements GameMap {
 
   update(dt: number, game: Game): void {
     this.pools.update();
+    // (r15: the ground pools read gold, not orange, and a touch quieter — the lamp glass stays the hot spot)
+    const pool = this.pools.group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | undefined;
+    if (pool) {
+      if (pool.material.color.getHex() !== 0xffc489) pool.material.color.setHex(0xffc489);
+      pool.material.opacity *= 0.72;
+    }
     if (FAR_CLUTTER_M > 0) {
       // Hysteresis (±2 m) so a cell on the edge never flickers while the lens drifts.
       const cp = game.rc.camera.position;

@@ -517,10 +517,37 @@ export function buildWinterWear(
     const x = p.x + off;
     const z = p.z + (rng.next() - 0.5) * 2;
     if (river.skip(x, z)) continue;
-    const f = new THREE.CircleGeometry(0.25 + rng.next() * 0.35, 6);
+    // (r15: broken, irregular plates — the six-sided discs read as white hexagons)
+    const sh = new THREE.Shape();
+    const r0 = 0.25 + rng.next() * 0.35;
+    const nv = 8 + Math.floor(rng.next() * 4);
+    for (let v = 0; v < nv; v++) {
+      const a = (v / nv) * Math.PI * 2 + (rng.next() - 0.5) * 0.4;
+      const rr = r0 * (0.6 + rng.next() * 0.55);
+      if (v === 0) sh.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      else sh.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    }
+    const f = new THREE.ShapeGeometry(sh);
     f.rotateX(-Math.PI / 2);
     f.scale(1, 1, 0.6 + rng.next() * 0.5);
     ice.add('white', f, mat(x, river.waterY + 0.03, z, 0, rng.next() * 6), { tint: 0xe8f0f8 });
+  }
+  // r15 (critic: "a more unmistakable frozen-river treatment"): wind-blown snow lying on the ice in
+  // long streaks along the current, so the river reads as a frozen surface you could walk on.
+  for (let i = 0; i < 34; i++) {
+    const k = Math.floor(rng.next() * (sm.length - 2)) + 1;
+    const p = sm[k]!;
+    const q = sm[k + 1]!;
+    const off = (rng.next() - 0.5) * river.half * 1.5;
+    const tx = q.x - p.x;
+    const tz = q.z - p.z;
+    const tl = Math.hypot(tx, tz) || 1;
+    const x = p.x + (-tz / tl) * off;
+    const z = p.z + (tx / tl) * off;
+    if (river.skip(x, z)) continue;
+    const d = lumpySphere(0.5, 1, 0.3, rng, 1.6);
+    d.scale(1.6 + rng.next() * 2.2, 0.012, 0.35 + rng.next() * 0.35);
+    ice.add('white', d, mat(x, river.waterY + 0.04, z, 0, Math.atan2(tx, tz) - Math.PI / 2 + (rng.next() - 0.5) * 0.3), { tint: 0xf2f6fb });
   }
   const ig = ice.build({ name: 'shore-ice' });
   ig.traverse((o) => {

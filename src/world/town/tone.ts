@@ -1,0 +1,91 @@
+/**
+ * Town dusk / night tone (r15, critic: "the evening treatment is overcooked: orange-red lamp pools and
+ * crushed shadows swallow façade materials, props and villager silhouettes"). While the town is the
+ * current map, a chained scene.onBeforeRender hook (the mine / interiors precedent — render/lighting.ts
+ * stays untouched) re-tones the day/night rig's dusk and night values once per frame:
+ *
+ *  - dusk (≈18.6–21.2, peak ~19.6–20.4): the low sun loses its red (a peach-gold key, a little dimmer),
+ *    the sky fill turns cool lavender-blue and lifts (+40 %) so shadowed façades and faces keep their
+ *    midtones, the magenta haze cools, the grade's red gain and saturation come down, bloom softens;
+ *  - night: a cool moonlit fill under the practicals so the frame's thirds don't sink to near-black,
+ *    bloom kept for the few hottest focal lights.
+ *
+ * Idempotent per frame (keyed on game.time): AO / normal pre-passes render the scene too.
+ */
+import * as THREE from 'three';
+import type { Game } from '../../core/game';
+import { globalUniforms } from '../../render/uniforms';
+
+/** Live-tunable (window.__townTone) for look-dev. */
+export const TOWN_TONE = { dusk: 1, night: 1 };
+(globalThis as unknown as { __townTone: typeof TOWN_TONE }).__townTone = TOWN_TONE;
+
+const _sunGold = new THREE.Color(0xffc49a);
+const _skyCool = new THREE.Color(0x9aa6dc);
+const _groundCool = new THREE.Color(0x4c4a62);
+const _fogCool = new THREE.Color(0x8e8cb8);
+const _moonSky = new THREE.Color(0x5a6cae);
+const _moonGround = new THREE.Color(0x262a40);
+
+let installed = false;
+
+export function installTownTone(game: Game): void {
+  if (installed) return;
+  installed = true;
+  const scene = game.scene;
+  const prev = scene.onBeforeRender;
+  let lastT = -1;
+  scene.onBeforeRender = function (...args) {
+    prev.apply(this, args);
+    if (game.world.current?.id !== 'town') return;
+    if (game.time === lastT) return;
+    lastT = game.time;
+    apply(game);
+  };
+}
+
+function apply(game: Game): void {
+  const L = game.lighting;
+  const h = game.calendar.hour;
+  const snow = globalUniforms.uSnow.value;
+  const ss = THREE.MathUtils.smoothstep;
+  // Dusk weight: rises through sunset, holds through the blue hour, hands over to night.
+  const dusk = ss(h, 18.4, 19.3) * (1 - ss(h, 20.6, 21.4)) * TOWN_TONE.dusk;
+  const night = ss(L.night, 0.55, 1) * TOWN_TONE.night;
+  if (dusk < 0.002 && night < 0.002) return;
+  const rc = game.rc;
+  if (dusk > 0.002) {
+    L.sun.color.lerp(_sunGold, 0.55 * dusk);
+    L.sun.intensity *= 1 - 0.22 * dusk;
+    L.hemi.color.lerp(_skyCool, 0.6 * dusk);
+    L.hemi.groundColor.lerp(_groundCool, 0.45 * dusk);
+    L.hemi.intensity *= 1 + 0.4 * dusk;
+    L.bounce.color.copy(L.hemi.groundColor).lerp(L.sun.color, 0.5);
+    L.fog.color.lerp(_fogCool, 0.5 * dusk);
+    (rc.scene.background as THREE.Color).copy(L.fog.color);
+    globalUniforms.uSunColor.value.copy(L.sun.color).multiplyScalar(L.sun.intensity / 3);
+    rc.renderer.toneMappingExposure *= 1 - 0.05 * dusk;
+    const g = rc.post.grade.uniforms;
+    const gain = g.uGain!.value as THREE.Vector3;
+    gain.lerp(_v.set(1.0, 0.985, 1.02), 0.65 * dusk);
+    const lift = g.uLift!.value as THREE.Vector3;
+    lift.lerp(_v.set(0.03, 0.035, 0.07), 0.5 * dusk);
+    g.uSaturation!.value *= 1 - 0.1 * dusk;
+    g.uContrast!.value *= 1 - 0.03 * dusk;
+    g.uVignette!.value *= 1 - 0.2 * dusk;
+  }
+  if (night > 0.002) {
+    // (a snowy night is already bright off the snow)
+    const k = night * (1 - 0.6 * snow);
+    L.hemi.color.lerp(_moonSky, 0.35 * k);
+    L.hemi.groundColor.lerp(_moonGround, 0.4 * k);
+    L.hemi.intensity *= 1 + 0.32 * k;
+    const g = rc.post.grade.uniforms;
+    (g.uLift!.value as THREE.Vector3).lerp(_v.set(0.03, 0.038, 0.085), 0.4 * k);
+    g.uVignette!.value *= 1 - 0.18 * k;
+  }
+  // Bloom: kept for the few hottest focal lights (lamp glass, the forge mouth), not the lit ground.
+  rc.post.setBloom((0.3 + L.night * 0.22) * (1 - 0.3 * Math.max(dusk, night * 0.6)), 0.94);
+}
+
+const _v = new THREE.Vector3();

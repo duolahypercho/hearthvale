@@ -29,6 +29,7 @@ import { BUILDINGS, TOWN_PROPS } from '../data/town-layout';
 import type { Festoons } from '../world/town/festoons';
 import { itemIconUrl } from '../ui/icons';
 import { findPath, type Waypoint } from '../world/town/pathfind';
+import { townRand, setTownSeed, townRngState } from '../world/town/rng';
 import { repaintNotices } from '../world/town/notices';
 import { SocialPanel, PortraitSheetPanel } from '../ui/dialogue';
 import { setPortraitSeason, setPortraitLight, auditPortraitContrast, prewarmPortraits, auditPainted, portraitOpts } from '../ui/portraits';
@@ -95,6 +96,8 @@ export interface NpcApi {
   coop(): { gifts: { id: string; from: number; reaction: string }[]; held: { id: string; x: number; z: number }[]; spectating: string | null; facing: Record<string, number> };
   /** Closest pair of visible villagers (m) — nobody may stand inside anybody. */
   minGap(): { d: number; a: string; b: string };
+  /** r15 determinism: the town seed, each named RNG stream's draw count, and the running capture sequence. */
+  debugState(): { seed: number; streams: Record<string, number>; seq: { dur: number; t: number } | null };
 }
 
 declare module '../core/game' {
@@ -488,7 +491,7 @@ export class NpcSystem implements System {
     this.game = game;
     for (const id of NPC_IDS) {
       const v = new Villager(NPCS[id], { blob: false });
-      this.agents.set(id, { v, def: NPCS[id], stepKey: '', path: [], goal: null, activity: 'idle', inside: false, vis: 1, visTarget: 1, wanderT: 0, chatT: 2 + Math.random() * 3, emoteT: 4 + Math.random() * 8, speakT: 0, anchor: null, scripted: false, onArrive: null, run: false });
+      this.agents.set(id, { v, def: NPCS[id], stepKey: '', path: [], goal: null, activity: 'idle', inside: false, vis: 1, visTarget: 1, wanderT: 0, chatT: 2 + townRand(`npcs.agent.${id}`) * 3, emoteT: 4 + townRand(`npcs.agent.${id}`) * 8, speakT: 0, anchor: null, scripted: false, onArrive: null, run: false });
     }
     game.provide('npcs', {
       conversation: (id) => this.conversation(id),
@@ -546,6 +549,7 @@ export class NpcSystem implements System {
         facing: Object.fromEntries([...this.agents.values()].map((a) => [a.def.id, (a.v as unknown as { yaw: number }).yaw])),
       }),
       minGap: () => this.minGap(),
+      debugState: () => ({ ...townRngState(), seq: this.seq ? { dur: this.seq.dur, t: Math.round(this.seq.t * 100) / 100 } : null }),
     });
     game.hud.registerPanel('social', new SocialPanel(game, game.hud.root));
     game.hud.registerPanel('portraits', new PortraitSheetPanel(game, game.hud.root));
@@ -598,6 +602,9 @@ export class NpcSystem implements System {
       this.lastQuarter = -1;
     });
     game.events.on('demo:stage', ({ name, showcase }) => {
+      // r15: every staging replays the same ambient choices (`?townseed=N` picks another take)
+      setTownSeed();
+      this.seq = null;
       this.staged = showcase.includes('npcs');
       this.festival = showcase.includes('festival');
       if (this.active) this.restage = name;
@@ -1495,7 +1502,7 @@ export class NpcSystem implements System {
   private setActivity(a: Agent, act: Activity): void {
     a.activity = act;
     a.v.setActivity(act === 'inside' ? 'idle' : act);
-    a.wanderT = 1 + Math.random() * 3;
+    a.wanderT = 1 + townRand(`npcs.idle.${a.def.id}`) * 3;
   }
 
   private goTo(a: Agent, spotName: string, act: Activity): void {
@@ -1561,7 +1568,47 @@ export class NpcSystem implements System {
     } else for (const f of q.split(',')) if (NPCS[f.split('.')[0] as NpcId] && choiceFlags(f.split('.')[0] as NpcId).includes(f)) rel.remember(f);
   }
 
+  /**
+   * r15 deterministic capture sequences (critic: "overwhelmingly paused stills"): `&seq=<seconds>` on
+   * any town demo hands the frame clock to shot.mjs `--frames N` — frame i is the sim stepped (1/30 s
+   * ticks, holdLoop) to i·seconds/(N−1) on the seeded town RNG, the typewriter runs on that clock and
+   * finished lines / choices advance themselves. town-day walks its walkers, town-dialogue plays the
+   * talk (`&gift=` the whole gift), town-heart-event plays the scene from `&step=` (or its first line),
+   * `&spectate=1` replays the co-op handoff as the farmhand sees it.
+   */
+  private seq: { dur: number; t: number } | null = null;
+  private seqStepping = false;
+  private installSeq(name: string): void {
+    const dur = Number(new URLSearchParams(location.search).get('seq'));
+    if (!(dur > 0)) return;
+    const game = this.game;
+    this.seq = { dur, t: 0 };
+    game.services.dialogueBox?.clock?.(true);
+    game.seqHook = (i, n) => {
+      const sq = this.seq;
+      if (!sq) return 'no seq';
+      game.holdLoop = true;
+      if (game.paused) game.setPaused(false);
+      const target = n > 1 ? (i * sq.dur) / (n - 1) : 0;
+      const DT = 1 / 30;
+      this.seqStepping = true;
+      // (frame 0 renders one tick so the staged frame and the stepped ones share a clock)
+      do {
+        game.step(DT);
+        sq.t += DT;
+      } while (sq.t + 1e-6 < target + DT);
+      this.seqStepping = false;
+      return `${name} t=${sq.t.toFixed(2)}s seed=${townRngState().seed}`;
+    };
+  }
+
   private stage(name: string): void {
+    // (the sequence clock is set first: a played take must skip its wall-clock fades from the start)
+    this.installSeq(name);
+    this.stageTake(name);
+  }
+
+  private stageTake(name: string): void {
     const map = this.game.world.current;
     if (!map) return;
     this.stageMemory(name);
@@ -1850,15 +1897,19 @@ export class NpcSystem implements System {
       // again once the lens has settled)
       this.fgCull(true);
       window.setTimeout(() => this.fgCull(true), 400);
-      window.setTimeout(() => this.game.services.dialogueBox?.finishLine(), 30);
+      if (!this.seq) window.setTimeout(() => this.game.services.dialogueBox?.finishLine(), 30);
       const gi = params.get('gift');
-      if (gi) this.giftLoop = { id: a.def.id, item: gi, reaction: (params.get('reaction') as 'love' | null) ?? 'love', t: 1.2 };
+      // (a capture sequence throws the gift first, the line answers it)
+      if (gi) this.giftLoop = { id: a.def.id, item: gi, reaction: (params.get('reaction') as 'love' | null) ?? 'love', t: this.seq ? 0.2 : 1.2 };
       return;
     }
-    if (name === 'town-heart-event') {
+    if (name === 'town-heart-event' || name === 'town-heart-spectator') {
       const ev = params.get('event') ?? 'wren-2';
       const step = params.get('step');
-      this.stageEvent(ev, step !== null ? Number(step) : undefined);
+      const seq = Number(params.get('seq')) > 0;
+      if (params.get('spectate') === '1' || name === 'town-heart-spectator') this.stageSpectator(ev, step !== null ? Number(step) : undefined, seq);
+      else if (seq) this.seqEvent(ev, step !== null ? Number(step) : undefined);
+      else this.stageEvent(ev, step !== null ? Number(step) : undefined);
     }
   }
 
@@ -2024,7 +2075,7 @@ export class NpcSystem implements System {
           a.v.setPosition(x, map.heightAt(x, z), z);
           this.setActivity(a, pair ? 'chat' : 'idle');
           const toP = pair ? Math.atan2((i ? -1 : 1) * 1.24, (i ? -1 : 1) * 0.5) : 0;
-          a.v.setYaw(pair ? this.toLens(x, z, toP) : this.toLens(x, z, Math.random() * 6));
+          a.v.setYaw(pair ? this.toLens(x, z, toP) : this.toLens(x, z, townRand('npcs.stage') * 6));
           a.anchor = { x, z };
           a.staged = true;
           a.v.hush();
@@ -3713,6 +3764,68 @@ export class NpcSystem implements System {
     return true;
   }
 
+  /** r15 capture: play the scene for real (seeded, on the stepped clock) from a beat. */
+  private seqEvent(id: string, step?: number): void {
+    const he = heartEvent(id);
+    if (!he) return;
+    this.seedFor(he.npc.id, he.ev.hearts);
+    const rel = this.game.services.relationships;
+    if (rel && !this.memStaged) for (const f of memoryBefore(id, new URLSearchParams(location.search).get('alt') === '1')) rel.remember(f);
+    const [h0, h1] = he.ev.hours;
+    this.game.calendar.setHour(he.ev.demoTime ?? (h0 < 10 && h1 > 10.5 ? 10.5 : h0 + 0.5));
+    this.lastHour = this.game.calendar.hour;
+    this.lastQuarter = Math.floor(this.lastHour * 4);
+    // (default: start two talky beats before the choice, so the take holds lines, the choice and the answer)
+    let from = step ?? -1;
+    if (from < 0) {
+      const ci = he.ev.script.findIndex((st) => 'choice' in st);
+      let k = ci < 0 ? 0 : ci;
+      for (let n = 0; n < 2 && k > 0; ) if ('say' in he.ev.script[--k]!) n++;
+      from = k;
+    }
+    void this.playEvent(id, from);
+  }
+
+  /**
+   * r15 co-op demo (`town-heart-event&spectate=1`): the farmhand's view of the host's scene — the host
+   * ("Juniper") is a few hearts further along than you, the title says whose scene it is, the heart strip
+   * shows both rows, the host's choice is locked; with `&seq=` the handoff plays out (line → locked
+   * choice → the host's pick lights up → the reply), driven through the same spectate() path the net
+   * messages take.
+   */
+  private stageSpectator(id: string, step: number | undefined, seq: boolean): void {
+    const he = heartEvent(id);
+    if (!he) return;
+    const { npc, ev } = he;
+    const ci = ev.script.findIndex((st) => 'choice' in st);
+    let line = ci;
+    while (line > 0 && !('say' in ev.script[line]!)) line--;
+    const mark = step ?? (seq ? Math.max(0, line) : ci);
+    this.stageEvent(id, mark);
+    const box = this.game.services.dialogueBox;
+    const rel = this.game.services.relationships;
+    // (your own friendship trails the host's: the strip must tell the two apart)
+    if (rel) rel.adjust(npc.id, -Math.min(rel.points(npc.id), 420));
+    const hostPts = ev.hearts * 250 + 160;
+    box?.end();
+    this.spectate('v.e', ['v.e', 1, id, hostPts, 'Juniper']);
+    this.spectate('v.l', ['v.l', id, mark]);
+    if (!seq) {
+      window.setTimeout(() => box?.finishLine(), 30);
+      return;
+    }
+    void (async () => {
+      if (ci < 0 || mark >= ci) return;
+      await this.wait(3.6);
+      if (this.spectating !== id) return;
+      this.shotFor(ev, ci);
+      this.spectate('v.l', ['v.l', id, ci]);
+      await this.wait(2.6);
+      if (this.spectating !== id) return;
+      this.spectate('v.c', ['v.c', id, ci, 0]);
+    })();
+  }
+
   stageEvent(id: string, step?: number): void {
     const he = heartEvent(id);
     if (!he || !this.active) return;
@@ -3785,7 +3898,12 @@ export class NpcSystem implements System {
     }
   }
 
-  async playEvent(id: string): Promise<void> {
+  /** Screen fade, skipped under a deterministic capture (its CSS timer runs on the wall clock). */
+  private async fadeEv(out: boolean): Promise<void> {
+    if (!this.seq) await this.game.hud.fade(out);
+  }
+
+  async playEvent(id: string, from = 0): Promise<void> {
     const he = heartEvent(id);
     if (!he || this.eventRunning) return;
     const { npc, ev } = he;
@@ -3801,17 +3919,25 @@ export class NpcSystem implements System {
     this.game.input.enabled = false;
     this.game.player.controllable = false;
     const box = this.game.services.dialogueBox;
-    await this.game.hud.fade(true);
+    await this.fadeEv(true);
     this.castEvent(ev);
     this.frame(ev);
+    // (r15 capture sequences: `from` fast-forwards the silent set-up to a beat, as stageEvent does)
+    for (let i = 0; i < Math.min(from, ev.script.length); i++) {
+      const st = ev.script[i]!;
+      if (!this.stepOn(st)) continue;
+      this.applyInstant(st);
+      this.addressNow(ev, st);
+      if ('say' in st) this.lineNo++;
+    }
     this.snapCam();
     this.guardView(true);
-    await this.game.hud.fade(false);
+    await this.fadeEv(false);
     box?.cinema(true, ev.title, `${npc.name.startsWith('Dr. ') ? `Dr. ${npc.name.split(' ').pop()}` : npc.name.split(' ')[0]} · ${ev.hearts} hearts`);
     this.eventNet(['v.e', 1, id, this.game.services.relationships?.points(npc.id) ?? 0, this.hostName()]);
-    await this.wait(1.6);
+    await this.wait(from > 0 ? 0.6 : 1.6);
     let boxOpen = false;
-    for (let i = 0; i < ev.script.length; i++) {
+    for (let i = from; i < ev.script.length; i++) {
       const s = ev.script[i]!;
       // r9 memory: a step that quotes an earlier answer plays only for the farmer who gave it.
       if (!this.stepOn(s)) continue;
@@ -3860,15 +3986,15 @@ export class NpcSystem implements System {
         this.setActivity(this.agents.get(s.act)!, s.activity);
       } else if ('wait' in s) await this.wait(s.wait);
       else if ('cam' in s) await this.wait(1.0);
-      else if ('fade' in s) await this.game.hud.fade(s.fade === 'out');
+      else if ('fade' in s) await this.fadeEv(s.fade === 'out');
     }
     await this.wait(1.4);
     box?.end();
     box?.cinema(false);
     this.eventNet(['v.e', 0, id]);
-    await this.game.hud.fade(true);
+    await this.fadeEv(true);
     this.endEvent();
-    await this.game.hud.fade(false);
+    await this.fadeEv(false);
     this.game.events.emit('npc:event', { id, npcId: npc.id, phase: 'end' });
   }
 
@@ -4475,7 +4601,11 @@ export class NpcSystem implements System {
   }
 
   update(dt: number, game: Game): void {
+    // (r15 capture sequences: between the staged frames the town holds still — only the stepped sim
+    // clock moves it, so the take doesn't depend on how long the page took to load)
+    if (this.seq && !this.seqStepping) dt = 0;
     this.clock += dt;
+    if (this.seq) game.services.dialogueBox?.pump?.(dt);
     this.dressFarmers(dt);
     for (const o of this.eventProps) (o.userData.tick as ((dt: number) => void) | undefined)?.(dt);
     if (this.waits.length) {
@@ -4763,12 +4893,12 @@ export class NpcSystem implements System {
     if (a.activity === 'wander' && simulate) {
       a.wanderT -= dt;
       if (a.wanderT <= 0) {
-        a.wanderT = 5 + Math.random() * 5;
+        a.wanderT = 5 + townRand(`npcs.idle.${a.def.id}`) * 5;
         for (let k = 0; k < 6; k++) {
-          const x = anchor.x + (Math.random() - 0.5) * 7;
-          const z = anchor.z + (Math.random() - 0.5) * 7;
+          const x = anchor.x + (townRand(`npcs.idle.${a.def.id}`) - 0.5) * 7;
+          const z = anchor.z + (townRand(`npcs.idle.${a.def.id}`) - 0.5) * 7;
           if (map.grid.isWalkable(Math.floor(x), Math.floor(z))) {
-            v.walkTo(x, z, this.toLens(x, z, Math.random() * Math.PI * 2));
+            v.walkTo(x, z, this.toLens(x, z, townRand(`npcs.idle.${a.def.id}`) * Math.PI * 2));
             break;
           }
         }
@@ -4777,10 +4907,10 @@ export class NpcSystem implements System {
       a.wanderT -= dt;
       if (a.wanderT <= 0) {
         // A running lap around the anchor, then a breather.
-        a.wanderT = 7 + Math.random() * 4;
+        a.wanderT = 7 + townRand(`npcs.idle.${a.def.id}`) * 4;
         const pts: Waypoint[] = [];
-        const r = 2.2 + Math.random() * 1.2;
-        const a0 = Math.random() * Math.PI * 2;
+        const r = 2.2 + townRand(`npcs.idle.${a.def.id}`) * 1.2;
+        const a0 = townRand(`npcs.idle.${a.def.id}`) * Math.PI * 2;
         for (let k = 1; k <= 6; k++) {
           const ang = a0 + (k / 6) * Math.PI * 2;
           const x = anchor.x + Math.cos(ang) * r;
@@ -4792,7 +4922,7 @@ export class NpcSystem implements System {
         a.goal = null;
         a.onArrive = () => {
           v.faceYaw(0);
-          if (Math.random() < 0.5) v.emote(Math.random() < 0.5 ? 'music' : 'exclaim');
+          if (townRand(`npcs.emote.${a.def.id}`) < 0.5) v.emote(townRand(`npcs.emote.${a.def.id}`) < 0.5 ? 'music' : 'exclaim');
         };
         this.nextWaypoint(a);
       }
@@ -4822,15 +4952,15 @@ export class NpcSystem implements System {
         v.faceYaw(toP + THREE.MathUtils.clamp(dc, -0.75, 0.75));
         a.chatT -= dt;
         if (a.chatT <= 0) {
-          a.chatT = 1.8 + Math.random() * 2.4;
+          a.chatT = 1.8 + townRand(`npcs.idle.${a.def.id}`) * 2.4;
           v.speaking = !v.speaking && !partner.v.speaking;
-          if (v.speaking && Math.random() < 0.45 && this.barkOK(a, pl)) this.barkAt(a);
+          if (v.speaking && townRand('npcs.bark') < 0.45 && this.barkOK(a, pl)) this.barkAt(a);
           // Faces live with the gossip: a grin, a laugh, a raised brow, a knowing look.
-          const r = Math.random();
+          const r = townRand(`npcs.idle.${a.def.id}`);
           v.setMood(v.speaking ? (r < 0.35 ? 'happy' : r < 0.55 ? 'laugh' : r < 0.7 ? 'surprised' : 'neutral') : r < 0.3 ? 'thinking' : r < 0.6 ? 'happy' : 'neutral');
-          if (a.emoteT <= 0 && Math.random() < 0.4) {
-            a.emoteT = 6 + Math.random() * 8;
-            v.emote(EMOTES_CHAT[Math.floor(Math.random() * EMOTES_CHAT.length)]!);
+          if (a.emoteT <= 0 && townRand(`npcs.emote.${a.def.id}`) < 0.4) {
+            a.emoteT = 6 + townRand(`npcs.emote.${a.def.id}`) * 8;
+            v.emote(EMOTES_CHAT[Math.floor(townRand(`npcs.emote.${a.def.id}`) * EMOTES_CHAT.length)]!);
           }
         }
       } else if (pd < 3.2 && a.activity === 'idle') {
@@ -4840,10 +4970,10 @@ export class NpcSystem implements System {
     }
     // Occasional ambient emotes while working / sitting.
     if (a.emoteT <= 0) {
-      a.emoteT = 9 + Math.random() * 14;
+      a.emoteT = 9 + townRand(`npcs.emote.${a.def.id}`) * 14;
       const late = this.game.calendar.hour > 21;
       const e: Emote | null = a.activity === 'paint' ? 'idea' : a.activity === 'sit' && late ? 'zzz' : a.activity === 'read' ? 'dots' : a.activity === 'water' || a.activity === 'knead' ? 'music' : a.activity === 'fish' ? 'question' : null;
-      if (e && Math.random() < 0.6) v.emote(e);
+      if (e && townRand(`npcs.emote.${a.def.id}`) < 0.6) v.emote(e);
     }
   }
 
@@ -5050,7 +5180,7 @@ export class NpcSystem implements System {
     const line = fresh[seed % fresh.length]!;
     this.barkDay.said.add(`${a.def.id}|${line}`);
     a.v.bark(line, dur);
-    this.barkCd = 3.5 + Math.random() * 4;
+    this.barkCd = 3.5 + townRand('npcs.bark') * 4;
   }
 
   // ───────────────────────────────────────────── co-op villager sync
@@ -5263,6 +5393,7 @@ export class NpcSystem implements System {
   // ['v.l', eventId, step] a line / narration / choice shown, ['v.c', eventId, step, pick] the answer.
 
   private spectating: string | null = null;
+  private specHost = 'Host';
 
   private eventNet(data: unknown[]): void {
     if (this.netRole() === 'host') this.netApi()!.sendExt('*', data);
@@ -5322,6 +5453,7 @@ export class NpcSystem implements System {
       const he = heartEvent(id);
       if (data[1] && he) {
         this.spectating = id;
+        this.specHost = String(data[4] ?? 'Host');
         const n = he.npc.name;
         // (r9: the "watching" chip folds into the title card — one place says whose scene this is)
         box.cinema(true, he.ev.title, `${n.startsWith('Dr. ') ? `Dr. ${n.split(' ').pop()}` : n.split(' ')[0]} · ${he.ev.hearts} hearts · ${String(data[4] ?? 'Host')}’s scene`);
@@ -5349,13 +5481,19 @@ export class NpcSystem implements System {
       if ('say' in st) void box.say(st.say, st.text, st.mood);
       else if ('narrate' in st) void box.narrate(st.narrate);
       else if ('choice' in st) {
-        void box.choose(st.choice, st.q, st.options.map((o) => o.text), 'thinking', 'Waiting for the host to choose…');
+        void box.choose(st.choice, st.q, st.options.map((o) => o.text), 'thinking', `${this.specHost}’s choice — waiting for them to pick…`);
         // (co-op: the spectating farmhand sees the asker think it over too)
         this.holdChoice(st.choice);
       }
     } else if ('choice' in st) {
-      const opt = st.options[Number(data[3])];
-      if (opt) void box.say(st.choice, opt.reply, opt.mood ?? 'happy');
+      const k = Number(data[3]);
+      const opt = st.options[k];
+      if (!opt) return;
+      // (r15: the host's pick lights up on the locked list, then the reply)
+      box.markChoice?.(k);
+      void this.wait(0.75).then(() => {
+        if (this.spectating === id) void box.say(st.choice, opt.reply, opt.mood ?? 'happy');
+      });
     }
   }
 
@@ -5378,7 +5516,7 @@ export class NpcSystem implements System {
     if (!v.isMoving && a.activity !== f.act) this.setActivity(a, f.act);
     a.path = [];
     a.onArrive = null;
-    if (f.speaking && !v.speaking && Math.random() < 0.45 && this.barkOK(a, this.game.player.position)) this.barkAt(a);
+    if (f.speaking && !v.speaking && townRand('npcs.bark') < 0.45 && this.barkOK(a, this.game.player.position)) this.barkAt(a);
     v.speaking = f.speaking;
   }
 

@@ -11,6 +11,7 @@ import { MeshBuilder, roundedBox, bevelCylinder, boxUV, mat, lumpySphere, spheri
 import { lantern, windowUnit, type BuiltProp } from '../props/structures';
 import { buildTownHouse } from '../props/townkit';
 import { applyWorldFx } from '../../render/worldfx';
+import { textures } from '../../render/textures';
 
 const groundAO = (h = 0.5, min = 0.6) => (p: THREE.Vector3): number => min + (1 - min) * THREE.MathUtils.smoothstep(p.y, 0, h);
 
@@ -126,8 +127,15 @@ function roseTrellis(b: MeshBuilder, rng: Rng, x: number, fz: number, h = 2.1): 
 
 // ───────────────────────────────────────────── Flint & Ember forge
 
+/** buildTownHouse that remembers its spec on the group (r15: winter roof snow is fitted to it). */
+function specHouse(rng: Rng, spec: Parameters<typeof buildTownHouse>[1]): BuiltProp {
+  const bp = buildTownHouse(rng, spec);
+  bp.group.userData.houseSpec = spec;
+  return bp;
+}
+
 export function buildForge(rng: Rng): BuiltProp {
-  const bp = buildTownHouse(rng, { w: 6.2, d: 5, wallH: 2.9, wall: 'stone', wallTint: 0xc4b6a4, roofTint: 0x5c6878, doorTint: 0x5a3a24, shutterTint: 0x8a4a2a, chimney: true, doorX: -1, sign: 'none' });
+  const bp = specHouse(rng, { w: 6.2, d: 5, wallH: 2.9, wall: 'stone', wallTint: 0xc4b6a4, roofTint: 0x5c6878, doorTint: 0x5a3a24, shutterTint: 0x8a4a2a, chimney: true, doorX: -1, sign: 'none' });
   const b = new MeshBuilder();
   const X0 = 3.1; // east wall
   const SW = 3.9; // shed width
@@ -210,6 +218,50 @@ export function buildForge(rng: Rng): BuiltProp {
   // Horseshoe over the door, for luck (points up).
   const shoe = new THREE.TorusGeometry(0.14, 0.03, 6, 14, Math.PI * 1.35);
   b.add('metal', shoe, mat(-2.2, baseH + 2.35, fz + 0.1, 0, 0, -Math.PI * 0.18), { tint: 0x7a6a5a });
+  // r15 (critic: "the forge … doesn't sell as a destination"): the west gable the bridge road sees
+  // gets a smithy's face — a slate emblem board with an anvil and sparks high on the gable, a rack of
+  // horseshoes and a cartwheel waiting for its tyre on the wall, iron hoops stacked on the ground; and
+  // the roofline an anvil weathervane at the ridge's west end.
+  {
+    const gx = -3.1 - 0.06;
+    const top = baseH + 2.9;
+    const rise = Math.max(1.4, 5 * 0.42);
+    b.add('woodDark', roundedBox(0.08, 1.0, 1.3, 0.05), mat(gx - 0.02, top + rise * 0.36, 0), { tint: 0x5a3a24 });
+    b.add('woodPaint', roundedBox(0.06, 0.88, 1.18, 0.04), mat(gx - 0.05, top + rise * 0.36, 0), { tint: 0x2e3640 });
+    const ey = top + rise * 0.36;
+    b.add('white', roundedBox(0.03, 0.16, 0.56, 0.03), mat(gx - 0.09, ey - 0.08, 0), { tint: 0xd8d0c0 });
+    b.add('white', roundedBox(0.03, 0.12, 0.24, 0.02), mat(gx - 0.09, ey - 0.24, 0), { tint: 0xd8d0c0 });
+    b.add('white', roundedBox(0.03, 0.08, 0.5, 0.02), mat(gx - 0.09, ey - 0.33, 0), { tint: 0xd8d0c0 });
+    const hornG = new THREE.ConeGeometry(0.07, 0.24, 8);
+    hornG.rotateX(Math.PI / 2);
+    b.add('white', hornG, mat(gx - 0.09, ey - 0.06, 0.38), { tint: 0xd8d0c0 });
+    for (let i = 0; i < 5; i++) b.add('white', roundedBox(0.03, 0.05, 0.05, 0.02), mat(gx - 0.09, ey + 0.14 + (i % 2) * 0.1, -0.3 + i * 0.15), { tint: i % 2 ? 0xf2b43a : 0xffd07a });
+    // horseshoe rack
+    b.add('woodDark', roundedBox(0.08, 0.1, 1.3, 0.03), mat(gx - 0.02, 2.05, -1.2), { tint: 0x6a4a32 });
+    for (let i = 0; i < 5; i++) {
+      const hs = new THREE.TorusGeometry(0.1, 0.024, 5, 12, Math.PI * 1.4);
+      b.add('metal', hs, mat(gx - 0.08, 1.88, -1.7 + i * 0.25, 0, Math.PI / 2, Math.PI * 0.8), { tint: 0x5a4a44 });
+    }
+    // cartwheel leaning on the wall
+    const rim = new THREE.TorusGeometry(0.55, 0.05, 6, 22);
+    b.add('woodDark', rim, mat(gx - 0.2, 0.62, 1.2, 0, Math.PI / 2, 0), { tint: 0x7a5234 });
+    for (let k = 0; k < 6; k++) b.add('woodDark', roundedBox(0.04, 1.04, 0.04, 0.01), mat(gx - 0.2, 0.62, 1.2, (k / 6) * Math.PI, 0, 0), { tint: 0x7a5234 });
+    b.add('woodDark', new THREE.CylinderGeometry(0.1, 0.1, 0.14, 10).rotateZ(Math.PI / 2), mat(gx - 0.2, 0.62, 1.2), { tint: 0x5a3a24 });
+    // iron hoops on the ground
+    for (let k = 0; k < 4; k++) b.add('metal', new THREE.TorusGeometry(0.42 - k * 0.04, 0.025, 4, 18).rotateX(Math.PI / 2), mat(gx - 0.75, 0.03 + k * 0.05, 0.1), { tint: 0x3a3436 });
+    // anvil weathervane
+    const vx = -3.1 + 0.3;
+    const vy = top + rise + 0.2;
+    b.add('metal', new THREE.CylinderGeometry(0.025, 0.03, 1.1, 6), mat(vx, vy + 0.55, 0), { tint: 0x2e2a28 });
+    b.add('metal', roundedBox(0.7, 0.02, 0.02, 0.005), mat(vx, vy + 0.62, 0), { tint: 0x2e2a28 });
+    b.add('metal', roundedBox(0.02, 0.02, 0.7, 0.005), mat(vx, vy + 0.62, 0), { tint: 0x2e2a28 });
+    b.add('metal', roundedBox(0.04, 0.12, 0.42, 0.02), mat(vx, vy + 1.0, 0), { tint: 0x2e2a28 });
+    b.add('metal', roundedBox(0.04, 0.1, 0.16, 0.02), mat(vx, vy + 0.9, 0), { tint: 0x2e2a28 });
+    b.add('metal', roundedBox(0.04, 0.06, 0.34, 0.02), mat(vx, vy + 0.84, 0), { tint: 0x2e2a28 });
+    const vh = new THREE.ConeGeometry(0.05, 0.2, 6);
+    vh.rotateX(Math.PI / 2);
+    b.add('metal', vh, mat(vx, vy + 1.02, 0.3), { tint: 0x2e2a28 });
+  }
   attach(bp, b, 'forge-shed');
   bp.anchors.hearth = new THREE.Vector3(hx, 1.3, hz + 0.3);
   bp.anchors.hearthSmoke = new THREE.Vector3(hx, 5.3, hz - 0.12);
@@ -219,7 +271,7 @@ export function buildForge(rng: Rng): BuiltProp {
 // ───────────────────────────────────────────── The Copper Kettle inn
 
 export function buildInn(rng: Rng): BuiltProp {
-  const bp = buildTownHouse(rng, { w: 9.2, d: 6.0, wallH: 4.3, wall: 'plaster', wallTint: 0xf4dcb6, roofTint: 0x9a4a3a, doorTint: 0x6a3a22, shutterTint: 0x3f7a5a, chimney: true, flowerBoxes: true, doorX: 0, sign: 'none' });
+  const bp = specHouse(rng, { w: 9.2, d: 6.0, wallH: 4.3, wall: 'plaster', wallTint: 0xf4dcb6, roofTint: 0x9a4a3a, doorTint: 0x6a3a22, shutterTint: 0x3f7a5a, chimney: true, flowerBoxes: true, doorX: 0, sign: 'none' });
   const b = new MeshBuilder();
   const fz = 3.0;
   const baseH = 0.35;
@@ -268,6 +320,42 @@ export function buildInn(rng: Rng): BuiltProp {
     b.add('boxFlower', new THREE.IcosahedronGeometry(0.06, 0), mat(x + 0.04, baseH + 3.24, fz + 0.44), { tint: [0xff7aa2, 0xffd166, 0xf25f5c, 0xffffff][i % 4]! });
     if (i % 3 === 0) b.add('boxFlower', new THREE.IcosahedronGeometry(0.05, 0), mat(x + 0.1, baseH + 2.85 - rng.next() * 0.3, fz + 0.5), { tint: 0x3f7a2e });
   }
+  // r15 (critic: "the inn … doesn't sell as a destination"): the west gable the bridge sees carries a
+  // big round copper-kettle emblem, cross-braced timbering and two wall lanterns; the ridge a little
+  // copper-capped louvre cupola (a roofline no house shares).
+  {
+    const gx = 4.6 + 0.07;
+    const top = baseH + 4.3;
+    const rise = Math.max(1.4, 6 * 0.42);
+    // timbering on the gable wall
+    for (const z of [-2.9, 2.9]) b.add('woodDark', roundedBox(0.08, 4.3, 0.18, 0.03), mat(gx, baseH + 2.15, z), { tint: 0x5a3a24 });
+    b.add('woodDark', roundedBox(0.08, 0.16, 6.0, 0.03), mat(gx, baseH + 2.2, 0), { tint: 0x5a3a24 });
+    for (const sz of [-1, 1]) for (const lo of [0, 1]) b.add('woodDark', roundedBox(0.07, 2.4, 0.14, 0.02), mat(gx, baseH + (lo ? 1.1 : 3.25), sz * 1.9, sz * (lo ? 0.62 : -0.62), 0, 0), { tint: 0x5a3a24 });
+    // round emblem on the gable triangle
+    const ey = top + rise * 0.38;
+    const disc = new THREE.CylinderGeometry(0.62, 0.62, 0.08, 24);
+    disc.rotateZ(Math.PI / 2);
+    b.add('woodPaint', disc, mat(gx + 0.02, ey, 0), { tint: 0xd8b060 });
+    const disc2 = new THREE.CylinderGeometry(0.54, 0.54, 0.08, 24);
+    disc2.rotateZ(Math.PI / 2);
+    b.add('woodPaint', disc2, mat(gx + 0.05, ey, 0), { tint: 0x2f5a44 });
+    const pot = new THREE.SphereGeometry(0.3, 16, 10);
+    pot.scale(0.3, 0.78, 1);
+    b.add(copperMat(), pot, mat(gx + 0.1, ey - 0.06, 0));
+    b.add(copperMat(), new THREE.CylinderGeometry(0.04, 0.07, 0.3, 8), mat(gx + 0.1, ey - 0.02, 0.36, -1.0, 0, 0));
+    b.add(copperMat(), new THREE.TorusGeometry(0.2, 0.025, 5, 14, Math.PI).rotateY(Math.PI / 2), mat(gx + 0.1, ey + 0.12, 0));
+    // wall lanterns either side of the ground-floor window
+    for (const z of [-1.6, 1.6]) lantern(b, gx + 0.2, 2.5, z, 0.8);
+    // louvred cupola on the ridge
+    const cy = top + rise;
+    b.add('woodPaint', roundedBox(0.9, 0.7, 0.9, 0.04), mat(1.2, cy + 0.3, 0), { tint: 0xf3ead8 });
+    for (const sx of [-1, 1]) for (let k = 0; k < 3; k++) b.add('woodDark', roundedBox(0.04, 0.06, 0.7, 0.01), mat(1.2 + sx * 0.46, cy + 0.15 + k * 0.17, 0, 0, 0, sx * 0.4), { tint: 0x6a4a32 });
+    const cap = new THREE.ConeGeometry(0.75, 0.6, 4);
+    cap.rotateY(Math.PI / 4);
+    b.add(copperMat(), cap, mat(1.2, cy + 0.95, 0));
+    b.add('metal', new THREE.CylinderGeometry(0.02, 0.02, 0.5, 5), mat(1.2, cy + 1.45, 0), { tint: 0x2e2a28 });
+    b.add(copperMat(), new THREE.SphereGeometry(0.07, 10, 8), mat(1.2, cy + 1.3, 0));
+  }
   attach(bp, b, 'inn-porch');
   const l = new THREE.PointLight(0xffb45e, 0, 8, 1.8);
   l.position.set(0, 2.3, fz + 1.9);
@@ -281,7 +369,7 @@ export function buildInn(rng: Rng): BuiltProp {
 // ───────────────────────────────────────────── Willowmere Clinic
 
 export function buildClinic(rng: Rng): BuiltProp {
-  const bp = buildTownHouse(rng, { w: 7.2, d: 5.0, wallH: 3.1, wall: 'plaster', wallTint: 0xf4f4ec, roofTint: 0x4a8a7e, doorTint: 0x3a7a8a, shutterTint: 0x4a8a7e, chimney: true, flowerBoxes: false, doorX: 0, sign: 'none' });
+  const bp = specHouse(rng, { w: 7.2, d: 5.0, wallH: 3.1, wall: 'plaster', wallTint: 0xf4f4ec, roofTint: 0x4a8a7e, doorTint: 0x3a7a8a, shutterTint: 0x4a8a7e, chimney: true, flowerBoxes: false, doorX: 0, sign: 'none' });
   const b = new MeshBuilder();
   const fz = 2.5;
   // A pedimented entry porch on white columns + two dormers + climbing roses: a doctor's house,
@@ -317,7 +405,7 @@ export function buildClinic(rng: Rng): BuiltProp {
 // ───────────────────────────────────────────── Lamplighter's cottage
 
 export function buildKeeperCottage(rng: Rng): BuiltProp {
-  const bp = buildTownHouse(rng, { w: 4.8, d: 4.0, wallH: 2.5, wall: 'stone', wallTint: 0xdccfb8, roofTint: 0xcaa262, roof: 'thatch', doorTint: 0x5a7a4a, shutterTint: 0x5a7a4a, chimney: true, flowerBoxes: true, doorX: 0 });
+  const bp = specHouse(rng, { w: 4.8, d: 4.0, wallH: 2.5, wall: 'stone', wallTint: 0xdccfb8, roofTint: 0xcaa262, roof: 'thatch', doorTint: 0x5a7a4a, shutterTint: 0x5a7a4a, chimney: true, flowerBoxes: true, doorX: 0 });
   const b = new MeshBuilder();
   const fz = 2.0;
   // The lamplighter's ladder leaning on the wall.
@@ -340,7 +428,7 @@ export function buildKeeperCottage(rng: Rng): BuiltProp {
 // ───────────────────────────────────────────── Birch house + NE house
 
 export function buildBirchHouse(rng: Rng): BuiltProp {
-  const bp = buildTownHouse(rng, { w: 6.0, d: 4.6, wallH: 2.8, wall: 'wood', wallTint: 0xe6cca4, roofTint: 0x6a8e5a, doorTint: 0xb8573e, shutterTint: 0xb8573e, chimney: true, flowerBoxes: false, doorX: -1 });
+  const bp = specHouse(rng, { w: 6.0, d: 4.6, wallH: 2.8, wall: 'wood', wallTint: 0xe6cca4, roofTint: 0x6a8e5a, doorTint: 0xb8573e, shutterTint: 0xb8573e, chimney: true, flowerBoxes: false, doorX: -1 });
   const b = new MeshBuilder();
   const fz = 2.3;
   // Workbench against the front wall.
@@ -357,7 +445,7 @@ export function buildBirchHouse(rng: Rng): BuiltProp {
 }
 
 export function buildHouseNE(rng: Rng): BuiltProp {
-  return buildTownHouse(rng, { w: 5.2, d: 4.2, wallH: 2.7, wall: 'plaster', wallTint: 0xf0e0f0, roofTint: 0x7a6aa8, doorTint: 0xd89a3a, shutterTint: 0x7a6aa8, chimney: true, flowerBoxes: true, doorX: 0 });
+  return specHouse(rng, { w: 5.2, d: 4.2, wallH: 2.7, wall: 'plaster', wallTint: 0xf0e0f0, roofTint: 0x7a6aa8, doorTint: 0xd89a3a, shutterTint: 0x7a6aa8, chimney: true, flowerBoxes: true, doorX: 0 });
 }
 
 // ───────────────────────────────────────────── Bridges
@@ -910,7 +998,7 @@ export function buildSchoolhouse(rng: Rng): BuiltProp {
   const W = 6.4;
   const D = 4.6;
   const wallH = 2.9;
-  const bp = buildTownHouse(rng, { w: W, d: D, wallH, wall: 'wood', wallTint: 0xc8604a, roofTint: 0x5a6470, trimTint: 0xf6efe2, doorTint: 0x2f5a6a, shutterTint: 0xf2ead8, chimney: false, flowerBoxes: true, doorX: 0, sign: 'none' });
+  const bp = specHouse(rng, { w: W, d: D, wallH, wall: 'wood', wallTint: 0xc8604a, roofTint: 0x5a6470, trimTint: 0xf6efe2, doorTint: 0x2f5a6a, shutterTint: 0xf2ead8, chimney: false, flowerBoxes: true, doorX: 0, sign: 'none' });
   const b = new MeshBuilder();
   const fz = D / 2;
   const top = 0.35 + wallH;
@@ -984,7 +1072,7 @@ function brassMat(): THREE.MeshStandardMaterial {
 
 /** The Pennywhistle cottage on Meadow Lane: sage plaster, a porch with two chairs and a rain barrel. */
 export function buildSouthCottage(rng: Rng): BuiltProp {
-  const bp = buildTownHouse(rng, { w: 5.4, d: 4.4, wallH: 2.7, wall: 'plaster', wallTint: 0xdce8d0, roofTint: 0xb8674a, doorTint: 0xe0a83a, shutterTint: 0x5a7a8a, chimney: true, flowerBoxes: true, doorX: -1 });
+  const bp = specHouse(rng, { w: 5.4, d: 4.4, wallH: 2.7, wall: 'plaster', wallTint: 0xdce8d0, roofTint: 0xb8674a, doorTint: 0xe0a83a, shutterTint: 0x5a7a8a, chimney: true, flowerBoxes: true, doorX: -1 });
   const b = new MeshBuilder();
   const fz = 2.2;
   // A deep veranda over the chairs and a single dormer: a farmhouse profile, not the shop box.
@@ -1241,6 +1329,82 @@ export function eaveWinter(b: MeshBuilder, rng: Rng, s: { w: number; d: number; 
     ic.rotateX(Math.PI);
     add(ic, mat(x, ye - 0.02 - len / 2, ze + 0.02), 0xdcefff);
   }
+}
+
+let wetTiles: THREE.MeshStandardMaterial | null = null;
+/** Melt-darkened tiles showing through the snow (no world-fx: it must never whiten). */
+function wetTileMaterial(): THREE.MeshStandardMaterial {
+  if (wetTiles) return wetTiles;
+  const t = textures.shingles();
+  const map = t.map.clone();
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.repeat.set(3, 1.6);
+  map.needsUpdate = true;
+  wetTiles = new THREE.MeshStandardMaterial({ map, vertexColors: true, roughness: 0.38, metalness: 0 });
+  wetTiles.name = 'roof-wet-tiles';
+  return wetTiles;
+}
+
+/**
+ * r15 winter roofs (critic: "roofs … lose value separation; snow reads as uniform coating rather than
+ * accumulated material responding to architecture"): each slope carries snow as a stepped pack —
+ * strips of slab 10–17 cm thick reaching different heights up the slope, so their ragged top edge is a
+ * row of lit steps; above them the tiles show through, melt-darkened and wet where the house's warmth
+ * rises to the ridge and round the chimney; a cornice droops past the eave with a cool underside.
+ * Local house space (ground centre, +Z front, ridge along X). `b` takes the 'white' snow, the wet tiles
+ * go in their own material.
+ */
+export function roofSnowWinter(b: MeshBuilder, rng: Rng, s: { w: number; d: number; wallH: number; roofTint: number; roof?: 'roofTile' | 'thatch'; chimney?: boolean }, M: THREE.Matrix4): void {
+  const { top, rise, tanS, slope } = roofOf(s.d, s.wallH);
+  const W = s.w + 0.9;
+  const run = s.d / 2 + 0.45;
+  const cosS = Math.cos(slope);
+  const surf = (z: number): number => top + rise - tanS * z + (s.roof === 'thatch' ? 0.22 : 0.12);
+  const add = (geo: THREE.BufferGeometry, m: THREE.Matrix4, tint: number | THREE.Material, col = 0xffffff): void => {
+    if (typeof tint === 'number') b.add('white', geo, M.clone().multiply(m), { tint });
+    else b.add(tint, geo, M.clone().multiply(m), { tint: col });
+  };
+  const wet = new THREE.Color(s.roofTint).multiplyScalar(0.42).lerp(new THREE.Color(0x2a2c36), 0.35).getHex();
+  for (const sz of [-1, 1]) {
+    // Exposed wet band: ridge down to just under the lowest snow step (the slabs sit on top of it).
+    const bandLen = (run * 0.62) / cosS;
+    const bz = run * 0.31;
+    const band = roundedBox(W - 0.04, 0.03, bandLen, 0.012, 1);
+    add(band, mat(0, surf(bz) + 0.005, sz * bz, sz * slope, 0, 0), wetTileMaterial(), wet);
+    // The snow pack in strips: each reaches its own height (stepped, ragged top edge).
+    // (the reach wanders along the roof as a slow wave plus jitter: a soft scalloped melt line with
+    // a few deeper bites, not a crenellated row of equal notches)
+    const ph = rng.next() * 6.28;
+    let x = -W / 2;
+    while (x < W / 2 - 0.05) {
+      const sw = Math.min(W / 2 - x, 0.32 + rng.next() * 0.3);
+      const xc = x + sw / 2;
+      const reach = THREE.MathUtils.clamp(0.66 + 0.12 * Math.sin(xc * 0.9 + ph) + 0.06 * Math.sin(xc * 2.3 + ph * 2) + (rng.next() - 0.5) * 0.1, 0.46, 0.86);
+      const th = 0.11 + rng.next() * 0.05;
+      const len = (run * reach) / cosS;
+      const zc = run - (run * reach) / 2;
+      const slab = roundedBox(sw + 0.1, th, len, Math.min(0.055, th * 0.48), 1);
+      add(slab, mat(xc, surf(zc) + th / 2 / cosS + 0.01, sz * zc, sz * slope, 0, 0), 0xeef3fa);
+      // A wind-packed roll along each step's upper edge rounds it off.
+      const zt = run - run * reach + 0.06;
+      const lump = lumpySphere(0.1 + rng.next() * 0.06, 0, 0.22, rng, 1.8);
+      lump.scale((sw + 0.1) / 0.24, 0.42, 0.75);
+      add(lump, mat(xc, surf(zt) + th * 0.85, sz * zt, sz * slope, 0, 0), 0xf2f6fb);
+      x += sw;
+    }
+    // Cornice: snow creeping over the eave, drooping, with a cool shaded underside (the back eave;
+    // the front one is eaveWinter's lip + icicles).
+    if (sz < 0) {
+      const lip = new THREE.CapsuleGeometry(0.11, W - 0.25, 4, 10);
+      lip.rotateZ(Math.PI / 2);
+      lip.scale(1, 1.1, 1.3);
+      add(lip, mat(0, surf(run) + 0.07, -run + 0.02), 0xe6eef8);
+    }
+  }
+  // Ridge: the warm roof sheds its snow there — the cap stays dark and wet.
+  const cap = new THREE.CylinderGeometry(0.125, 0.125, W + 0.12, 10);
+  cap.rotateZ(Math.PI / 2);
+  add(cap, mat(0, top + rise + 0.11, 0), wetTileMaterial(), new THREE.Color(wet).multiplyScalar(0.85).getHex());
 }
 
 // ───────────────────────────────────────────── Plaza identities (r11)

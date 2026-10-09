@@ -849,6 +849,37 @@ actors such as Pip the shop cat).
   *Blocking*: town-day's Kit runs clear of the laundry line, Odessa walks up the road in view (she was
   behind the bridge abutment / the cottage roof), Marigold and winter Linus step off the festoon poles.
 
+- **Round 15** — *Determinism*: every run-time choice the town makes (villager blink / look-around
+  phases, wander targets, chat moods and emotes, bark cooldowns, gift-burst sparkles, forge sparks)
+  draws from a named stream of one town seed (`world/town/rng.ts`: `townRng('npcs.idle.<id>')`, no
+  `Math.random` left in the town code); demo staging reseeds it, `?townseed=N` picks another take and
+  `__game.info().town` reports `{ seed, streams: draws per stream, seq }`. *Capture sequences*:
+  `&seq=<seconds>` on any town demo hands shot.mjs `--frames N` a sim clock (`__game.seqFrame`: frame i
+  = the game stepped in 1/30 s ticks to i·seconds/(N−1), holdLoop on) — the typewriter runs on that
+  clock, finished lines and choices advance themselves (`dialogueBox.clock / pump`), fades are skipped;
+  `town-heart-event&seq=` plays the scene for real from `&step=` (default: two lines before the choice),
+  `town-dialogue&gift=…&seq=` the whole gift, `town-day&seq=` the town's walkers / sweepers / readers.
+  *Co-op*: a spectator's heart strip is two labelled rows, the host's hearts ("Juniper") and "Yours",
+  each with its count (r14's `spectatorHearts` was never wired to the box — the critic's empty row);
+  host-owned choices carry a padlock, "Juniper's choice — waiting for them to pick…", and the host's
+  pick lights up before the reply; `town-heart-event&spectate=1` stages the farmhand's view
+  (`&seq=` plays the handoff). *Dialogue*: the parchment hugs its text (a one-liner is a ~115 px slab,
+  the portrait card keeps its size and stands up out of the frame). *Dusk / night tone*
+  (`world/town/tone.ts`, a chained scene.onBeforeRender like the mine's): through the blue hour the sun
+  loses its red, the sky fill turns cool lavender and lifts 40 %, the magenta haze cools, red gain /
+  saturation / bloom come down; at night a cool moonlit fill keeps the frame's thirds out of
+  near-black; lamp pools are gold, broader and softer (decay 2 → 1.45, 8.5 m). *Winter*: roofs carry a
+  stepped snow pack (`buildings.ts roofSnowWinter`: strips 10–17 cm thick whose reach wanders up the
+  slope, a wind-packed roll on each step, a back-eave cornice) over melt-darkened wet tiles at the ridge
+  (its own no-snow material) — every house in both districts; floes are broken plates, snow lies on the
+  river ice in long wind streaks. *Landmarks*: the forge's west gable (the bridge road's view) gets a
+  slate anvil-and-sparks emblem, a horseshoe rack, a cartwheel, iron hoops and an anvil weathervane; the
+  inn's gable cross-braced timbering, a big round copper-kettle emblem, wall lanterns and a copper-capped
+  louvre cupola on the ridge. *Faces*: Odessa's kerchief is the portrait's (bold dots, a rolled band,
+  the knot and tails at her left temple), with larger eyes; odessa-4 is re-blocked so the HALL CLOSED
+  notice reads beside her. *Perf*: villagers past ~30 m leave the shadow pass; the roof packs use
+  single-segment bevels.
+
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (19:05, lamps lit, the bakery and market row), `town-winter` (the establishing lens in snow,
 its own winter blocking), `town-winter-square` (the plaza in snow), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
@@ -856,7 +887,7 @@ paths a real farmhand's intents take), `town-rain`,
 `town-east`, `town-south`, `town-cast`, `town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1` ·
 `&first=1` for the first meeting; bystanders vary per villager and hour, busy with their own things),
 `town-night-talk`, `town-heart-event` (`&event=<npc>-<2|4|6|8|10>&step=N`, `&alt=1` = the second answers
-remembered), `town-memories` (`&mem=all|alt|<flag>,…`: the town a year in, keepsakes out), `town-square`,
+remembered, `&spectate=1` or `town-heart-spectator` = a co-op farmhand's view), any of them `&seq=<s>` for a frame sequence (r15), `town-memories` (`&mem=all|alt|<flag>,…`: the town a year in, keepsakes out), `town-square`,
 `town-portraits` (`&ui=portraits:<npc>` = all ten moods), `town-social`, `festival`.
 
 ## Driftsand Beach & fishing
