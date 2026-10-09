@@ -2044,8 +2044,8 @@ export class AnimalSystem implements System, AnimalsApi {
         // clear of the animal's face) and the hand is laid on the crown by a one-bone IK.
         const low = this.petLow ? 1 : 0.32;
         const pat = t > 0.14 && t < T - 0.2 ? Math.sin((t - 0.14) * 11) : 0;
-        // (r19: a deeper kneel for birds — the hand comes down onto the hen's back instead of pointing)
-        rig.torso.rotation.x = (this.petLow ? 0.62 : 0.06) * e;
+        // (r19: tried a deeper 0.62 lean for birds — facing the lens it turned the farmer into a hat top)
+        rig.torso.rotation.x = (this.petLow ? 0.5 : 0.06) * e;
         rig.head.rotation.x = (this.petLow ? -0.24 : -0.1) * e;
         rig.armR.rotation.x = (-1.0 - 0.35 * low + pat * 0.16) * e;
         rig.armR.rotation.z = -0.12 - 0.1 * e;
@@ -2795,6 +2795,8 @@ export class AnimalSystem implements System, AnimalsApi {
     if (!this.marks.has(k)) this.marks.set(k, this.game.time);
   }
   private seq: { name: string; k: number } | null = null;
+  /** animals-chores: the pat count when the closing pat was asked for (its beat waits for one more). */
+  private closePets = -1;
 
   private stageAct(name: string, params: URLSearchParams): void {
     const g = this.game;
@@ -2840,19 +2842,34 @@ export class AnimalSystem implements System, AnimalsApi {
       wait(2.2);
       // A hen that came to eat beside the farmer gets a pat: turn to whichever side has a bird in reach
       // (with hay in hand a full trough hands the click to the animal standing there).
-      run(() => {
+      const dirs = [['down', 0, 1], ['left', -1, 0], ['right', 1, 0], ['up', 0, -1]] as const;
+      const beside = (): (typeof dirs)[number] | null => {
         const p = g.player.position;
         const tx = Math.floor(p.x);
         const tz = Math.floor(p.z);
-        const dirs = [['down', 0, 1], ['left', -1, 0], ['right', 1, 0], ['up', 0, -1]] as const;
-        for (const [f, ox, oz] of dirs) {
-          if (this.hitAnimal(tx + ox, tz + oz)) {
-            g.player.setFacing(f);
-            break;
-          }
+        for (const d of dirs) if (this.hitAnimal(tx + d[1], tz + d[2])) return d;
+        return null;
+      };
+      // (r19: step back off the trough onto open straw — pinned between the trough and the wall the bird
+      // could not be staged beside the farmer and the pat happened under the hat — then wait up to 4 s for
+      // a bird in reach: when none had come up yet, the F went to the trough and the "pat" frame had no heart)
+      walk(2.3, 3.5, 'right');
+      let t0 = 0;
+      run(() => void (t0 = g.time));
+      ops.push({ kind: 'until', test: () => g.time - t0 > 4 || beside() !== null });
+      run(() => {
+        this.closePets = this.marks.get('pet#') ?? 0;
+        const d = beside();
+        if (d) {
+          g.player.setFacing(d[0]);
+          this.tap('KeyF');
+          return;
         }
+        // Nobody in reach: the nearest bird within 2.2 m gets the pat (the same petting path).
+        const pp = g.player.position;
+        const near = this.live.filter((l) => l.rec).sort((a, b) => a.actor.pos.distanceTo(pp) - b.actor.pos.distanceTo(pp))[0];
+        if (near && Math.hypot(near.actor.pos.x - pp.x, near.actor.pos.z - pp.z) < 2.2) this.petActor(near);
       });
-      press('KeyF');
     } else if (name === 'animals-rain') {
       this.syncDoors();
       this.respawn();
@@ -2919,6 +2936,7 @@ export class AnimalSystem implements System, AnimalsApi {
     }
     this.act = { ops, i: 0, t: 0, walkT: 0, keys: new Set(), waiting: false, started: false, release: [] };
     this.marks.clear();
+    this.closePets = -1;
     this.seq = null;
     // shot.mjs --frames N: one frame per milestone (see seqFrame); the hook returns a promise (the
     // harness awaits page.evaluate), typed as the sync hook's string.
@@ -3041,7 +3059,7 @@ export class AnimalSystem implements System, AnimalsApi {
         { label: 'trough filled (+ a pat for the hen at it)', test: m('hay'), settle: 0.4 },
         { label: 'flock comes to eat', test: m('eat'), settle: 1.2 },
         // (the trough click pats the hen standing at it too: the closing pat is the script's last op)
-        { label: 'pat (heart pop)', test: () => this.act!.i >= this.act!.ops.length && m('pet', 2)(), settle: 0.22, max: 10 },
+        { label: 'pat (heart pop)', test: () => this.closePets >= 0 && (this.marks.get('pet#') ?? 0) > this.closePets, settle: 0.22, max: 10 },
         { label: 'content flock', test: yes, settle: 1.8 },
       ];
     }
