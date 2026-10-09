@@ -1080,13 +1080,13 @@ void main() {
     float wr = mix(0.03, 0.17, smoothstep(0.05, 0.55, sr)) * dk;
     // (r25) A solid glass core inside the sheath (r10 critic: jets read as strings of beads): ~2.4 cm
     // off the nozzle tapering to ~1.4 cm, as a fraction of the ribbon's half-width.
-    float coreW = mix(0.024, 0.014, sr) * dk;
+    float coreW = mix(0.032, 0.018, sr) * dk;
     pr += sider * position.y * wr;
     vec4 mvr = viewMatrix * vec4(pr, 1.0);
     gl_Position = projectionMatrix * mvr;
     vUv = vec2(position.y, coreW / wr);
     // Mist alpha (sheath) rides in vS below -1: vS = -1 - mist.
-    float mist = aA.x * 0.09 * smoothstep(0.25, 0.45, sr) * (1.0 - smoothstep(0.62, 0.9, sr)) * (0.7 + 0.3 * sin(sr * 17.0 - uTime * 7.0 + ph * 4.0));
+    float mist = aA.x * 0.12 * smoothstep(0.25, 0.45, sr) * (1.0 - smoothstep(0.62, 0.9, sr)) * (0.7 + 0.3 * sin(sr * 17.0 - uTime * 7.0 + ph * 4.0));
     vS = -1.0 - clamp(mist, 0.0, 0.99);
     // (r18) The coherent body only over the first ~60 % of the throw, then it has broken into drops
     // (a full-length ribbon read as a hose / wire).
@@ -2267,7 +2267,7 @@ export class FarmFX {
         const orb = p.age * 2.4;
         // (r25) The clearance grows with the star (camK): at the hero lenses the bigger star sat over the
         // produce and the farmer's face (blind judge: "move the harvest VFX off the character's face").
-        st.position.copy(m.position).setY(cy).addScaledVector(this.viewRight, side * (Math.min(p.hw * S, 0.2) + 0.09 * camK + Math.cos(orb) * 0.012)).addScaledVector(this.viewUp, Math.min(p.hh * S * 0.75, 0.18) + 0.07 * camK + Math.sin(orb) * 0.012);
+        st.position.copy(m.position).setY(cy).addScaledVector(this.viewRight, side * (Math.min(p.hw * S, 0.2) + 0.14 * camK + Math.cos(orb) * 0.012)).addScaledVector(this.viewUp, Math.min(p.hh * S * 0.5, 0.12) + 0.02 * camK + Math.sin(orb) * 0.012);
         // Spin in (a full turn IN the screen plane that settles), then a gentle rock — always
         // billboarded: the star never turns edge-on into a sliver (its yaw rocks ≤ ±0.3 rad).
         const spinIn = ts > 0 ? Math.max(0, 1 - ts / 0.24) : 1;
