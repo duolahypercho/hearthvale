@@ -184,7 +184,11 @@ moved / vanished still refreshes at once (`?shadowsplit=1` = old one-frame refre
 G-buffer) draw only the larger prefix (`geom.ts` DETAIL_R, `userData.shadowCount`; `?detailr=0` = off).
 Water (perf r17): solid winter ice skips the open-water colour it fully replaces and runs its crack Voronoi only on the
 cracks' runs; open water takes a forward 2e wave difference (`world/water.ts`, `?waterfast=0` = old shader). The beach
-ocean's swash / breaker phase noise and kelp-bed warp are per vertex on the 0.5 m near sheet (`?oceanvn=0`). Rain / snow
+ocean's swash / breaker phase noise and kelp-bed warp are per vertex on the 0.5 m near sheet (`?oceanvn=0`). Its deep
+occluder (perf r23, `?oceandeep=0`) is kept: hiding it in-page costs beach-sunset +1.2 ms of main pass (matbench p20, the
+sea bed's sand shading comes back under the opaque deep water) and is neutral (-0.1) at the coop-fishing lens (perf g20;
+page-to-page `?oceandeep=0` runs differ by more than that on this machine). The open sea has no dominant term left: the
+wave-normal gradient taps are 0.3-0.8 ms, whitecaps / kelp / swash-front beads / glints <= 0.13 ms each. Rain / snow
 quads that are inactive or faded out at the lens are clipped in the vertex shader. Mine (perf r20): the lava band's
 scorch / ash fbms (three coarse octaves) and crazing mask are per vertex on the cave shell's 0.2 m grid; fields that place
 thin crack / joint lines stay per pixel (`world/mine/cave.ts` HV_CAVE_VN, `?cavevn=0` = old shader). The lava plane
