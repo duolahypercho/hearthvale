@@ -209,8 +209,19 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           {
             vec2 tq = fract(wq);
             vec2 te = min(tq, 1.0 - tq);
-            float ed = min(te.x, te.y) + (hvNoise(wq * 9.0 + 11.0) - 0.5) * 0.09;
-            hvFresh = texture2D(uHeave, (floor(wq) + 0.5) / uWetSize).g * smoothstep(-0.02, 0.06, ed);
+            float nz = (hvNoise(wq * 9.0 + 11.0) - 0.5) * 0.09;
+            // (r25) Fade only toward a neighbour that is NOT fresh: a contiguous slam reads as one
+            // turned patch with no tile seams (r10 critic: faint grid lines across a 3×3 slam).
+            vec2 cl = floor(wq);
+            vec2 sn = vec2(tq.x < 0.5 ? -1.0 : 1.0, tq.y < 0.5 ? -1.0 : 1.0);
+            float f0 = texture2D(uHeave, (cl + 0.5) / uWetSize).g;
+            float fxn = texture2D(uHeave, (cl + vec2(sn.x, 0.0) + 0.5) / uWetSize).g;
+            float fzn = texture2D(uHeave, (cl + vec2(0.0, sn.y) + 0.5) / uWetSize).g;
+            float fdn = texture2D(uHeave, (cl + sn + 0.5) / uWetSize).g;
+            float hx = mix(min(f0, fxn), f0, smoothstep(-0.02, 0.06, te.x + nz));
+            float hz = mix(min(f0, fzn), f0, smoothstep(-0.02, 0.06, te.y + nz));
+            float hd = mix(min(f0, fdn), f0, smoothstep(-0.02, 0.06, max(te.x, te.y) + nz));
+            hvFresh = min(min(hx, hz), hd);
             hvFresh = max(hvFresh, vSoilFresh * 0.4);
           }
           c *= 1.0 - halo * 0.18;

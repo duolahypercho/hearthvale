@@ -89,3 +89,45 @@ export function buildBedEdging(beds: BedRect[], heightAt: (x: number, z: number)
   grp.userData.perfTag = 'props';
   return grp;
 }
+
+/**
+ * (r25) Fallen-leaf litter for a fall hero field (r10 critic: "add fallen-leaf decals on the beds"):
+ * small flat, slightly cupped leaves in amber / rust / ochre / tan lying on the soil and paths,
+ * thicker along the bed edging (where wind piles them). One instanced draw, no shadow casting.
+ */
+export function buildLeafLitter(spots: { x: number; y: number; z: number }[], seed = 1): THREE.InstancedMesh {
+  const r = new Rng(`litter:${seed}`);
+  // A pointed oval leaf with a cupped midrib.
+  const shape = new THREE.Shape();
+  shape.moveTo(0, -0.05);
+  shape.quadraticCurveTo(0.032, -0.012, 0, 0.055);
+  shape.quadraticCurveTo(-0.032, -0.012, 0, -0.05);
+  const g = new THREE.ShapeGeometry(shape, 4);
+  const p = g.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) p.setZ(i, Math.abs(p.getX(i)) * 0.35);
+  g.rotateX(-Math.PI / 2);
+  g.computeVertexNormals();
+  const m = new THREE.MeshStandardMaterial({ roughness: 0.85, side: THREE.DoubleSide });
+  m.name = 'leafLitter';
+  const mesh = new THREE.InstancedMesh(g, m, Math.max(1, spots.length));
+  const tones = [0xd9822b, 0xb8521f, 0xe0a83a, 0x9a4a22, 0xc89a52, 0x8a5a2a];
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const mx = new THREE.Matrix4();
+  const c = new THREE.Color();
+  spots.forEach((s, i) => {
+    e.set((r.next() - 0.5) * 0.4, r.next() * Math.PI * 2, (r.next() - 0.5) * 0.4);
+    q.setFromEuler(e);
+    const k = 0.75 + r.next() * 0.6;
+    mx.compose(new THREE.Vector3(s.x, s.y + 0.006, s.z), q, new THREE.Vector3(k, k, k));
+    mesh.setMatrixAt(i, mx);
+    c.setHex(tones[Math.floor(r.next() * tones.length)]!).multiplyScalar(0.8 + r.next() * 0.3);
+    mesh.setColorAt(i, c);
+  });
+  mesh.count = spots.length;
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  mesh.name = 'leaf-litter';
+  mesh.userData.perfTag = 'props';
+  return mesh;
+}

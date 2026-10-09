@@ -59,7 +59,7 @@ import { FarmFX } from '../world/props/farmfx';
 import { TileCursor, type CursorState } from '../world/props/tilecursor';
 import { CrowFlock } from '../world/props/crows';
 import { buildTool, CAN_SPOUT } from '../world/props/tools';
-import { buildBedEdging, type BedRect } from '../world/props/bededge';
+import { buildBedEdging, buildLeafLitter, type BedRect } from '../world/props/bededge';
 import { buildSprinklerModel, type SprinklerModel } from '../world/props/sprinklers';
 import { FarmerActions, IMPACT, type ActionKind } from '../entities/farmer-actions';
 import { RemoteFarmer } from '../entities/remote-farmer';
@@ -68,6 +68,7 @@ import { PRESET_LOOKS } from '../entities/remote-look';
 import type { Nature, NatureHandle } from '../world/props/nature';
 import { flyItemToToolbar, flyItemTo } from '../ui/item-fly';
 import { registerFarmIcons } from '../ui/farm-icons';
+import { itemIconUrl } from '../ui/icons';
 import { Rng } from '../core/rng';
 
 export type FarmTool = 'hoe' | 'wateringCan' | 'axe' | 'pickaxe' | 'scythe';
@@ -293,8 +294,11 @@ const SHOWCASE: Record<Season, CropId[]> = {
 /** `null` rows are a packed-dirt path splitting the field into a tall bed (north) and a low bed (south). */
 /** A `[west, east]` pair plants single-species blocks either side of the walkway; `'gap'` is a bare,
  *  tilled spacing row (tall crops read as clean colour blocks with air between them). */
-type HarvestRow = CropId | null | 'gap' | [CropId | 'gap', CropId | 'gap'];
-const HARVEST_ROWS: Record<Season, { rows: HarvestRow[]; giant: CropId | null; trellis: CropId | null; crate: CropId[] }> = {
+type HarvestCell = CropId | 'gap';
+/** (r25) A triple `[west, eastNear, eastFar]` splits the east bed into two species blocks at HARVEST_SPLIT. */
+type HarvestRow = CropId | null | 'gap' | [HarvestCell, HarvestCell] | [HarvestCell, HarvestCell, HarvestCell];
+const HARVEST_SPLIT = 26;
+const HARVEST_ROWS: Record<Season, { rows: HarvestRow[]; giant: CropId | null; trellis: CropId | null; crate: CropId[]; walk?: number }> = {
   spring: { rows: [['greenBean', 'kale'], ['greenBean', 'kale'], 'gap', 'potato', null, 'parsnip', 'strawberry', 'cauliflower', 'strawberry'], giant: 'cauliflower', trellis: 'greenBean', crate: ['cauliflower', 'parsnip', 'strawberry', 'potato'] },
   // r15: one melon row a side (the giant fills the SW corner), the NE bed packed edge to edge with
   // peppers + tomatoes, blueberry bushes and pepper / tomato blocks up front (no monoculture).
@@ -312,8 +316,15 @@ const HARVEST_ROWS: Record<Season, { rows: HarvestRow[]; giant: CropId | null; t
   // r24: the front beds are two families each with a bare, DRY lane between them (pale crazed soil =
   // walkable negative space, blind judge: "dense and similar in tone", "tidy, intentional plots"); the
   // giant only joins the hero field on request (`&giant=1`: it pulled focus from the farmer).
-  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], ['tomato', 'hotPepper'], ['tomato', 'hotPepper'], null, ['melon', 'blueberry'], ['gap', 'gap'], ['hotPepper', 'tomato'], ['melon', 'melon']], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
-  fall: { rows: [['corn', 'grape'], ['corn', 'grape'], ['beet', 'eggplant'], 'eggplant', null, 'pumpkin', 'pumpkin', 'gap', 'beet'], giant: 'pumpkin', trellis: 'grape', crate: ['pumpkin', 'eggplant', 'beet', 'corn', 'yam'] },
+  // r25: no bare bands at all (r10 critic: ~30 % of the beds were dark empty rows); the walkway moves to
+  // x 21 so the map's scarecrow + can stump stand ON it (a sentinel at the head of the walk, the can
+  // at the cross path) instead of inside a bed; the east bed splits into species blocks both ways
+  // (a hops trellis block gives the field a vineyard rhythm).
+  summer: { walk: 21, rows: [['corn', 'sunflower', 'sunflower'], ['corn', 'sunflower', 'sunflower'], ['tomato', 'hops', 'hotPepper'], ['tomato', 'hops', 'hotPepper'], null, ['melon', 'blueberry', 'blueberry'], ['melon', 'blueberry', 'blueberry'], ['hotPepper', 'tomato', 'melon'], ['hotPepper', 'tomato', 'melon']], giant: 'melon', trellis: 'hops', crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
+  // r25: its own plan (r10 critic: "the summer layout with crops swapped"): corn + amber sunflowers
+  // at the back, an eggplant | yam band, then a pumpkin patch beside a grape vineyard block up front
+  // and a dense beet / yam block below the pumpkins.
+  fall: { walk: 21, rows: [['corn', 'corn', 'sunflower'], ['corn', 'corn', 'sunflower'], ['eggplant', 'beet', 'eggplant'], ['eggplant', 'beet', 'eggplant'], null, ['pumpkin', 'pumpkin', 'grape'], ['pumpkin', 'pumpkin', 'grape'], ['beet', 'eggplant', 'grape'], ['beet', 'eggplant', 'grape']], giant: 'pumpkin', trellis: 'grape', crate: ['pumpkin', 'eggplant', 'beet', 'corn', 'yam'] },
   winter: { rows: [], giant: null, trellis: null, crate: [] },
 };
 
@@ -2105,6 +2116,7 @@ export class FarmingSystem implements System, FarmingApi {
           this.fx.hoeImpact(this.center(tx, tz, 0.05), dx, dz, SOIL_COLOR, 0.55);
         });
       });
+      this.cursor.wash = 0;
       // A tight shockwave of dust puffs + a thin ring, confined to the struck block.
       if (hit.length) {
         const cx = hit.reduce((a, [tx]) => a + tx + 0.5, 0) / hit.length;
@@ -2547,7 +2559,12 @@ export class FarmingSystem implements System, FarmingApi {
     const Z1 = 28;
     this.clearRect(X0, Z0, X1, Z1);
     if (!plan.rows.length) return this.stageShowcase(season);
-    const walk = 23; // packed-dirt walkway column
+    const walk = plan.walk ?? 23; // packed-dirt walkway column
+    const cellAt = (row: HarvestRow | undefined, x: number): HarvestCell | null => {
+      if (!Array.isArray(row)) return (row ?? null) as HarvestCell | null;
+      if (x < walk) return row[0];
+      return row.length === 3 && x >= HARVEST_SPLIT ? row[2] : row[1];
+    };
     const pathRows = plan.rows.map((id, i) => (id ? -1 : Z0 + i)).filter((z) => z >= 0);
     const giantAt = { x: X0 + 1, z: Z1 - 2 };
     // (r24) The giant is opt-in on the hero field (`&giant=1`; `farm-giant` is its own showcase).
@@ -2588,7 +2605,7 @@ export class FarmingSystem implements System, FarmingApi {
     for (let z = Z0; z <= Z1; z++) {
       const row = plan.rows[z - Z0];
       for (let x = X0; x <= X1; x++) {
-        const cell = Array.isArray(row) ? row[x < walk ? 0 : 1] : row;
+        const cell = cellAt(row, x);
         const id = cell === 'gap' ? null : cell;
         if (!this.isTilled(x, z) || this.tile(x, z).sprinkler) continue;
         if (giant && x >= giantAt.x && x < giantAt.x + 3 && z >= giantAt.z && z < giantAt.z + 3) {
@@ -2606,7 +2623,8 @@ export class FarmingSystem implements System, FarmingApi {
         // (r17) Red-fruited rows ripen unevenly (fewer red dots, silhouettes read).
         const redFruit = id === 'tomato' || id === 'hotPepper';
         // (r18) Peppers ripe ~2/3 of the time: their stage-4 flowering sprigs read as bare soil between bushes.
-        const stage = dense ? (roll < (id === 'hotPepper' ? 68 : redFruit ? 45 : 70) ? RIPE_STAGE : 4) : roll < 62 ? RIPE_STAGE : roll < 90 ? 4 : 3;
+        // (r25) Eggplants almost always ripe (their stage-4 sprigs left the fall front beds bare).
+        const stage = dense ? (roll < (id === 'hotPepper' ? 68 : id === 'eggplant' ? 88 : redFruit ? 45 : 70) ? RIPE_STAGE : 4) : roll < 62 ? RIPE_STAGE : roll < 90 ? 4 : 3;
         this.plant(id, x, z, this.daysAt(id, stage), h);
       }
     }
@@ -2617,8 +2635,7 @@ export class FarmingSystem implements System, FarmingApi {
     // head as the spray lands (FarmingSystem.updateSprinklers), framed by dry ochre soil between.
     // (r24) Bare spacing lanes stay dry (pale, crazed): they read as walkable negative space, not a hole.
     const gapRow = (x: number, z: number): boolean => {
-      const row = plan.rows[z - Z0];
-      return Array.isArray(row) ? row[x < walk ? 0 : 1] === 'gap' : row === 'gap';
+      return cellAt(plan.rows[z - Z0], x) === 'gap';
     };
     for (let z = Z0; z <= Z1; z++) for (let x = X0; x <= X1; x++) if (this.isTilled(x, z) && z < Z1 - 1 && z > Z0 + 3 && !gapRow(x, z)) this.water(x, z);
     // Packed-dirt paths through and around the beds, so the crops read against bare earth rather
@@ -2656,7 +2673,7 @@ export class FarmingSystem implements System, FarmingApi {
         zs = pz + 1;
       }
       for (const [za, zb] of bands) {
-        for (const [xa, xb] of [[X0, walk - 1], [walk + 1, X1]] as const) {
+        for (const [xa, xb] of [[X0, walk - 1], [walk + 1, X1]]) {
           let bx0 = Infinity, bx1 = -Infinity, bz0 = Infinity, bz1 = -Infinity;
           for (let z = za; z <= zb; z++) for (let x = xa; x <= xb; x++) if (this.isTilled(x, z)) {
             bx0 = Math.min(bx0, x); bx1 = Math.max(bx1, x); bz0 = Math.min(bz0, z); bz1 = Math.max(bz1, z);
@@ -2675,8 +2692,7 @@ export class FarmingSystem implements System, FarmingApi {
         const west = bed.x1 < walk;
         const seen = new Set<CropId>();
         for (let z = bed.z0; z <= bed.z1; z++) {
-          const row = plan.rows[z - Z0];
-          const cell = Array.isArray(row) ? row[west ? 0 : 1] : row;
+          const cell = cellAt(plan.rows[z - Z0], west ? walk - 1 : walk + 1);
           if (!cell || cell === 'gap' || seen.has(cell)) continue;
           seen.add(cell);
           const mx = west ? walk + 0.16 : walk + 0.84;
@@ -2684,15 +2700,33 @@ export class FarmingSystem implements System, FarmingApi {
           spots.push({ id: cell, x: mx, y: map.heightAt(mx, mz), z: mz, rot: (west ? -0.25 : 0.25) });
         }
       }
+      // (r25) Fall: fallen leaves on the beds and paths, piled thicker against the edging.
+      if (season === 'fall') {
+        const lr = new Rng('fall-litter');
+        const litter: { x: number; y: number; z: number }[] = [];
+        for (let i = 0; i < 520; i++) {
+          const x = X0 - 1 + lr.next() * (X1 - X0 + 3);
+          const z = Z0 - 1 + lr.next() * (Z1 - Z0 + 3);
+          // Near a bed edge (tile border) or on a path: more likely to stay.
+          const fx = x - Math.floor(x);
+          const fz = z - Math.floor(z);
+          const edge = Math.min(fx, 1 - fx, fz, 1 - fz) < 0.12;
+          if (!edge && lr.next() < 0.45) continue;
+          litter.push({ x, y: this.surfaceY(x, z), z });
+        }
+        const lm = buildLeafLitter(litter, 5);
+        map.root.add(lm);
+        this.stageProps.push(lm);
+      }
       if (spots.length) {
-        const markers = buildRowMarkers(spots, 3);
+        const markers = buildRowMarkers(spots, 3, itemIconUrl);
         map.root.add(markers);
         this.stageProps.push(markers);
       }
     }
     if (plan.crate.length) {
       this.stageProp(buildProduceCrate(plan.crate, 11, 'crate'), walk + 0.5, Z1 + 1.35, 0.25);
-      this.stageProp(buildProduceCrate([...plan.crate].reverse(), 23, 'basket'), walk + 0.62, pathRows[0] !== undefined ? pathRows[0] + 0.5 : Z1 + 1.4, -0.4);
+      this.stageProp(buildProduceCrate([...plan.crate].reverse(), 23, 'basket'), walk + 2.7, pathRows[0] !== undefined ? pathRows[0] + 0.5 : Z1 + 1.4, -0.4);
       this.stageProp(buildProduceCrate(plan.crate.slice(1), 37, 'crate'), X1 + 1.45, Z1 - 0.4, 1.3);
     }
     this.sprayAlways = true;
@@ -3407,6 +3441,7 @@ export class FarmingSystem implements System, FarmingApi {
       if (this.doneTile && (this.doneTile.x !== f.x || this.doneTile.z !== f.z)) this.doneTile = null;
       const acts = this.actions;
       if (acts?.isCharging && this.chargeTool) {
+        this.cursor.wash = 1;
         const lv = Math.max(1, this.chargeLevel);
         // The whole footprint previews while charging; tiles the swing can't work show red.
         const ct = this.chargeTool;
@@ -3429,7 +3464,11 @@ export class FarmingSystem implements System, FarmingApi {
         if (st === 'blocked' && this.doneTile) st = 'neutral';
         // An idle farmer facing a path / a wall isn't making a mistake: the red ✕ only answers
         // intent (recent movement, aiming, a swing), never nags a still frame.
-        if (st === 'blocked' && this.idleT > 2.5) st = null;
+        // (r25) …but a held tool always keeps a quiet neutral bracket on the facing tile (r10 critic:
+        // at the gameplay lens no target showed after acting).
+        const holdingTool = !!tool && ((TOOLS as string[]).includes(tool) || itemDef(tool)?.kind === 'seed');
+        if (st === 'blocked' && this.idleT > 2.5) st = holdingTool ? 'neutral' : null;
+        if (!st && holdingTool) st = 'neutral';
         const out: { x: number; z: number; y: number; state: CursorState }[] = [];
         if (st) out.push({ x: f.x, z: f.z, y: this.cursorY(f.x, f.z), state: st });
         // Point-and-click readability: a mouse pointing beyond reach still gets a faint bracket

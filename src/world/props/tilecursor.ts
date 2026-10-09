@@ -164,6 +164,9 @@ const COLORS: Record<CursorState, THREE.Color> = {
 const ALPHA: Record<CursorState, number> = { valid: 0.8, blocked: 0.9, charge: 0.85, neutral: 0.5, hover: 0.28 };
 
 export class TileCursor {
+  /** (r25) Charged-area wash multiplier: the slam turns it off for good (per-tile quads at different
+   *  heights left faint seam lines over the struck block). */
+  wash = 1;
   readonly mesh: THREE.InstancedMesh;
   /** ✕ marks in the middle of blocked tiles (child of `mesh`, same draw order). */
   private cross: THREE.InstancedMesh;
@@ -306,7 +309,7 @@ export class TileCursor {
         this.m.makeScale(1, 1, 1).setPosition(tl.x + 0.5, tl.y, tl.z + 0.5);
         this.fill.setMatrixAt(nf, this.m);
         // (r18) The wash gets out of the way on the slam (the fresh earth takes the stage), like the brackets.
-        this.fill.setColorAt(nf, this.c.copy(COLORS.charge).multiplyScalar(this.shown * 0.85 * (1 - pk * 0.85)));
+        this.fill.setColorAt(nf, this.c.copy(COLORS.charge).multiplyScalar(this.shown * 0.85 * (1 - pk * 0.85) * this.wash));
         nf++;
         continue;
       }

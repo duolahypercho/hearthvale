@@ -192,6 +192,12 @@ itself measures ~0 ms in matbench (mine-lava); the shell is the mine's main-pass
 pools (`props/decals.ts`) are one merged mesh per map (town at night 8 draws -> 1). Measure shader changes with
 `scripts/matbench.mjs --names <tag>` (isolated, min / p20 of interleaved samples) and prove them with `scripts/abshot.mjs`:
 wall-clock `npm run perf` on this shared machine (load 100-400 on 18 cores) cannot resolve a 10 % change.
+Shadow proxies (perf r22): an `InstancedPart` with `shadowOnly: true` draws only in the sun's shadow pass (its colour
+twin sets `castShadow: false`; `render/batching.ts` zeroes it in camera passes). The forest giants and shrubs cast from a
+twin built off a clone of the same RNG state with every other trunk ring / root side and icosphere detail 0 under the
+canopy puffs, so every proxy vertex lies on the colour mesh. `noAO: true` keeps a part out of the GTAO G-buffer (winter
+berries, stalks); the giants' finest winter whips are detail; snow collars are one batched geometry per tree
+(`?forestlod=0` = all off).
 
 URL: `?demo=farm-morning`, `?map=farm&x=30&z=20&time=18.5&season=fall&weather=rain&day=3&gold=900&facing=up&pause=1`,
 `&ui=inventory`, `&quality=low|medium|high|ultra`, `&hud=0` (hide HUD), `&cam=yaw,pitch,dist[,offX,offZ]`, `&seed=abc`,
@@ -1163,6 +1169,27 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   farming demos 59–118 fps avg under load ≈ 190 (history on a quiet machine: farm-harvest ~102). *Co-op* — `farm-coop-tools`
   lanes: hoer N-west, host N-east, waterer at the bed's west end pouring east into the front row, harvester at the
   east end turned 3/4 to the lens.
+- **r25 polish**: *Hoe* — a centred overhead coil (no torso twist / side roll, chest stays on the tile; both
+  fists straight up over the hat, the blade high behind the crown, a light back arch — a deep one turned the face
+  up into the high lens and read as a turn to camera); `farm-tools` lensed 3/4-profile (yaw −26°) and the whole
+  `--frames` run holds one camera. Clods flip OFF the blade (forward + sideways fan, low hops; none thrown back
+  at the farmer), dust is warm umber, low (< 0.25 m) and gone in ~0.3 s. *Charged slam* — per-tile bursts are
+  sparse (55 % clods, crumbs halved) and short-lived (0.7–1 s), freshness fades only toward a NOT-fresh
+  neighbour (no seams across a contiguous slam), the gold area wash switches off on the hit, upgraded hoe blades
+  +6 % a tier. *Water* — the can pours one continuous tapered glass sheet over ~88 % of the flight (beads only
+  as the break-up in the landing third); sprinkler jets carry a solid glass core ribbon (refracting edges +
+  specular streak) inside a feathered apex mist, rope beads only near the landing. *Hero fields* — no bare
+  bands: the walkway moves to x 21 so the map's scarecrow stands at the head of the walk and the can stump at
+  the cross path; the east beds split into species blocks both ways (`[west, eastNear, eastFar]`, split at
+  x 26): summer gets a hops trellis block, fall its own plan (corn + sunflowers, eggplant | beet | eggplant,
+  pumpkin patch beside a grape vineyard block, beets + eggplants up front) with fallen-leaf litter
+  (`buildLeafLitter`, one instanced draw). *Row markers* — weathered planks with the crop's inventory icon
+  painted on a cream oval (canvas atlas, `buildRowMarkers(spots, seed, itemIconUrl)`), twine lashing, no
+  floating sample; 1.45×. *Crops* — fall foliage pushed further to olive-ochre with yellowing leaf tips;
+  ripe pumpkins / melons vary ±12 % size, squat ↔ tall and a wider rind tint swing; beets / yams / eggplants
+  fuller; seedlings (stages 1–2) ~10 % bigger; stage 0 is a dark moist dibble hole with a smooth lip, one seed
+  standing tip-up and a pressed drill line (no pebble ring). *Cursor* — a held tool always keeps a quiet
+  neutral bracket on the facing tile (it vanished at the gameplay lens after acting).
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,

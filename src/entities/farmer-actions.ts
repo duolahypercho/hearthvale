@@ -65,12 +65,18 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // both fists climb past the hat brim on the camera side and the shaft lays back over the
     // shoulder, the blade cocked up behind and out (the face stays open below the arms). No chest
     // twist toward the lens: the coil is a back arch, so the silhouette stays in profile.
-    { t: 0.17, ease: 'out', aR: [-2.6, -0.42], aL: [-2.48, -0.62], torso: [-0.24, -0.08, -0.12], head: -0.04, sy: 1.08, hips: [-0.12, -0.08], stance: 0.46, grip: 0.12, reach: 1.22, toolT: [-0.55, 0, 0.5] },
+    // (r25) A centred overhead coil (r10 critic: the wind-up turned square to the lens with the hoe
+    // held at the shoulder like a flag): no twist or side roll — the chest stays on the tile — both
+    // fists climb straight up over the hat and the blade swings up and BACK over the crown.
+    { t: 0.17, ease: 'out', aR: [-2.75, -0.2], aL: [-2.62, -0.02], torso: [-0.12, 0.02, -0.04], head: 0.02, sy: 1.1, hips: [-0.06, 0.02], stance: 0.46, grip: 0.12, reach: 1.24, toolT: [-0.8, 0, 0.26] },
     // Top: the held beat before the blow — arched back, fists high over the head, the hoe laid back
     // ~45° in the torso (≈ 65° from plumb once the back arch adds its lean) so the blade stands HIGH
     // above and behind the hat, chin up (exertion). (r24: at 79° + the arch the shaft lay flat behind
     // the neck like a bindle, the blade at ear height.)
-    { t: 0.205, ease: 'out', aR: [-2.92, -0.46], aL: [-2.8, -0.66], torso: [-0.34, -0.1, -0.16], head: -0.06, sy: 1.13, hips: [-0.16, -0.1], stance: 0.52, grip: 0.17, reach: 1.34, toolT: [-0.78, 0, 0.55] },
+    // (r25) Top: hands above the head, back arched, body stretched tall (rear heel up), the blade high
+    // behind the hat, cocked a touch to the lens side so the crown never hides it.
+    // (A light arch only: a deep one turned the face up into a high lens, reading as a turn to camera.)
+    { t: 0.205, ease: 'out', aR: [-3.1, -0.18], aL: [-2.98, 0.0], torso: [-0.18, 0.03, -0.05], head: 0.04, sy: 1.15, hips: [-0.08, 0.03], stance: 0.54, grip: 0.16, reach: 1.34, toolT: [-1.05, 0, 0.3] },
     // Downswing (two readable frames, ~70 ms): the hips fire first, the body jack-knifes forward, the
     // arms whip down; the blade sweeps over OUT FRONT of the face (shaft ~50° forward, never across it).
     { t: 0.24, ease: 'in', aR: [-2.05, -0.3], aL: [-1.95, -0.42], torso: [0.1, -0.06, -0.08], head: -0.2, sy: 1.02, hips: [0.06, -0.06], stance: 0.54, grip: 0.06, reach: 1.24, toolT: [0.85, 0, 0.35] },

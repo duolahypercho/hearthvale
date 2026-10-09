@@ -534,37 +534,55 @@ const WOOD = { post: C(0x8a6440), light: C(0xc49a68), dark: C(0x5e4430), twine: 
 /** Stage 0: freshly sown — a dibbled planting hole: a crumbly rim of turned earth around a dark, moist
  *  pocket with the seeds showing. (A smooth hemisphere read as a chocolate button lying on the bed.) */
 function seeded(add: Adder, r: Rng, seedC: THREE.Color = C(0xe8d4a0), seedShape: 'oval' | 'flat' | 'kidney' | 'round' = 'oval'): void {
-  // Moist pocket: a shallow dark cone (points down), level with the bed surface.
-  const pocket = new THREE.CircleGeometry(0.058, 9);
+  // (r25) A dibble hole, not a pebble pile (r10 critic: "a small rock pile with white dots"): a wide
+  // dark, moist pocket pressed into the bed, a soft smooth lip of pushed-up earth, one seed tip
+  // standing proud in it, and a short pressed ridge (the drill line) behind.
+  const R = 0.074;
+  const pocket = new THREE.CircleGeometry(R, 12);
   pocket.rotateX(-Math.PI / 2);
   const pp = pocket.attributes.position as THREE.BufferAttribute;
   for (let i = 0; i < pp.count; i++) {
     const d = Math.hypot(pp.getX(i), pp.getZ(i));
-    pp.setY(i, 0.012 - (0.058 - d) * 0.35);
+    pp.setY(i, 0.012 - (R - d) * 0.4);
   }
   pocket.computeVertexNormals();
-  add(colored(pocket, (p) => C(0x2c1a10).lerp(C(0x4a2e1c), Math.min(1, Math.hypot(p.x, p.z) / 0.058))), undefined, 'skin');
-  // Crumbly rim: a ring of small, lumpy clods in varied soil tones (lighter where they dried).
-  const n = 7 + Math.floor(r.next() * 3);
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2 + (r.next() - 0.5) * 0.5;
-    const rad = 0.068 + r.next() * 0.02;
-    const k = 0.016 + r.next() * 0.014;
-    const clod = new THREE.IcosahedronGeometry(k, 0);
-    clod.scale(1 + r.next() * 0.5, 0.55 + r.next() * 0.3, 1 + r.next() * 0.4);
-    const tone = C(0x5c3b25).lerp(C(0x8a6444), r.next() * 0.7);
-    add(colored(clod, (p) => tone.clone().multiplyScalar(0.8 + (p.y / k) * 0.3)), mat(Math.cos(a) * rad, k * 0.25, Math.sin(a) * rad, r.next() * 3, r.next() * 3, 0), 'skin');
+  add(colored(pocket, (p) => C(0x1e1108).lerp(C(0x3a2414), Math.min(1, Math.hypot(p.x, p.z) / R))), undefined, 'skin');
+  // Smooth, lumpy lip of moist earth (one torus, wobbling height).
+  const lip = new THREE.TorusGeometry(R + 0.01, 0.02, 5, 16);
+  lip.rotateX(Math.PI / 2);
+  const lp = lip.attributes.position as THREE.BufferAttribute;
+  const ph = r.next() * 6.28;
+  for (let i = 0; i < lp.count; i++) {
+    const a = Math.atan2(lp.getZ(i), lp.getX(i));
+    const k = 0.5 + 0.22 * Math.sin(a * 3 + ph) + 0.12 * Math.sin(a * 7 + ph * 2);
+    lp.setY(i, Math.max(0, lp.getY(i) * k + 0.006));
   }
-  // The seeds, half-sunk in the pocket.
-  for (let i = 0; i < 3; i++) {
-    const sd = new THREE.SphereGeometry(0.014, 6, 4);
-    if (seedShape === 'flat') sd.scale(1.5, 0.35, 2.0);
-    else if (seedShape === 'kidney') sd.scale(1.3, 0.8, 1.9);
-    else if (seedShape === 'round') sd.scale(1.1, 0.9, 1.1);
-    else sd.scale(1, 0.6, 1.4);
+  lip.computeVertexNormals();
+  add(colored(lip, (p) => C(0x34200f).lerp(C(0x4e321e), THREE.MathUtils.clamp(p.y / 0.018, 0, 1))), undefined, 'skin');
+  // The drill line: a short pressed ridge running back from the hole.
+  const ridge = new THREE.SphereGeometry(1, 8, 4);
+  ridge.scale(0.012, 0.008, 0.06);
+  add(colored(ridge, () => C(0x4a301c)), mat(0, 0.006, -0.135, 0, (r.next() - 0.5) * 0.3, 0), 'skin');
+  // Two crumbs on the lip (not a ring of pebbles).
+  for (let i = 0; i < 2; i++) {
+    const k = 0.012 + r.next() * 0.006;
+    const clod = new THREE.IcosahedronGeometry(k, 0);
+    clod.scale(1.2, 0.6, 1);
     const a = r.next() * Math.PI * 2;
-    const rr = r.next() * 0.03;
-    add(colored(sd, (p) => seedC.clone().multiplyScalar(0.85 + p.y * 12)), mat(Math.cos(a) * rr, 0.004, Math.sin(a) * rr, 0, r.next() * 3, 0), 'skin');
+    add(colored(clod, () => C(0x553724)), mat(Math.cos(a) * (R + 0.02), k * 0.4 + 0.008, Math.sin(a) * (R + 0.02), r.next() * 3, r.next() * 3, 0), 'skin');
+  }
+  // The seed: one fat kernel standing tip-up in the pocket (+ a smaller one beside it), sunk to half.
+  const seedDim = seedC.clone().multiplyScalar(0.82);
+  for (let i = 0; i < 2; i++) {
+    const sz = i === 0 ? 0.021 : 0.014;
+    const sd = new THREE.SphereGeometry(sz, 8, 5);
+    if (seedShape === 'flat') sd.scale(1.3, 0.45, 1.9);
+    else if (seedShape === 'kidney') sd.scale(1.2, 0.8, 1.7);
+    else if (seedShape === 'round') sd.scale(1.05, 0.95, 1.05);
+    else sd.scale(0.9, 0.7, 1.45);
+    const a = r.next() * Math.PI * 2;
+    const rr = i === 0 ? 0.008 : 0.034;
+    add(colored(sd, (p) => seedDim.clone().multiplyScalar(0.75 + Math.max(0, p.y / sz) * 0.45)), mat(Math.cos(a) * rr, 0.002, Math.sin(a) * rr, i === 0 ? 0.75 : 0.2, r.next() * 3, 0), 'skin');
   }
 }
 
@@ -2295,7 +2313,103 @@ let propMat: THREE.MeshStandardMaterial | null = null;
  * so the frame feels composed"; Stardew's plots carry the same kind of hand-made labels). All markers
  * in `spots` merge into one mesh (one draw, + its shadow).
  */
-export function buildRowMarkers(spots: { id: CropId; x: number; y: number; z: number; rot: number }[], seed = 1): THREE.Group {
+/**
+ * (r25) Painted sign atlas for the row markers: one weathered plank per crop with the crop's
+ * inventory icon painted on (r10 critic: the r24 plaques were blank white cards). Wood is painted at
+ * once; each icon is composited when its image decodes (`iconUrl` from the UI icon set).
+ */
+function markerAtlas(ids: CropId[], iconUrl?: (itemId: string) => string): { tex: THREE.CanvasTexture; cell: (id: CropId) => [number, number, number, number] } {
+  const CW = 128;
+  const CH = 88;
+  const cols = Math.min(4, Math.max(1, ids.length));
+  const rows = Math.ceil(ids.length / cols);
+  const c = document.createElement('canvas');
+  c.width = CW * cols;
+  c.height = CH * rows;
+  const g = c.getContext('2d')!;
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const r = new Rng('marker-atlas');
+  ids.forEach((id, i) => {
+    const x0 = (i % cols) * CW;
+    const y0 = Math.floor(i / cols) * CH;
+    // Sun-weathered plank: warm honey wood, darker grain streaks, greyed edges.
+    const grd = g.createLinearGradient(x0, y0, x0, y0 + CH);
+    grd.addColorStop(0, '#b98a58');
+    grd.addColorStop(0.5, '#a97a4a');
+    grd.addColorStop(1, '#94683e');
+    g.fillStyle = grd;
+    g.fillRect(x0, y0, CW, CH);
+    for (let k = 0; k < 14; k++) {
+      const y = y0 + 4 + r.next() * (CH - 8);
+      g.strokeStyle = `rgba(${70 + r.next() * 20},${44 + r.next() * 12},${24},${0.18 + r.next() * 0.2})`;
+      g.lineWidth = 0.8 + r.next() * 1.6;
+      g.beginPath();
+      g.moveTo(x0, y);
+      g.bezierCurveTo(x0 + CW * 0.3, y + (r.next() - 0.5) * 6, x0 + CW * 0.7, y + (r.next() - 0.5) * 6, x0 + CW, y + (r.next() - 0.5) * 4);
+      g.stroke();
+    }
+    // A knot.
+    g.fillStyle = 'rgba(80,50,26,0.35)';
+    g.beginPath();
+    g.ellipse(x0 + 18 + r.next() * 90, y0 + 14 + r.next() * 60, 5, 3, 0, 0, Math.PI * 2);
+    g.fill();
+    // Weathered, darker rim (the board's sawn edge).
+    g.strokeStyle = 'rgba(70,44,24,0.55)';
+    g.lineWidth = 6;
+    g.strokeRect(x0 + 3, y0 + 3, CW - 6, CH - 6);
+    // A painted cream oval behind the icon (hand-lettered market sign).
+    g.fillStyle = 'rgba(246,230,196,0.9)';
+    g.beginPath();
+    g.ellipse(x0 + CW / 2, y0 + CH / 2, CW * 0.36, CH * 0.38, 0, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = 'rgba(120,72,36,0.7)';
+    g.lineWidth = 2.5;
+    g.stroke();
+    // Two nail heads.
+    g.fillStyle = '#4a3a2c';
+    for (const nx of [x0 + 12, x0 + CW - 12]) {
+      g.beginPath();
+      g.arc(nx, y0 + CH / 2, 3.2, 0, Math.PI * 2);
+      g.fill();
+    }
+    const url = iconUrl?.(CROPS[id].produce);
+    if (url) {
+      const img = new Image();
+      img.onload = (): void => {
+        const s = CH * 0.74;
+        g.globalAlpha = 0.95;
+        g.drawImage(img, x0 + CW / 2 - s / 2, y0 + CH / 2 - s / 2, s, s);
+        g.globalAlpha = 1;
+        // Wear: a few scuffs over the paint.
+        g.strokeStyle = 'rgba(169,122,74,0.35)';
+        g.lineWidth = 1;
+        for (let k = 0; k < 5; k++) {
+          const yy = y0 + 10 + r.next() * (CH - 20);
+          g.beginPath();
+          g.moveTo(x0 + 20 + r.next() * 30, yy);
+          g.lineTo(x0 + 70 + r.next() * 40, yy + (r.next() - 0.5) * 3);
+          g.stroke();
+        }
+        tex.needsUpdate = true;
+      };
+      img.src = url;
+    }
+  });
+  tex.needsUpdate = true;
+  return {
+    tex,
+    cell: (id) => {
+      const i = Math.max(0, ids.indexOf(id));
+      const u0 = ((i % cols) * CW) / c.width;
+      const v1 = 1 - (Math.floor(i / cols) * CH) / c.height;
+      return [u0, v1 - CH / c.height, u0 + CW / c.width, v1];
+    },
+  };
+}
+
+export function buildRowMarkers(spots: { id: CropId; x: number; y: number; z: number; rot: number }[], seed = 1, iconUrl?: (itemId: string) => string): THREE.Group {
   const r = new Rng(`marker:${seed}`);
   const b = new MeshBuilder();
   if (!propMat) {
@@ -2304,23 +2418,30 @@ export function buildRowMarkers(spots: { id: CropId; x: number; y: number; z: nu
     applyWorldFx(propMat, { snowUp: 0.5 });
   }
   const M = propMat;
+  const ids = [...new Set(spots.map((s) => s.id))];
+  const atlas = markerAtlas(ids, iconUrl);
+  const signMat = new THREE.MeshStandardMaterial({ map: atlas.tex, vertexColors: true, roughness: 0.82 });
+  signMat.name = 'rowMarkerSign';
+  applyWorldFx(signMat, { snowUp: 0.5 });
   for (const sp of spots) {
     const lean = (r.next() - 0.5) * 0.12;
-    const H = 0.44 + r.next() * 0.06;
-    const base = new THREE.Matrix4().compose(new THREE.Vector3(sp.x, sp.y - 0.05, sp.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(lean, sp.rot, lean * 0.5)), new THREE.Vector3(1, 1, 1));
+    const H = 0.42 + r.next() * 0.06;
+    // (r25) 1.45× — the painted board has to read from the 14–17 m hero lenses.
+    const base = new THREE.Matrix4().compose(new THREE.Vector3(sp.x, sp.y - 0.05, sp.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(lean, sp.rot, lean * 0.5)), new THREE.Vector3(1.45, 1.45, 1.45));
     const at = (m: THREE.Matrix4): THREE.Matrix4 => base.clone().multiply(m);
-    b.add(M, roundedBox(0.045, H, 0.045, 0.012), at(mat(0, H / 2, 0)), { tint: 0x9a7048 });
-    // Sign board, slanted back toward the bed, cream painted with a dark rim.
-    b.add(M, roundedBox(0.24, 0.15, 0.024, 0.01), at(mat(0, H - 0.02, 0.03, -0.32, 0, 0)), { tint: 0x6e4a2c });
-    b.add(M, roundedBox(0.205, 0.118, 0.012, 0.005), at(mat(0, H - 0.02, 0.046, -0.32, 0, 0)), { tint: 0xf1e2c0 });
-    // A sample of the crop sitting on the stake top (field-scale, a touch smaller).
-    const g = produceGeometry(sp.id).clone();
-    g.computeBoundingSphere();
-    g.computeBoundingBox();
-    const rad = g.boundingSphere?.radius ?? 0.1;
-    const s = Math.min(1, 0.085 / rad);
-    const lift = -(g.boundingBox?.min.y ?? -rad) * s;
-    b.add(M, g, at(mat(0, H + 0.065 + lift, 0, 0.25, r.next() * 6.28, 0.15, s)));
+    // Split stake with a pointed foot, weathered grey-brown.
+    b.add(M, roundedBox(0.042, H, 0.042, 0.01), at(mat(0, H / 2, 0)), { tint: 0x8a6a4a });
+    // Twine lashing under the board.
+    b.add(M, new THREE.TorusGeometry(0.03, 0.008, 5, 10), at(mat(0, H - 0.115, 0, Math.PI / 2, 0, 0)), { tint: 0xc8b07a });
+    // The board (dark sawn edge) slanted back toward the bed, its painted face on the walkway side.
+    const tilt = -0.3 + (r.next() - 0.5) * 0.1;
+    const yaw = (r.next() - 0.5) * 0.14;
+    b.add(M, roundedBox(0.27, 0.185, 0.026, 0.008), at(mat(0, H - 0.02, 0.03, tilt, yaw, 0)), { tint: 0x6e4a2c });
+    const face = new THREE.PlaneGeometry(0.255, 0.172);
+    const [u0, v0, u1, v1] = atlas.cell(sp.id);
+    const uv = face.attributes.uv as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) ? u1 : u0, uv.getY(i) ? v1 : v0);
+    b.add(signMat, face, at(mat(0, H - 0.02, 0.0442, tilt, yaw, 0)));
   }
   const grp = b.build({ name: 'row-markers' });
   grp.userData.perfTag = 'props';
@@ -2420,15 +2541,19 @@ function fallShift(m: THREE.Material, key: string, tips = true): void {
         mat3 toY = mat3(0.299, 0.596, 0.211, 0.587, -0.274, -0.523, 0.114, -0.322, 0.312);
         mat3 toR = mat3(1.0, 1.0, 1.0, 0.956, -0.272, -1.106, 0.621, -0.647, 1.703);
         vec3 yiq = toY * cc;
-        float ch = cos(0.44); // ~+25° in YIQ ≈ −18…−22° HSV hue (green → ochre-olive)
-        float sh = sin(0.44);
-        yiq.yz = vec2(yiq.y * ch - yiq.z * sh, yiq.y * sh + yiq.z * ch) * 0.7;
-        vec3 shifted = max(toR * yiq, 0.0) * vec3(1.15, 0.98, 0.74);
+        // (r25) Further toward olive-ochre (r10 critic: the fall field still read summer-green).
+        float ch = cos(0.56);
+        float sh = sin(0.56);
+        yiq.yz = vec2(yiq.y * ch - yiq.z * sh, yiq.y * sh + yiq.z * ch) * 0.6;
+        vec3 shifted = max(toR * yiq, 0.0) * vec3(1.18, 0.98, 0.7);
         vec3 outc = mix(cc, shifted, fall);
         ${tips ? `// Browned, papery tips on the marked leaves.
         float tip = step(5.5, vLeafUv.y) * smoothstep(0.5, 0.9, vLeafUv.x);
         float l = dot(cc, vec3(0.3, 0.55, 0.15));
-        outc = mix(outc, vec3(0.42, 0.27, 0.12) * (l * 2.2 + 0.08), tip * uSeasonW.z * 0.85);` : ''}
+        outc = mix(outc, vec3(0.42, 0.27, 0.12) * (l * 2.2 + 0.08), tip * uSeasonW.z * 0.85);
+        // (r25) Every marked leaf yellows toward its tip in fall (gourd vines, beans, beets).
+        float yel = step(4.5, vLeafUv.y) * smoothstep(0.55, 0.95, vLeafUv.x) * (1.0 - tip);
+        outc = mix(outc, vec3(0.78, 0.6, 0.2) * (l * 1.6 + 0.12), yel * uSeasonW.z * 0.5);` : ''}
         diffuseColor.rgb = outc;
       }`,
     );
@@ -2567,10 +2692,15 @@ const PLACE: Partial<Record<CropId, { scale?: number; yaw?: number }>> = {
   // Berry clusters / hanging fruit are hung on the lens-facing (+Z) half: only a little spin.
   blueberry: { scale: 1.1, yaw: 1.2 },
   strawberry: { yaw: 1.4 },
+  // (r25) Low rosettes / bushes a touch fuller: a bed of them read as sparse tufts on bare soil.
+  beet: { scale: 1.18 },
+  yam: { scale: 1.15 },
+  eggplant: { scale: 1.1 },
 };
 
 // r15: sprouts and seedlings a touch bigger (stage 1–2 read as specks from the game camera).
-const STAGE_SCALE = [1.3, 1.8, 1.72, 1.6, 1.62, 1.68];
+// r25: seedlings (stages 1–2) another ~10 % so each family's signature reads at the gameplay lens.
+const STAGE_SCALE = [1.3, 1.98, 1.92, 1.6, 1.62, 1.68];
 
 export class CropVisuals {
   readonly group = new THREE.Group();
@@ -2658,10 +2788,15 @@ export class CropVisuals {
     const pos = new THREE.Vector3(x + (((seed >> 5) % 7) - 3) * jitter, y, z + (((seed >> 8) % 7) - 3) * jitter);
     const yawRange = pl.yaw ?? Math.PI * 2;
     const yaw = yawRange >= Math.PI * 2 ? ((seed % 360) * Math.PI) / 180 : ((((seed % 1000) / 1000) - 0.5) * yawRange);
+    // (r25) Ripe gourds vary much more (r10 critic: pumpkins / melons read as clones): ±15 % size,
+    // a squat ↔ tall squash ratio and a wider rind tint swing (sun-bleached ↔ deep).
+    const gourd = stage >= 4 && (id === 'melon' || id === 'pumpkin');
     const j = hv(13, 29) - 0.5;
-    const l = 0.92 + hv(17, 23) * 0.16;
-    const tint = new THREE.Color(l * (1 + j * 0.1), l * (1 + j * 0.03), l * (1 - j * 0.12));
-    return this.place(set, pos, yaw, new THREE.Vector3(s, s * (0.92 + hv(11, 17) * 0.16), s), tint);
+    const l = (gourd ? 0.86 : 0.92) + hv(17, 23) * (gourd ? 0.26 : 0.16);
+    const tint = new THREE.Color(l * (1 + j * (gourd ? 0.2 : 0.1)), l * (1 + j * 0.03), l * (1 - j * (gourd ? 0.24 : 0.12)));
+    const gs = gourd ? 0.88 + hv(19, 31) * 0.22 : 1;
+    const sq = gourd ? 0.84 + hv(11, 17) * 0.3 : 0.92 + hv(11, 17) * 0.16;
+    return this.place(set, pos, yaw, new THREE.Vector3(s * gs, s * gs * sq, s * gs), tint);
   }
 
   addWithered(x: number, y: number, z: number, seed: number, trellised: boolean, id?: CropId): CropHandle {

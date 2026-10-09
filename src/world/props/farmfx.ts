@@ -742,7 +742,7 @@ const STREAM_BEADS = JETS.reduce((n, j) => n + j.n, 0);
  * first ~half of the flight (necking in travelling varicose waves), after which the water has broken
  * into the separate droplets of the bead ropes (r9 critic: "a short near-vertical bundle").
  */
-const STREAM_RIB = 18;
+const STREAM_RIB = 26;
 
 const STREAM_VS = /* glsl */ `
 attribute vec2 aUv;
@@ -968,7 +968,9 @@ class Stream {
           this.pos[o + 1] = p.y + side.y * r * lead * sx + up.y * len * lead * sy;
           this.pos[o + 2] = p.z + side.z * r * lead * sx + up.z * len * lead * sy;
           // (r19) Under the coherent rope the beads are only its texture; they own the lower arc.
-          this.al[k4 + e] = jet.a * Math.min(1, tipFade) * Math.min(1, f * 12 + 0.4) * (0.45 + 0.55 * THREE.MathUtils.smoothstep(f, 0.36, 0.6));
+          // (r25) The ribbon carries the upper ~2/3 of the arc as one sheet of water (r10 critic: "a
+          // pearl necklace"); beads are only its break-up over the landing third.
+          this.al[k4 + e] = jet.a * Math.min(1, tipFade) * (0.06 + 0.94 * THREE.MathUtils.smoothstep(f, 0.5, 0.74));
         }
       }
     });
@@ -983,7 +985,8 @@ class Stream {
   /** The coherent rope over the first ~55 % of the flight (it necks and breaks into the bead ropes). */
   private writeRibbon(): void {
     const base = STREAM_BEADS * 4;
-    const sCoh = this.T * 0.56;
+    // (r25) The coherent rope runs ~88 % of the flight (it only breaks up over the landing third).
+    const sCoh = this.T * 0.88;
     const sa = Math.min(this.tail, this.head);
     const sb = Math.min(this.head, sCoh);
     if (sb - sa < 0.004) {
@@ -1001,10 +1004,12 @@ class Stream {
       if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
       side.normalize();
       // Tapers as it speeds up and necks in travelling waves (Plateau–Rayleigh) before it breaks.
-      const neck = 1 + Math.sin(s * 140 - this.t * 38) * 0.22 * f;
-      const r = (0.03 - 0.013 * f) * neck * dist;
+      // (r25) Gentle necking only near the break-up; a fuller sheet (the rose throws a fan, ~4 cm
+      // wide off the spout, tapering to ~2 cm) so the arc reads as one body of water.
+      const neck = 1 + Math.sin(s * 140 - this.t * 38) * 0.16 * f * f;
+      const r = (0.042 - 0.022 * f) * neck * dist;
       // Fades over the break-up zone (the far end) and in over the first cm off the rose.
-      const a = 0.86 * Math.min(1, (s - sa) / 0.02 + (this.on ? 1 : 0)) * (1 - THREE.MathUtils.smoothstep(f, 0.62, 1));
+      const a = 0.74 * Math.min(1, (s - sa) / 0.02 + (this.on ? 1 : 0)) * (1 - THREE.MathUtils.smoothstep(f, 0.7, 1));
       // Vertex pair k belongs to quad k (its near end) and quad k-1 (its far end).
       for (const [quad, end] of [[k, 0], [k - 1, 2]] as const) {
         if (quad < 0 || quad >= STREAM_RIB) continue;
@@ -1039,7 +1044,7 @@ interface Ring {
 // (r22) 96 beads a jet: the fan (rope + shed cone) needs the extra drops to read as a throw of water.
 const ARC_BEADS = 96;
 /** (r17) Soft translucent ribbon segments per jet (drawn by the same instance, after the beads). */
-const ARC_RIB = 18;
+const ARC_RIB = 24;
 const ARC_VS = /* glsl */ `
 attribute vec4 aO;
 attribute vec4 aP;
@@ -1058,7 +1063,7 @@ void main() {
     // (r17) The jet's body: a soft translucent ribbon along the main rope, widening and fading as
     // the water breaks up, so the arc reads as one coherent throw (beads string along it).
     float j = i - ${ARC_BEADS}.0;
-    float sr = clamp((j + position.z * 0.5 + 0.5) / ${ARC_RIB}.0, 0.0, 1.0) * 0.8;
+    float sr = clamp((j + position.z * 0.5 + 0.5) / ${ARC_RIB}.0, 0.0, 1.0) * 0.94;
     float Tr = aP.y * 0.985;
     float angr = aO.w - aA.y * sr * (Tr / aP.y);
     vec3 dirr = vec3(cos(angr), 0.0, sin(angr));
@@ -1071,12 +1076,18 @@ void main() {
     // (r18) A readable body: from the 11–17 m hero lenses the r17 ribbon thinned to a hairline.
     // (r24) The ribbon widens into a soft mist sheath round the apex (r10 critic: "apex mist"): wide,
     // feathered and faint, so the beads ride inside a breath of spray rather than along a wire.
-    float wr = mix(0.022, 0.2, smoothstep(0.05, 0.55, sr)) * clamp(length(cameraPosition - pr) / 9.0, 1.0, 1.6);
+    float dk = clamp(length(cameraPosition - pr) / 9.0, 1.0, 1.6);
+    float wr = mix(0.03, 0.17, smoothstep(0.05, 0.55, sr)) * dk;
+    // (r25) A solid glass core inside the sheath (r10 critic: jets read as strings of beads): ~2.4 cm
+    // off the nozzle tapering to ~1.4 cm, as a fraction of the ribbon's half-width.
+    float coreW = mix(0.024, 0.014, sr) * dk;
     pr += sider * position.y * wr;
     vec4 mvr = viewMatrix * vec4(pr, 1.0);
     gl_Position = projectionMatrix * mvr;
-    vUv = vec2(position.y, 0.0);
-    vS = -1.0;
+    vUv = vec2(position.y, coreW / wr);
+    // Mist alpha (sheath) rides in vS below -1: vS = -1 - mist.
+    float mist = aA.x * 0.09 * smoothstep(0.25, 0.45, sr) * (1.0 - smoothstep(0.62, 0.9, sr)) * (0.7 + 0.3 * sin(sr * 17.0 - uTime * 7.0 + ph * 4.0));
+    vS = -1.0 - clamp(mist, 0.0, 0.99);
     // (r18) The coherent body only over the first ~60 % of the throw, then it has broken into drops
     // (a full-length ribbon read as a hose / wire).
     // (r19) A soft glassy column only off the nozzle (the first ~40 %), feathered into the packets.
@@ -1085,8 +1096,9 @@ void main() {
     // reads as a solid wire.
     float pulse = 0.6 + 0.4 * sin(sr * 38.0 - uTime * 22.0 + ph * 6.0);
     // (r22) Softer still (no glassy wire): a column off the nozzle, a whisper of veil beyond it.
-    vA = aA.x * smoothstep(0.0, 0.05, sr) * (0.16 * (1.0 - smoothstep(0.08, 0.28, sr)) + 0.05 * pulse * (1.0 - smoothstep(0.25, 0.7, sr))
-      + 0.075 * smoothstep(0.22, 0.42, sr) * (1.0 - smoothstep(0.6, 0.8, sr)) * (0.75 + 0.25 * pulse));
+    // (r25) The core: a continuous body of water off the nozzle, thinning (never pulsing off) as it
+    // breaks up over the landing third.
+    vA = aA.x * smoothstep(0.0, 0.04, sr) * (0.62 - 0.22 * sr + 0.06 * pulse) * (1.0 - smoothstep(0.66, 0.94, sr));
     #ifdef USE_FOG
     vFogDepth = -mvr.z;
     #endif
@@ -1154,7 +1166,8 @@ void main() {
   vUv = position.yz;
   vS = land;
   // Denser near the nozzle, fading as the jet breaks up into spray; a quick fade-in at the nozzle.
-  vA = aA.x * smoothstep(0.0, 0.05, s) * (rope ? 1.0 - 0.35 * s : 0.6 - 0.25 * s) * (land > 0.0 ? 1.0 - land : 1.0);
+  // (r25) Rope beads only show where the core breaks up (the landing third); the shed spray stays fine.
+  vA = aA.x * smoothstep(0.0, 0.05, s) * (rope ? (1.0 - 0.35 * s) * (0.08 + 0.92 * smoothstep(0.55, 0.78, s)) : 0.5 - 0.22 * s) * (land > 0.0 ? 1.0 - land : 1.0);
   #include <fog_vertex>
 }`;
 const ARC_FS = /* glsl */ `
@@ -1169,10 +1182,17 @@ void main() {
   vec3 c;
   float a;
   if (vS < -0.5) {
-    // Ribbon: soft across its width, a brighter core line.
+    // Ribbon: a glass core (refracting edges, an off-centre specular streak) inside a feathered mist.
     float acr = abs(vUv.x);
-    a = (1.0 - smoothstep(0.0, 1.0, acr)) * (1.0 - smoothstep(0.0, 1.0, acr)) * vA * 1.3;
-    c = mix(uCore, vec3(0.96, 0.98, 1.0), 0.4);
+    float cw = max(vUv.y, 0.02);
+    float cx = acr / cw;
+    float core = 1.0 - smoothstep(0.75, 1.0, cx);
+    float edge = smoothstep(0.35, 0.85, cx) * core;
+    float spec = 1.0 - smoothstep(0.0, 0.25, abs(vUv.x / cw + 0.35));
+    float mist = -1.0 - vS;
+    float sheath = (1.0 - smoothstep(0.0, 1.0, acr)) * (1.0 - smoothstep(0.0, 1.0, acr));
+    a = (core * 0.5 + edge * 0.35 + spec * 0.3 * core) * vA + sheath * mist;
+    c = mix(uBody, uCore, clamp(edge * 0.4 + spec * 0.8 + (1.0 - core) * 0.6, 0.0, 1.0));
   } else if (vS > 0.0) {
     // Landing crown: a thin bright ring with a faint wet fill inside.
     float ring = smoothstep(0.55, 0.78, d) * (1.0 - smoothstep(0.82, 1.0, d));
@@ -1888,31 +1908,38 @@ export class FarmFX {
     const lk = this.lensK(center);
     // Big chunks first: heavy, short hops (they land on the tile's lip and roll).
     const nBig = strength >= 0.8 ? 3 : 1;
+    const slamTile = strength < 0.8;
     for (let i = 0; i < nBig; i++) {
-      const a = base + Math.PI + rnd(-1.0, 1.0);
-      const sp = rnd(0.7, 1.3) * (0.7 + strength * 0.3);
+      // (r25) Flipped off the blade over the tile's far side (r10 critic: clods flew back at the farmer
+      // and one stuck on his fist).
+      const a = base + rnd(-1.0, 1.0);
+      const sp = rnd(0.5, 1.0) * (0.7 + strength * 0.3);
       const p = center.clone().add(new THREE.Vector3(rnd(-0.12, 0.12), 0.05, rnd(-0.12, 0.12)));
       _v.set(Math.cos(a) * sp, rnd(2.2, 3.2), Math.sin(a) * sp);
       // (r17) Already airborne ON the impact frame (pre-advanced ~40 ms out of the soil), so the
       // strongest beat of the swing shows the earth breaking, not a smear over an intact tile.
       // (r21) ~70 ms out: clear of the blade that covers the bite point on the impact frame.
       p.addScaledVector(_v, 0.07);
-      this.clods.spawn(p, _v, { color: _c.set(soil).offsetHSL(0, 0.02, rnd(-0.02, 0.05)), size: rnd(0.085, 0.12) * lk, life: 2.2, bounce: 0.25 });
+      this.clods.spawn(p, _v, { color: _c.set(soil).offsetHSL(0, 0.02, rnd(-0.02, 0.05)), size: rnd(0.085, 0.12) * lk, life: slamTile ? 1.0 : 2.2, bounce: 0.25 });
     }
-    const n = Math.round(rnd(11, 14) * strength);
+    // (r25) A slam's per-tile burst is sparse and short-lived (r10 critic: dozens of clods littered the
+    // lawn): they crumble away within ~1 s.
+    const n = Math.round(rnd(11, 14) * strength * (slamTile ? 0.55 : 1));
     for (let i = 0; i < n; i++) {
       // The blade drags soil back toward the farmer: most clods fan out sideways / backwards.
-      const back = i % 3 !== 0;
-      const a = base + (back ? Math.PI : 0) + rnd(-1.3, 1.3);
-      const sp = rnd(1.0, 2.5) * (0.7 + strength * 0.3);
-      _v.set(Math.cos(a) * sp, rnd(2.6, 4.8), Math.sin(a) * sp);
+      // (r25) A fan off the blade: forward and to the sides, low hops (never back up into the body).
+      const side = i % 3 === 0;
+      const a = base + (side ? (i % 2 ? 1 : -1) * rnd(1.3, 1.9) : rnd(-1.0, 1.0));
+      // A full single bite throws wider; a slam's per-tile burst stays inside its skirt.
+      const sp = rnd(0.7, 1.7) * (0.55 + strength * 0.45);
+      _v.set(Math.cos(a) * sp, rnd(1.9, 3.4) * (0.75 + 0.25 * strength), Math.sin(a) * sp);
       const p = center.clone().add(new THREE.Vector3(rnd(-0.2, 0.2), 0.05, rnd(-0.2, 0.2)));
       p.addScaledVector(_v, rnd(0.035, 0.075));
       // Three size classes: a few fat chunks, mid clods, small crumbs.
-      this.clod(p, _v, _c.set(soil).offsetHSL(0, 0, rnd(-0.07, 0.06)), (i < 3 ? rnd(0.07, 0.09) : i < 7 ? rnd(0.048, 0.062) : rnd(0.03, 0.042)) * lk);
+      this.clod(p, _v, _c.set(soil).offsetHSL(0, 0, rnd(-0.07, 0.06)), (i < 3 ? rnd(0.07, 0.09) : i < 7 ? rnd(0.048, 0.062) : rnd(0.03, 0.042)) * lk, slamTile ? rnd(0.7, 1.0) : 1.8);
     }
     // Crumbs: a fine spray of tiny bits for texture.
-    for (let i = 0; i < Math.round(8 * strength); i++) {
+    for (let i = 0; i < Math.round(8 * strength * (slamTile ? 0.5 : 1)); i++) {
       const a = rnd(0, Math.PI * 2);
       const sp = rnd(0.6, 1.6);
       this.clods.spawn(center.clone().add(new THREE.Vector3(rnd(-0.15, 0.15), 0.04, rnd(-0.15, 0.15))), _v.set(Math.cos(a) * sp, rnd(1.6, 3), Math.sin(a) * sp), { color: _c.set(soil).offsetHSL(0, 0, rnd(0, 0.08)), size: rnd(0.018, 0.026), life: 1.1 });
@@ -1925,19 +1952,20 @@ export class FarmFX {
       const r0 = rnd(0.5, 0.58);
       // (r20) Earth-toned, small and quick (a soft radial breath of dust hugging the soil): the pale
       // r19 sheets lay along the furrows like frosted-glass cards.
-      this.dust.emit(center.clone().add(_v.set(Math.cos(a) * r0 * 0.7, rnd(0.03, 0.06), Math.sin(a) * r0 * 0.7)), new THREE.Vector3(Math.cos(a) * rnd(0.8, 1.2), rnd(0.15, 0.3), Math.sin(a) * rnd(0.8, 1.2)), { color: 0xa88c68, size: rnd(0.1, 0.14) * (0.6 + 0.4 * strength), life: rnd(0.26, 0.36), grow: 2.2, alpha: 0.2 * (0.5 + 0.5 * strength), gravity: 0, drag: 4.2 });
+      this.dust.emit(center.clone().add(_v.set(Math.cos(a) * r0 * 0.7, rnd(0.03, 0.06), Math.sin(a) * r0 * 0.7)), new THREE.Vector3(Math.cos(a) * rnd(0.8, 1.2), rnd(0.15, 0.3), Math.sin(a) * rnd(0.8, 1.2)), { color: 0x6f4e30, size: rnd(0.09, 0.13) * (0.6 + 0.4 * strength), life: rnd(0.22, 0.3), grow: 1.8, alpha: 0.26 * (0.5 + 0.5 * strength), gravity: 0, drag: 4.6 });
     }
     // Dust: a full cloud for a single bite; a whisper per tile when a slam strikes a whole block.
     const np = Math.max(2, Math.round(3 * strength * strength));
     for (let i = 0; i < np; i++) {
       const a = rnd(0, Math.PI * 2);
-      this.puff(center.clone().add(new THREE.Vector3(Math.cos(a) * 0.12, 0.1, Math.sin(a) * 0.12)), new THREE.Vector3(Math.cos(a) * 0.5, rnd(0.4, 0.8), Math.sin(a) * 0.5), 0x9c8060, rnd(0.14, 0.2) * (0.6 + 0.4 * strength), rnd(0.45, 0.7) * (0.5 + 0.5 * strength), { alpha: 0.22 * (0.5 + 0.5 * strength) });
+      // (r25) Warm umber, low (< 0.25 m) and gone in ~0.3 s (r10 critic: pale grey ghost sprites).
+      this.puff(center.clone().add(new THREE.Vector3(Math.cos(a) * 0.12, 0.05, Math.sin(a) * 0.12)), new THREE.Vector3(Math.cos(a) * 0.55, rnd(0.15, 0.35), Math.sin(a) * 0.55), 0x6a4a2e, rnd(0.12, 0.17) * (0.6 + 0.4 * strength), rnd(0.24, 0.32), { alpha: 0.24 * (0.5 + 0.5 * strength), drag: 3.5 });
     }
     // Impact flash on the blade (one bright frame, under the bloom clamp) + a pale shock ring.
     if (strength >= 0.8) {
       // (r20) Small and warm: the 0.55 m flash bloomed into a white bokeh disc through the DoF.
       this.glow.emit(center.clone().setY(center.y + 0.06), _v.set(0, 0, 0), { color: 0xe8c890, size: 0.22, life: 0.05, grow: 0.4, alpha: 0.5, gravity: 0, drag: 0 });
-      this.ring(center.clone().setY(center.y + 0.03), 0.18, 0.75, 0.32, 0x8a7254);
+      this.ring(center.clone().setY(center.y + 0.03), 0.18, 0.62, 0.28, 0x5e4228);
     }
   }
 
@@ -2237,7 +2265,9 @@ export class FarmFX {
         // Floats just clear of the item's upper-outer corner (a badge beside it, never a sticker
         // pasted over the fruit — r7 critic), with a small orbit.
         const orb = p.age * 2.4;
-        st.position.copy(m.position).setY(cy).addScaledVector(this.viewRight, side * (Math.min(p.hw * S, 0.2) + 0.075 + Math.cos(orb) * 0.012)).addScaledVector(this.viewUp, Math.min(p.hh * S * 0.75, 0.18) + 0.03 + Math.sin(orb) * 0.012);
+        // (r25) The clearance grows with the star (camK): at the hero lenses the bigger star sat over the
+        // produce and the farmer's face (blind judge: "move the harvest VFX off the character's face").
+        st.position.copy(m.position).setY(cy).addScaledVector(this.viewRight, side * (Math.min(p.hw * S, 0.2) + 0.09 * camK + Math.cos(orb) * 0.012)).addScaledVector(this.viewUp, Math.min(p.hh * S * 0.75, 0.18) + 0.07 * camK + Math.sin(orb) * 0.012);
         // Spin in (a full turn IN the screen plane that settles), then a gentle rock — always
         // billboarded: the star never turns edge-on into a sliver (its yaw rocks ≤ ±0.3 rad).
         const spinIn = ts > 0 ? Math.max(0, 1 - ts / 0.24) : 1;

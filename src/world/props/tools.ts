@@ -175,7 +175,10 @@ export function buildTool(id: string, tier: number): THREE.Group {
       // Blade: a bevelled, slightly dished trapezoid — dark forged body, a dark line at the bevel,
       // a bright honed cutting edge.
       // (r15: 1.4× — the blade reads as a hoe from the gameplay camera, not a stick with a tick.)
-      b.add(M, hoeBlade(body, new THREE.Color(edge)), mat(0, 0.705, 0.165, -0.22, 0, 0, 1.4, 1.4, 1.25));
+      // (r25) Upgraded blades are broader (+6 % a tier: gold ≈ 1.18×) so the tier reads at a glance
+      // against the farmer's big head (r10 critic: the gold hoe looked tiny).
+      const tk = 1 + 0.06 * Math.max(0, Math.min(3, tier));
+      b.add(M, hoeBlade(body, new THREE.Color(edge)), mat(0, 0.705, 0.165 + 0.02 * (tk - 1), -0.22, 0, 0, 1.4 * tk, 1.4 * tk, 1.25 * tk));
       break;
     }
     case 'axe': {
