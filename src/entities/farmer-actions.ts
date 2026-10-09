@@ -97,7 +97,7 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // by the face), the body springs up past rest and rocks back.
     // (r27) A stronger recoil: the body springs up well past rest (stretch 1.16) and rocks back, the
     // blade kept pointing down at the shins (r26 flipped it blade-up in front of the knees mid-release).
-    { t: 0.42, ease: 'out', aR: [-0.66, -0.08], aL: [-0.54, 0.06], torso: [-0.12, 0.08, 0.02], head: 0.1, sy: 1.16, bob: 0.03, hips: [-0.08, 0.04], stance: 0.24, tool: [Math.PI / 2 + 0.22, 0, 0] },
+    { t: 0.42, ease: 'out', aR: [-0.44, -0.08], aL: [-0.34, 0.06], torso: [-0.12, 0.08, 0.02], head: 0.1, sy: 1.16, bob: 0.03, hips: [-0.08, 0.04], stance: 0.24, tool: [Math.PI / 2 + 0.22, 0, 0] },
     // (r20) Recovery to a blade-down rest: the hoe settles with its blade on the ground in front of
     // the boots (never a shaft carried across the hips).
     { t: 0.54, ease: 'inout', aR: [-0.5, -0.08], aL: [-0.36, 0.08], torso: [0.1, 0.04, 0], head: -0.06, sy: 0.99, hips: [0.02, 0.02], stance: 0.1, tool: [Math.PI / 2 + 0.05, 0, 0] },
