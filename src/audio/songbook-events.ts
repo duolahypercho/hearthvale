@@ -53,7 +53,9 @@ export const SONGBOOK_EVENTS: Record<string, ThemeDef> = {
       tune: {
         octave: 0,
         // "A C F... | E.. D C... | D.. C D F | E... C A | B♭ D F.. D | C.. A F... | G B♭ D.. C | C..." —
-        A: ["3:2 5:2 1':4", '7:3 6:1 5:4', "6:3 5:1 6:2 1':2", '7:4 5:2 3:2', "4:2 6:2 1':3 6:1", '5:3 3:1 1:4', '2:2 4:2 6:3 5:1', '5:6 r:2'],
+        // (Round 18: bar 5 opens up to A' over the IVmaj7 — its major seventh, the strain's one high
+        // point — and sighs down by step, where the F' it had already touched twice came back a third time.)
+        A: ["3:2 5:2 1':4", '7:3 6:1 5:4', "6:3 5:1 6:2 1':2", '7:4 5:2 3:2', "4:2 6:2 3':3 2':1", "1':3 6:1 5:4", '2:2 4:2 6:3 5:1', '5:6 r:2'],
         Aend: ['4:2 2:2 7,:2 2:2', '1:8'],
         B: ["6:3 7:1 1':2 3':2", "3':3 2':1 7:4", "1':3 7:1 6:2 4:2", '5:6 r:2', "4:3 5:1 6:2 1':2", "3':3 2':1 1':4", "6:3 1':1 4':2 3':2", "2':4 7:2 5:2"],
       },

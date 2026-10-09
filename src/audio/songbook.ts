@@ -38,11 +38,12 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       tune: {
         octave: 0,
         // "D G A B. A | G. D G.. | C B C E. D | D.. A.. |" — a skip up the tonic and a tumble home;
-        // the second strain climbs to the high G and borrows the minor iv (Eb) on its way down.
+        // the second strain climbs to the high G and borrows the minor iv (Eb) on its way down
+        // (round 18: once — it falls G F# E D. E over the IV, the D an add9, so the E can sink to the Eb).
         A: [
           '5,:1 1:1 2:1 3:2 2:1', '1:2 7,:1 1:3', '4:1 3:1 4:1 6:2 5:1', '5:2 4:1 2:1 r:2',
           '5,:1 1:1 2:1 3:2 5:1', '6:2 5:1 3:3', '4:1 3:1 2:1 6,:2 2:1', '7,:2 6,:1 5,:1 r:2',
-          '5,:1 1:1 2:1 3:2 2:1', "1:1 3:1 5:1 1':3", "1':1 7:1 6:1 1':2 6:1", 'b6:2 5:1 4:3',
+          '5,:1 1:1 2:1 3:2 2:1', "1:1 3:1 5:1 1':3", "1':1 7:1 6:1 5:2 6:1", 'b6:2 5:1 4:3',
           '3:2 5:1 6:2 7:1', '6:2 5:1 3:3', '4:2 3:1 2:2 7,:1', '1:3 r:3',
         ],
         // Round 7: the second strain falls by step in sequence (G'. F# E | A'. G F# | F#. E D | E — ), then climbs to the high B and turns home.
@@ -254,7 +255,8 @@ export const SONGBOOK: Record<string, ThemeDef> = {
         // climbs back through the relative major, a hymn you could hum by the fire.
         A: ['5:3 4:1 3:2 1:2', '6,:3 7,:1 1:2 3:2', '5:3 6:1 7:2 5:2', '4:3 3:1 2:4', '6:3 5:1 4:4', '3:3 2:1 1:4', '1:2 2:1 3:1 6:4', '5:2 4:1 3:1 #7,:2 r:2'],
         Aend: ['4:2 6:2 5:2 #7,:2', '1:8'],
-        B: ['7:3 6:1 5:2 3:2', '2:3 3:1 4:2 7:2', "6:3 1':1 6:2 4:2", '5:6 r:2', "1':3 7:1 6:2 3:2", '5:3 4:1 3:4', "4:3 5:1 6:2 1':2", '#7:4 5:2 4:2'],
+        // (Round 18: bar 3 turns on the E instead of touching the A' — the bridge's top is saved for bars 5 / 7.)
+        B: ['7:3 6:1 5:2 3:2', '2:3 3:1 4:2 7:2', '6:3 5:1 6:2 4:2', '5:6 r:2', "1':3 7:1 6:2 3:2", '5:3 4:1 3:4', '4:3 5:1 6:2 5:2', '#7:4 5:2 4:2'],
         C: ['3:3 4:1 5:2 7:2', "7:3 1':1 2':4", "3':3 2':1 1':2 6:2", '5:8', "6:3 7:1 1':2 3':2", "2':3 1':1 7:4", '6:3 5:1 4:4', '1:4 #7,:4'],
       },
     },
@@ -598,7 +600,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       tune: {
         octave: 1,
         // "D. C B | B A B D | E. D C | B.. A | G A B E | E D C A | G. F# E | G. F# |" — it rocks down by step.
-        A: ['5:3 4:1 3:2', '3:2 2:1 3:1 5:2', '6:3 5:1 4:2', '3:4 2:2', '1:2 2:1 3:1 6:2', '6:2 5:1 4:1 2:2', '1:3 7,:1 6,:2', '1:4 r:2'],
+        // (Round 18: bar 6 steps down from the E it reached instead of striking it again — D over the
+        // ii7, an Am11 sigh — so the leap to E in bar 5 is the strain's one high point.)
+        A: ['5:3 4:1 3:2', '3:2 2:1 3:1 5:2', '6:3 5:1 4:2', '3:4 2:2', '1:2 2:1 3:1 6:2', '5:2 4:1 3:1 2:2', '1:3 7,:1 6,:2', '1:4 r:2'],
         Aend: ['4:2 3:1 2:1 7,:2', '1:6'],
         B: ['3:3 2:1 1:1 7,:1', '7,:3 1:1 2:2', '1:2 2:1 3:1 4:2', '5:6', '6:3 5:1 4:2', '5:2 4:1 3:1 2:2', '1:3 2:1 3:2', '4:3 3:1 2:2'],
         C: ['6:3 5:1 3:2', 'b6:3 5:1 4:2', '7:3 6:1 5:2', '6:6', "1':2 7:1 6:1 5:2", 'b7:3 6:1 4:2', '1:2 2:1 3:1 6,:2', '4:3 2:3'],

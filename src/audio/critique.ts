@@ -175,10 +175,16 @@ export function critiquePiece(id: string, seed = 1): Critique {
   const barSec = p.duration / Math.max(1, p.bars);
   const phrases = new Map<number, number[]>();
   let breaths = 0;
+  // (Round 18: phrases are counted from each section's first bar — bar / 8 from the top of the piece
+  // straddled every A / B seam whenever the intro was not 8 bars long, so a strain's peak was judged
+  // together with the next strain's.)
+  const secStart: number[] = [];
+  (p.barInfo ?? []).forEach((b, i) => secStart.push(b.section || i === 0 ? i : secStart[i - 1]!));
   for (let i = 0; i < mel.length; i++) {
     const n = mel[i]!;
     const bar = spanAt(spans, n.t)?.bar ?? 0;
-    const k = Math.floor(bar / 8);
+    const s0 = secStart[bar] ?? 0;
+    const k = s0 * 1000 + Math.floor((bar - s0) / 8);
     if (!phrases.has(k)) phrases.set(k, []);
     phrases.get(k)!.push(n.midi);
     const nx = mel[i + 1];

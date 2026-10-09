@@ -140,8 +140,10 @@ export const SONGBOOK_MINE: Record<string, ThemeDef> = {
       inst: 'oboe', range: [60, 82], density: 0.45, legato: true, ornament: 0.25, bInst: 'oboe',
       tune: {
         octave: 1,
-        // "B. C B G | A G F# G B | C. D# E' C | D#… B | E'. D# C B | A C E'… | C. B A F | D#… |"
-        A: ['5:3 6:1 5:2 3:2', '4:2 3:2 2:1 3:1 5:2', "6:3 7:1 1':2 6:2", '7:4 5:2 r:2', "1':3 7:1 6:2 5:2", "4:2 6:2 1':4", '6:3 5:1 4:2 b2:2', '7,:4 r:4'],
+        // "B. C B G | A G F# G B | C. D# C B | D#… B | E'. D# C B | A C E'… | C. B A F | D#… |"
+        // (Round 18: the first half stops short on the D# — C. D# C B, the augmented second leaning on
+        // the leading tone — so the E' is first heard in bar 5, the lament breaking through.)
+        A: ['5:3 6:1 5:2 3:2', '4:2 3:2 2:1 3:1 5:2', '6:3 7:1 6:2 5:2', '7:4 5:2 r:2', "1':3 7:1 6:2 5:2", "4:2 6:2 1':4", '6:3 5:1 4:2 b2:2', '7,:4 r:4'],
         Aend: ['6:2 4:1 b2:1 7,:4', '1:6 r:2'],
         // "G'. F#' E'… | B. A G B | C B A G | G… | E'. F#' G' E' | F'… C B | A C B A | D#… |"
         B: ["3':3 2':1 1':4", '5:3 4:1 3:2 5:2', '6:3 5:1 4:2 3:2', '3:6 r:2', "1':3 2':1 3':2 1':2", "b2':4 6:2 5:2", '4:2 6:2 5:2 4:2', '7:4 r:4'],

@@ -86,7 +86,9 @@ export const SONGBOOK_PLACES: Record<string, ThemeDef> = {
         // "F# B C# D. C# | C#.. B A | G B D | C#... | D E F#. D | G.. F# E | D. B. G | A#. C#. F#. |"
         A: ['5,:1 1:1 2:1 3:2 2:1', '2:3 1:1 7,:2', '6,:2 1:2 3:2', '2:4 r:2', '3:1 4:1 5:2 3:2', '6:3 5:1 4:2', '3:2 1:2 6,:2', '#7,:2 2:2 5,:2'],
         Aend: ['4:3 #7,:3', '1:6'],
-        B: ["1':3 7:1 6:2", '5:4 3:2', '4:3 2:1 7,:2', '1:6', "3:2 6:2 1':2", '7:3 5:1 3:2', "4:2 6:2 1':2", '#7:4 r:2'],
+        // (Round 18: bar 7 climbs by step into the A# — E F# G, the augmented second as the turn — instead
+        // of leaping to the B' a third time.)
+        B: ["1':3 7:1 6:2", '5:4 3:2', '4:3 2:1 7,:2', '1:6', "3:2 6:2 1':2", '7:3 5:1 3:2', '4:2 5:2 6:2', '#7:4 r:2'],
       },
     },
     counter: { inst: 'cello', range: [47, 62], on: 'repeat', style: 'moving' },

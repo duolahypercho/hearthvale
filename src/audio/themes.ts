@@ -94,8 +94,9 @@ export const THEMES: Record<string, ThemeDef> = {
         octave: 0,
         // "B D . D E D B | C E . E G E D | ..." — the hiccup rest is the hook.
         // (Round 18: the answer enters from the B below rather than leaping a fifth off the rest, the
-        // half cadence falls through the V's thirds and turns up into the pickup — no jump left hanging.)
-        A: ['3:1 5:1 r:1 5:1 6:1 5:1 3:2', "4:1 6:1 r:1 6:1 1':1 6:1 5:2", '3:1 5:1 r:1 5:1 6:1 5:1 3:1 2:1', '1:1 2:1 3:2 6,:1 1:1 r:2', '3:1 5:1 6:1 5:1 3:1 2:1 3:1 5:2', "6:3 1':1 6:2 5:2", "4:1 3:1 4:1 6:1 1':2 6:1 4:1", '2:3 7,:1 5,:1 6,:1 r:2'],
+        // half cadence falls through the V's thirds and turns up into the pickup — no jump left hanging;
+        // bar 6 reaches A' over the ii7, once, above the hook's G.)
+        A: ['3:1 5:1 r:1 5:1 6:1 5:1 3:2', "4:1 6:1 r:1 6:1 1':1 6:1 5:2", '3:1 5:1 r:1 5:1 6:1 5:1 3:1 2:1', '1:1 2:1 3:2 6,:1 1:1 r:2', '3:1 5:1 6:1 5:1 3:1 2:1 3:1 5:1', "6:3 2':1 1':2 6:2", "4:1 3:1 4:1 6:1 1':2 6:1 4:1", '2:3 7,:1 5,:1 6,:1 r:2'],
         Aend: ['4:1 3:1 4:1 6:1 5:2 4:1 2:1', '1:3 5,:1 1:2 r:2'],
         B: ["1':4 6:2 5:2", "2':4 7:2 6:2", "3':4 2':2 1':2", "6:2 7:2 1':4", "1':3 7:1 6:2 1':2", '7:4 r:2 5:1 6:1', 'b7:3 6:1 4:2 2:2', '5:6 r:2'],
         // The nylon guitar's turn: long, high, a secondary dominant (A7) lifting into the last A.
@@ -148,8 +149,10 @@ export const THEMES: Record<string, ThemeDef> = {
       inst: 'clarinet', range: [62, 84], density: 0.45, legato: true, ornament: 0.25, cInst: 'cello',
       tune: {
         octave: 1,
-        // "A.. Bb A | Bb.. A G | F.. E D | C.. D E | G.. A Bb | A. G F. | G Bb A C# | D" — a descending sequence that climbs home.
-        A: ['5:4 6:1 5:1', '6:4 5:1 4:1', '3:4 2:1 1:1', '7,:4 1:1 2:1', '4:4 5:1 6:1', '5:3 4:1 3:2', '4:2 6:1 5:1 #7,:2', '1:6'],
+        // "A.. Bb A | Bb.. A G | F.. E D | C.. D E | G.. A Bb C | D'.. Bb A F | G Bb A C# | D" — a descending
+        // sequence that climbs home. (Round 18: the climb now crests once, on D' over the tonic in bar 6 —
+        // the Bb neighbour was the strain's ceiling four times over.)
+        A: ['5:4 6:1 5:1', '6:4 5:1 4:1', '3:4 2:1 1:1', '7,:4 1:1 2:1', '4:3 5:1 6:1 7:1', "1':3 6:1 5:1 3:1", '4:2 6:1 5:1 #7,:2', '1:6'],
         B: ['3:3 4:1 5:2', '4:3 5:1 6:1 5:1', "6:3 1':1 6:1 4:1", '5:4 r:2', "1':3 7:1 6:1 5:1", '7:3 6:1 5:1 3:1', '4:3 6:1 2:2', '2:4 4:2'],
         C: ['3,:4 5,:1 7,:1', '2:3 1:1 7,:2', '1:4 6,:2', '5,:6', '4,:3 6,:1 1:2', '2:4 7,:2', '3:2 5:2 3:2', '#7,:4 r:2', '6,:3 1:1 3:2', '5:4 3:2', '4:4 6,:2', '1:6', '6,:2 1:2 3:2', '4:3 3:1 1:2', '2:3 4:1 6,:2', '5,:2 #7,:2 2:2'],
       },
@@ -255,7 +258,8 @@ export const THEMES: Record<string, ThemeDef> = {
         // (Round 18: the answer's bar 6 tops out on C' over the IV — the strain's one high point — where
         // it used to touch the opening's B' a third time.)
         A: ["3:1 5:1 1':1 2':1 3':2 2':1 1':1", '6:1 5:1 3:1 5:1 6:2 5:1 3:1', "4:1 6:1 1':1 6:1 2':2 1':1 6:1", "7:1 1':1 2':1 1':1 7:2 r:2", "3:1 5:1 1':1 2':1 3':2 2':1 1':1", "1':1 2':1 3':1 4':1 3':2 1':2", '6:1 5:1 4:1 6:1 5:1 4:1 2:2', '1:2 r:1 5,:1 1:2 r:2'],
-        B: ["6:2 5:1 6:1 1':2 6:2", "5:2 3:1 5:1 1':2 5:2", "4:1 6:1 1':1 2':1 1':2 6:2", '7:3 6:1 5:4', "6:2 5:1 6:1 1':2 6:2", "2':2 7:2 1':2 6:2", "4:2 6:2 1':2 6:1 4:1", "2':3 1':1 7:2 5:2"],
+        B: ["6:2 5:1 6:1 1':2 6:2", "5:2 3:1 5:1 1':2 5:2", "4:1 6:1 1':1 2':1 1':2 6:2", '7:3 6:1 5:4', "6:2 5:1 6:1 1':2 6:2", "3':2 7:2 1':2 6:2", "4:2 6:2 1':2 6:1 4:1", "2':3 1':1 7:2 5:2"],
+        // (Round 18: B's bar 6 leaps to B' on the iii7, its one high point, and turns down by step.)
         // (C opens on the Hearthvale leitmotif — '1 2 3 5.. 3 2' — on the relative minor, then the II7.)
         C: ["6:1 7:1 1':1 3':3 1':1 7:1", "7:1 1':1 2':1 #4':3 2':1 1':1", "4:3 6:1 1':2 6:2", "5:2 7:2 2':4", "2':3 1':1 7:2 5:2", "6:2 #1':2 3':3 2':1", "1':3 6:1 4:2 2:2", '7,:2 2:2 4:2 5:2'],
         Aend: ['6:1 5:1 4:1 6:1 5:1 4:1 2:1 7,:1', '1:2 5,:1 7,:1 1:4'],
