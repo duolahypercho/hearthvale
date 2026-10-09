@@ -254,7 +254,10 @@ export const THEMES: Record<string, ThemeDef> = {
       outro: ['ii7 V7', 'I6'],
     },
     melody: {
-      inst: 'ocarina', range: [67, 86], density: 0.75, ornament: 0.2, bInst: 'clarinet', cInst: 'flute', double: { inst: 'glock', interval: 12, on: 'late' },
+      // (Round 19: bOctave -1 — the clarinet's B was written E5-B5, where its strong third harmonic lands
+      // at 2-3 kHz: 40 % of the strain's tone in 2-5 kHz after the near-sine ocarina's 4 %, +4 LU, the
+      // whole B FORM-GLARE. An octave down it is the warm throat / chalumeau answer to the high ocarina.)
+      inst: 'ocarina', range: [67, 86], density: 0.75, ornament: 0.2, bInst: 'clarinet', bOctave: -1, cInst: 'flute', double: { inst: 'glock', interval: 12, on: 'late' },
       tune: {
         octave: 0,
         // "B D G D B'. A G | E D B D E. D B | C E G E A. G E | F# G A G F#. |" — up the arpeggio and back.

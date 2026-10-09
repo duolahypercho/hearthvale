@@ -47,6 +47,12 @@ const WORKER_WAIT = 1.5;
 const WORKER_WAIT_SCENE = 4;
 /** Scheduling diagnostics (all players): notes played slightly late, notes skipped as stale. */
 export const MUSIC_STATS = { late: 0, skipped: 0 };
+/**
+ * Demo seek (round 19, `?demo=audio&theme=spring&from=C`): the first time `theme` starts, it starts at
+ * the first bar of section `from` ('B', 'C', 'outro', or `B2` for its second B / `A3` its third A) or
+ * at a number of seconds — so a critic can hear a bridge without waiting a minute and a half for it.
+ */
+export const MUSIC_SEEK: { theme: string | null; from: string | null } = { theme: null, from: null };
 
 /** Polyphony priority per track: melody and bass always play; texture thins first. */
 const PRIO: Record<TrackName, number> = { melody: 3, bass: 3, counter: 2, accomp: 2, double: 1, accomp2: 1, pad: 1, perc: 1 };
@@ -168,6 +174,27 @@ export class MusicPlayer {
     this.pieceStart = startAt;
     if (bridge) this.pieceStart += this.buildBridge(bridge, startAt);
     this.endTime = this.pieceStart + this.piece.duration;
+    if (MUSIC_SEEK.from && MUSIC_SEEK.theme === theme.id && !bridge) this.seek(MUSIC_SEEK.from);
+  }
+
+  private seek(from: string): void {
+    MUSIC_SEEK.from = null;
+    let off = Number(from);
+    if (!Number.isFinite(off)) {
+      const m = /^([A-Za-z]+)(\d*)$/.exec(from);
+      const want = m?.[1] ?? from;
+      let n = Math.max(1, Number(m?.[2] || 1));
+      off = NaN;
+      for (const b of this.piece.barInfo ?? []) if (b.section === want && --n === 0) {
+        off = b.t;
+        break;
+      }
+    }
+    if (!Number.isFinite(off) || off <= 0 || off >= this.piece.duration) return;
+    off = Math.max(0, off - 0.05);
+    this.pieceStart -= off;
+    this.endTime = this.pieceStart + this.piece.duration;
+    while (this.idx < this.piece.events.length && this.piece.events[this.idx]!.t < off) this.idx++;
   }
 
   /** Pin this piece's cached notes in the graph's LRU (real time only; offline renders never evict). */

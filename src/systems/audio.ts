@@ -30,7 +30,7 @@ import { AudioEngine } from '../audio/engine';
 import type { EnvState, AmbSeason, AmbWeather } from '../audio/ambience';
 import { chooseTheme, MENU_LEVEL, MENU_MUFFLE, MENU_TAU, songFor, STORM_OUTDOOR_LEVEL } from '../audio/select';
 import { PiecePrefetch } from '../audio/prefetch';
-import { MusicDirector, MUSIC_LOOKAHEAD, MUSIC_STATS } from '../audio/music';
+import { MusicDirector, MUSIC_LOOKAHEAD, MUSIC_SEEK, MUSIC_STATS } from '../audio/music';
 import { THEMES, festivalTheme, type FestivalHint } from '../audio/themes';
 import { eventCue } from '../audio/songbook-events';
 import { audioHub } from '../audio/hub';
@@ -281,6 +281,12 @@ export class AudioSystem implements System {
     if (params.get('audio') === '1') queueMicrotask(() => this.start());
     const theme = params.get('theme');
     if (theme) this.forced = theme;
+    // `&from=C` (or B, B2, outro, or seconds): the forced song starts at that strain (music.ts MUSIC_SEEK).
+    const from = params.get('from');
+    if (theme && from) {
+      MUSIC_SEEK.theme = theme;
+      MUSIC_SEEK.from = from;
+    }
     // The summer-night demo always stages its own lullaby (the playlist would rotate it by day).
     else if (params.get('demo') === 'audio-night') this.forced = 'night-summer';
     const sfx = params.get('sfx');

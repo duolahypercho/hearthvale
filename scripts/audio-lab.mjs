@@ -126,7 +126,7 @@ async function handle(url) {
 }
 
 let busy = Promise.resolve();
-http.createServer((req, res) => {
+const lab = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/quit') {
     res.end('bye\n');
@@ -141,4 +141,9 @@ http.createServer((req, res) => {
       res.end(`error: ${e?.stack ?? e}\n`);
     }
   });
-}).listen(port, '127.0.0.1', () => console.log(`audio lab on http://127.0.0.1:${port}`));
+});
+// (Round 19: a whole-song render on a loaded machine outlasts node's 300 s default request timeout —
+// the socket was reset mid-render.)
+lab.requestTimeout = 0;
+lab.headersTimeout = 0;
+lab.listen(port, '127.0.0.1', () => console.log(`audio lab on http://127.0.0.1:${port}`));

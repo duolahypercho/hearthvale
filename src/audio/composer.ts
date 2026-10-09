@@ -93,7 +93,8 @@ export interface ThemeDef {
     bInst?: InstrumentName;
     /** The bridge (C) passes the tune to another voice. */
     cInst?: InstrumentName;
-    /** (Round 19) Octaves the C strain is played away from the written tune (cInst's own register). */
+    /** (Round 19) Octaves the B / C strain is played away from the written tune (bInst / cInst's own register). */
+    bOctave?: number;
     cOctave?: number;
     octaveOnRepeat?: boolean;
     /**
@@ -390,7 +391,7 @@ export class Composer {
         const n0 = ev.length;
         const secInst = b.section === 'B' && m.bInst ? m.bInst : b.section === 'C' && m.cInst ? m.cInst : m.inst;
         const repOct = m.octaveOnRepeat && b.section === 'A' && b.occ > 0 ? 12 : 0;
-        const secOct = b.section === 'C' && m.cOctave ? 12 * m.cOctave : 0;
+        const secOct = b.section === 'C' && m.cOctave ? 12 * m.cOctave : b.section === 'B' && m.bOctave ? 12 * m.bOctave : 0;
         const crescendo = b.section === 'B' ? 0.94 + 0.1 * b.pos : b.section === 'C' ? 0.9 + 0.14 * b.pos : this.isFinalA(b) ? 1.05 : 1;
         notes.forEach((n, ni) => {
           const inst = n.pick ? m.inst : secInst;

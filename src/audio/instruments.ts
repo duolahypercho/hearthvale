@@ -602,13 +602,17 @@ export const epiano: InstrumentFn = (g, dest, t, m, dur, v) => {
   car.connect(a).connect(dest);
 };
 
-type PluckFlavour = { key: string; brightness: number; position: number; decay: (m: number) => number; seconds: number; gain: number; damp: number; lpMax: number; body: [number, number, number][]; thump?: (m: number) => [number, number, number] };
+type PluckFlavour = { key: string; brightness: number; position: number; decay: (m: number) => number; seconds: number; gain: number; damp: number; lpMax: number; body: [number, number, number][]; thump?: (m: number) => [number, number, number]; sweet?: number };
 // Gains are loudness-calibrated (scripts/audio-render.mjs --stems): a decaying string carries far
 // less energy than a sustained wind voice at the same peak, so plucks sit ~6–9 dB hotter.
 const PLUCKS: Record<string, PluckFlavour> = {
   // Thumps: the guitar's Helmholtz air mode (~100 Hz) and the harp's soundbox (~130 Hz) answer each
   // pluck — the 90–180 Hz weight that kept the day themes from sounding laptop-thin.
-  guitar: { key: 'gtr', brightness: 0.5, position: 0.16, decay: (m) => clamp(3.4 - (m - 50) * 0.06, 1.2, 4), seconds: 3, gain: 1.55, damp: 0.09, lpMax: 7000, body: [[102, 3, 0.35], [205, 4, 0.3], [410, 5, 0.18], [2500, 1.5, 0.22]], thump: (m) => [104, 0.09, clamp(0.3 - (m - 50) * 0.008, 0.12, 0.3)] },
+  // (Round 19: `sweet` — above G4 a nylon string sings rounder, not brighter: high up the neck the
+  // string is short and stiff and the player plucks over the soundhole. The tone ceiling used to rise
+  // with pitch (+2 f): Long Light's guitar bridge (G4-B5) sang at a 3.5 kHz centroid, 36 % of it in
+  // 2-5 kHz, over the marimba A's 0.95 kHz — FORM-GLARE. The comping range (<= G4) is unchanged.)
+  guitar: { key: 'gtr', brightness: 0.5, position: 0.16, decay: (m) => clamp(3.4 - (m - 50) * 0.06, 1.2, 4), seconds: 3, gain: 1.55, damp: 0.09, lpMax: 7000, body: [[102, 3, 0.35], [205, 4, 0.3], [410, 5, 0.18], [2500, 1.5, 0.22]], thump: (m) => [104, 0.09, clamp(0.3 - (m - 50) * 0.008, 0.12, 0.3)], sweet: 67 },
   harp: { key: 'hrp', brightness: 0.7, position: 0.3, decay: (m) => clamp(5 - (m - 55) * 0.08, 1.6, 5.5), seconds: 4, gain: 1.9, damp: 0.5, lpMax: 7500, body: [[180, 2, 0.25], [460, 3, 0.18], [2200, 1.5, 0.2]], thump: (m) => [132, 0.11, clamp(0.26 - (m - 55) * 0.006, 0.1, 0.26)] },
   ukulele: { key: 'uke', brightness: 0.72, position: 0.2, decay: (m) => clamp(1.9 - (m - 60) * 0.03, 0.8, 2), seconds: 1.8, gain: 1.3, damp: 0.06, lpMax: 7500, body: [[250, 3, 0.35], [520, 4, 0.25], [2300, 1.5, 0.2]], thump: () => [178, 0.06, 0.14] },
   // +5 dB (gain 1.9 → 3.4): the day themes had 1–2 % of their power under 250 Hz.
@@ -632,7 +636,8 @@ function plucked(flavour: PluckFlavour): InstrumentFn {
     const end = Math.min(t + buf.duration, t + dur + flavour.damp * 4);
     a.gain.setTargetAtTime(0, t + dur + 0.02, flavour.damp);
     // Velocity-dependent tone: softer notes are darker.
-    const lp = filter(g, 'lowpass', Math.min(flavour.lpMax, 1800 + 8000 * v * flavour.brightness + f * 2), 0.5);
+    const sweet = flavour.sweet !== undefined ? Math.max(0.4, 1 - Math.max(0, m - flavour.sweet) * 0.045) : 1;
+    const lp = filter(g, 'lowpass', Math.min(flavour.lpMax, 1800 + 8000 * v * flavour.brightness + f * 2) * sweet, 0.5);
     src.connect(lp).connect(a).connect(dest);
     src.start(t);
     src.stop(end + 0.05);
@@ -720,6 +725,13 @@ interface WindSpec {
   ceil: number;
   release: number;
   level: number;
+  /**
+   * (Round 19) MIDI note above which the tone ROUNDS instead of brightening: the clarinet's clarion
+   * register keeps fewer upper partials than its chalumeau (the odd-harmonic buzz thins out), but the
+   * generic "higher = brighter" colour put its D5-C6 at a 3.1 kHz centroid with 44 % of the tone in
+   * 2-5 kHz — every strain handed to the clarinet up there glared (First Furrow C, Market Morning B).
+   */
+  clarion?: number;
 }
 
 /**
@@ -737,7 +749,8 @@ function windVoice(o: WindSpec): InstrumentFn {
     const end = t + Math.max(dur, attack + 0.02);
     const long = dur > 0.7;
     // Colour: louder and higher = brighter.
-    const b0 = clamp(0.3 + (v - 0.65) * 1.1 + (m - o.mid) / 20, 0.05, 0.95);
+    const over = o.clarion !== undefined ? Math.max(0, m - o.clarion) : 0;
+    const b0 = clamp(0.3 + (v - 0.65) * 1.1 + (m - o.mid) / 20 - over / 11, 0.05, 0.95);
     const oscS = g.ctx.createOscillator();
     oscS.setPeriodicWave(wave(g.ctx, `${o.name}:s`, o.soft));
     const oscB = g.ctx.createOscillator();
@@ -781,7 +794,7 @@ function windVoice(o: WindSpec): InstrumentFn {
     const vDelay = long ? 0.3 + Math.min(0.1, dur * 0.05) : 0.25;
     vibrato(g, freqs, t, dur, f, o.vibRate * (0.96 + g.rng.next() * 0.08), o.vibDepth, vDelay, { node: trem, depth: 0.06 }, long ? 1.3 : 1);
     // Velocity drives the tone: the ceiling opens ~2.8× from pp (0.3) to f (1.0).
-    const lpF = clamp(f * o.ceil * Math.pow(2.6, (v - 0.65) * 1.6) + 600 * v, 500, 15000);
+    const lpF = clamp(f * o.ceil * Math.max(0.42, 1 - over * 0.055) * Math.pow(2.6, (v - 0.65) * 1.6) + 600 * v * (1 - Math.min(0.5, over * 0.05)), 500, 15000);
     const lp = filter(g, 'lowpass', lpF, 0.6);
     // The tone opens as the breath settles (a-rate filter automation is costly: long notes only).
     if (dur > 0.3) {
@@ -839,7 +852,7 @@ function windVoice(o: WindSpec): InstrumentFn {
 export const flute = windVoice({ name: 'flute', soft: FLUTE_SOFT, bright: FLUTE_BRIGHT, mid: 83, attack: 0.07, breath: 0.5, air: 0.07, breathQ: 9, chiff: 0.09, puff: 0.05, formant: 2.6, vibRate: 5.3, vibDepth: 0.012, ceil: 6, release: 0.07, level: 0.6 });
 export const whistle = windVoice({ name: 'whistle', soft: WHISTLE_SOFT, bright: WHISTLE_BRIGHT, mid: 84, attack: 0.03, breath: 0.3, air: 0.04, breathQ: 10, chiff: 0.14, puff: 0.035, formant: 2.2, vibRate: 5.8, vibDepth: 0.01, ceil: 7, release: 0.04, level: 0.5 });
 export const ocarina = windVoice({ name: 'ocarina', soft: OCARINA_SOFT, bright: OCARINA_BRIGHT, mid: 78, attack: 0.05, breath: 0.45, air: 0.05, breathQ: 8, chiff: 0.06, puff: 0.04, formant: 2, vibRate: 5.4, vibDepth: 0.011, ceil: 4.5, release: 0.05, level: 0.6 });
-export const clarinet = windVoice({ name: 'clarinet', soft: CLARINET_SOFT, bright: CLARINET_BRIGHT, mid: 76, attack: 0.05, breath: 0.16, air: 0.02, breathQ: 12, chiff: 0.02, puff: 0.015, formant: 1.5, vibRate: 4.8, vibDepth: 0.005, ceil: 3, release: 0.07, level: 0.52 });
+export const clarinet = windVoice({ name: 'clarinet', soft: CLARINET_SOFT, bright: CLARINET_BRIGHT, mid: 76, attack: 0.05, breath: 0.16, air: 0.02, breathQ: 12, chiff: 0.02, puff: 0.015, formant: 1.5, vibRate: 4.8, vibDepth: 0.005, ceil: 3, release: 0.07, level: 0.52, clarion: 72 });
 export const oboe = windVoice({ name: 'oboe', soft: OBOE_SOFT, bright: OBOE_BRIGHT, mid: 72, attack: 0.04, breath: 0.12, air: 0.02, breathQ: 12, chiff: 0.04, puff: 0.015, formant: 1.5, vibRate: 5.3, vibDepth: 0.009, ceil: 3.2, release: 0.06, level: 0.34 });
 
 /**

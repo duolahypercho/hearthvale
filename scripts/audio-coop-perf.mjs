@@ -115,8 +115,20 @@ async function main() {
       await page.mouse.click(320, 180);
       await page.waitForFunction(() => window.__game.game.services.audio?.state().running, null, { timeout: 30000 }).catch(() => {});
       pages.push(page);
-      if (i === 0) out.code = await page.evaluate(() => window.__game.game.services.net.host());
-      else await page.evaluate((c) => window.__game.game.services.net.join(c), out.code);
+      // (Round 19: on a machine at load 60-400 the relay handshake can miss net/system.ts's answer
+      // window — "the co-op server did not answer" ended the r12 run before it measured anything.
+      // Host / join retry up to 5 times, 5 s apart.)
+      for (let tries = 1; ; tries++) {
+        try {
+          if (i === 0) out.code = await page.evaluate(() => window.__game.game.services.net.host());
+          else await page.evaluate((c) => window.__game.game.services.net.join(c), out.code);
+          break;
+        } catch (e) {
+          if (tries >= 5) throw e;
+          console.log(`  ${NAMES[i]}: ${i === 0 ? 'host' : 'join'} attempt ${tries} failed (${String(e).split('\n')[0]}), retrying`);
+          await sleep(5000);
+        }
+      }
     }
     await pages[0].waitForFunction((n) => window.__game.game.services.net.players().length === n, N, { timeout: 60000 });
     // Everyone on the farm, a few tiles apart, facing the field.
