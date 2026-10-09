@@ -337,12 +337,14 @@ export function strawFloor(calm = false): TexPair {
       const PW = S / 10;
       for (let b = 0; b < 10; b++) {
         const y0 = b * PW;
-        ctx.fillStyle = b % 2 ? '#94724a' : '#86663f';
+        // (r22: three plank tones + darker 3 px seams — with the straw gathered into drifts the boards
+        // now show, and two near tones read as one brown field)
+        ctx.fillStyle = ['#9a774c', '#83633d', '#8f6c44'][b % 3]!;
         ctx.fillRect(0, y0, S, PW);
-        ctx.fillStyle = 'rgba(46,30,18,0.55)';
-        ctx.fillRect(0, y0, S, 2);
+        ctx.fillStyle = 'rgba(40,26,15,0.7)';
+        ctx.fillRect(0, y0, S, 3);
         const jx = (rng.next() * S) | 0;
-        ctx.fillRect(jx, y0, 2, PW);
+        ctx.fillRect(jx, y0, 3, PW);
         for (let g = 0; g < 6; g++) {
           ctx.fillStyle = `rgba(${rng.next() < 0.5 ? '60,40,24' : '170,136,90'},0.14)`;
           ctx.fillRect(0, y0 + 4 + rng.next() * (PW - 8), S, 1);
@@ -364,10 +366,22 @@ export function strawFloor(calm = false): TexPair {
       }
     }
     ctx.lineCap = hctx.lineCap = 'round';
-    const N = calm ? 10500 : 16000;
+    // r22 (critic: the coop floor still "brown mush" — 10.5k strands spread evenly hid every board):
+    // the calm bedding gathers in scuffed drifts (clumps of strands round ~26 centres) with only a sparse
+    // scatter between them, so the two-tone planks and their seams read through the open floor.
+    const clumps: [number, number, number][] = [];
+    if (calm) for (let i = 0; i < 26; i++) clumps.push([rng.next() * S, rng.next() * S, 18 + rng.next() * 46]);
+    const N = calm ? 7600 : 16000;
     for (let i = 0; i < N; i++) {
-      const x = rng.next() * S;
-      const y = rng.next() * S;
+      let x = rng.next() * S;
+      let y = rng.next() * S;
+      if (calm && rng.next() < 0.8) {
+        const cl = clumps[(rng.next() * clumps.length) | 0]!;
+        const a = rng.next() * Math.PI * 2;
+        const d = cl[2] * Math.sqrt(-2 * Math.log(Math.max(1e-4, rng.next()))) * 0.55;
+        x = (cl[0] + Math.cos(a) * d * 1.4 + S) % S;
+        y = (cl[1] + Math.sin(a) * d * 0.8 + S) % S;
+      }
       const len = 6 + rng.next() * 22;
       const ang = rng.next() * Math.PI;
       const t = rng.next();

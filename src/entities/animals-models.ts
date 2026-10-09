@@ -437,7 +437,10 @@ function cow(variant: number): AnimalModel {
   const cream = new THREE.Color(0xf2e2c6);
   const shade = jersey
     ? (p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color) => {
-        c.multiplyScalar(1 - 0.16 * THREE.MathUtils.smoothstep(-p.z, 0.0, 0.6));
+        // (r22: the fawn shades deeper over the haunch and the shoulder top — a true Jersey's darker
+        // saddle points — so the smooth barrel has form instead of reading as one plush tone)
+        c.multiplyScalar(1 - 0.22 * THREE.MathUtils.smoothstep(-p.z, 0.05, 0.62));
+        c.multiplyScalar(1 - 0.12 * THREE.MathUtils.smoothstep(p.z, 0.08, 0.3) * THREE.MathUtils.smoothstep(n.y, 0.3, 0.8));
         c.lerp(cream, 0.85 * THREE.MathUtils.smoothstep(-n.y, 0.2, 0.62));
         c.multiplyScalar(1 - 0.3 * THREE.MathUtils.smoothstep(n.y, 0.8, 0.97) * (1 - THREE.MathUtils.smoothstep(Math.abs(p.x), 0.05, 0.13)));
       }
@@ -461,11 +464,13 @@ function cow(variant: number): AnimalModel {
   const cowBody = loft(
     [
       { p: [0, 0.86, -0.715], w: 0.04, up: 0.04, dn: 0.05 },
-      { p: [0, 0.84, -0.68], w: 0.17, up: 0.15, dn: 0.25, n: 2.3, nb: 2.1 },
-      { p: [0, 0.81, -0.58], w: 0.265, up: 0.26, dn: 0.36, n: 2.45, nb: 2.1 },
-      { p: [0, 0.79, -0.43], w: 0.3, up: 0.29, dn: 0.39, n: 2.3, nb: 2.05 },
-      { p: [0, 0.77, -0.22], w: 0.335, up: 0.3, dn: 0.4, n: 2.1, nb: 2.0 },
-      { p: [0, 0.77, 0.0], w: 0.34, up: 0.3, dn: 0.4, n: 2.1, nb: 2.0 },
+      // (r22: rounder — the rump corners softened (n 2.45 -> 2.2) and the belly swelling into a barrel
+      // below a gently dipped back: from the side the fawn Jersey read as a rectangle on four legs)
+      { p: [0, 0.84, -0.68], w: 0.17, up: 0.15, dn: 0.24, n: 2.15, nb: 2.0 },
+      { p: [0, 0.812, -0.58], w: 0.262, up: 0.255, dn: 0.345, n: 2.2, nb: 2.0 },
+      { p: [0, 0.795, -0.43], w: 0.305, up: 0.29, dn: 0.4, n: 2.15, nb: 2.0 },
+      { p: [0, 0.77, -0.22], w: 0.348, up: 0.295, dn: 0.43, n: 2.05, nb: 2.0 },
+      { p: [0, 0.765, 0.0], w: 0.352, up: 0.298, dn: 0.44, n: 2.05, nb: 2.0 },
       { p: [0, 0.79, 0.19], w: 0.305, up: 0.32, dn: 0.39, n: 2.1, nb: 1.85 },
       { p: [0, 0.84, 0.34], w: 0.245, up: 0.28, dn: 0.39, n: 2.1, nb: 1.55 },
       { p: [0, 0.9, 0.45], w: 0.19, up: 0.22, dn: 0.34, n: 2.0, nb: 1.45 },
@@ -496,13 +501,16 @@ function cow(variant: number): AnimalModel {
   // gaping mouth from the front; a height ramp keeps them to the crest, where they join the head cap)
   r.part('head', neck, null, base, { patch: spots ? { ...spots, yK: 8, y0: 1.02 + LIFT } : undefined, paint: shade });
   // Udder + teats (tucked up under the flank between the hind legs)
-  r.part('body', ellipsoid(0.15, 0.09, 0.16), mat(0, 0.4, -0.27), 0xf4b0aa);
-  for (const [x, z] of [[-0.055, -0.22], [0.055, -0.22], [-0.055, -0.32], [0.055, -0.32]] as const) r.part('body', limb(0.02, 0.015, 0.36, 0.29, 8), mat(x, 0, z), 0xe8908c, { flat: true });
+  // (r22: 2.5 cm lower under the deeper belly)
+  r.part('body', ellipsoid(0.15, 0.09, 0.16), mat(0, 0.375, -0.27), 0xf4b0aa);
+  for (const [x, z] of [[-0.055, -0.22], [0.055, -0.22], [-0.055, -0.32], [0.055, -0.32]] as const) r.part('body', limb(0.02, 0.015, 0.34, 0.265, 8), mat(x, 0, z), 0xe8908c, { flat: true });
   // Leather collar + brass bell
   r.part('body', new THREE.TorusGeometry(0.205, 0.03, 10, 28), mat(0, 0.88, 0.47, Math.PI / 2 - 0.55, 0, 0), 0x8e3526);
   r.part('body', new THREE.CylinderGeometry(0.045, 0.07, 0.1, 16), mat(0, 0.69, 0.6), 0xe8b840, { flat: true });
   r.part('body', new THREE.SphereGeometry(0.02, 8, 6), mat(0, 0.635, 0.6), 0x5a4020, { flat: true });
-  legs(r, { ...d, bodyY: d.bodyY + LIFT }, base, 0x3e302a, jersey ? band(0xf0dcc0, 0.2) : spots, true);
+  // (r22: thick 1.12 — a little more forearm / gaskin into the rounder barrel; 1.3 pushed the leg tops
+  // out through the flank as pillow-like blocks)
+  legs(r, { ...d, bodyY: d.bodyY + LIFT }, base, 0x3e302a, jersey ? band(0xf0dcc0, 0.2) : spots, true, 1.12);
   // r13: a rope tail swinging down from the tail head behind the pins to a long hair switch at the hocks.
   switchTail(
     r,
@@ -760,13 +768,17 @@ function pig(variant: number): AnimalModel {
   // a sagging belly and an arched loin; no two stations share a width.)
   const pigBody = loft(
     [
-      { p: [0, 0.47, -0.52], w: 0.05, up: 0.05, dn: 0.05 },
-      { p: [0, 0.48, -0.485], w: 0.21, up: 0.19, dn: 0.21, n: 2.1 },
-      { p: [0, 0.49, -0.4], w: 0.3, up: 0.275, dn: 0.29, n: 2.15 },
-      { p: [0, 0.495, -0.28], w: 0.325, up: 0.295, dn: 0.31, n: 2.1 },
-      { p: [0, 0.49, -0.12], w: 0.3, up: 0.29, dn: 0.325, n: 2.0 },
-      { p: [0, 0.475, 0.04], w: 0.285, up: 0.275, dn: 0.32, n: 2.0 },
-      { p: [0, 0.48, 0.17], w: 0.292, up: 0.29, dn: 0.3, n: 2.05 },
+      // (r22: from the high lens the old rump closed in 3.5 cm — a flat disc end on a straight pink tube.
+      // Now the rump rounds over ~12 cm into big hams, a clear waist, then the shoulders: an egg-and-
+      // peanut plan instead of parallel sides.)
+      { p: [0, 0.465, -0.545], w: 0.03, up: 0.03, dn: 0.03 },
+      { p: [0, 0.475, -0.525], w: 0.135, up: 0.12, dn: 0.13, n: 2.0 },
+      { p: [0, 0.485, -0.485], w: 0.225, up: 0.205, dn: 0.22, n: 2.0 },
+      { p: [0, 0.492, -0.42], w: 0.3, up: 0.27, dn: 0.285, n: 2.05 },
+      { p: [0, 0.497, -0.29], w: 0.34, up: 0.3, dn: 0.31, n: 2.05 },
+      { p: [0, 0.49, -0.13], w: 0.3, up: 0.285, dn: 0.33, n: 2.0 },
+      { p: [0, 0.475, 0.03], w: 0.275, up: 0.27, dn: 0.325, n: 2.0 },
+      { p: [0, 0.482, 0.17], w: 0.298, up: 0.292, dn: 0.3, n: 2.0 },
       { p: [0, 0.495, 0.29], w: 0.255, up: 0.275, dn: 0.285, n: 2.0, nb: 1.9 },
       { p: [0, 0.51, 0.38], w: 0.2, up: 0.22, dn: 0.25 },
       { p: [0, 0.525, 0.45], w: 0.11, up: 0.12, dn: 0.14 },
@@ -792,7 +804,7 @@ function pig(variant: number): AnimalModel {
     for (let i = 0; i <= 24; i++) {
       const t = i / 24;
       const a = t * Math.PI * 3.2;
-      pts.push(new THREE.Vector3(Math.sin(a) * 0.038 * (1 - t * 0.3), 0.535 + t * 0.06 + (1 - Math.cos(a)) * 0.03 * (1 - t * 0.3), -0.49 - t * 0.07));
+      pts.push(new THREE.Vector3(Math.sin(a) * 0.038 * (1 - t * 0.3), 0.535 + t * 0.06 + (1 - Math.cos(a)) * 0.03 * (1 - t * 0.3), -0.52 - t * 0.07));
     }
     const curve = new THREE.CatmullRomCurve3(pts);
     const tube = new THREE.TubeGeometry(curve, Math.max(16, Math.round(40 * RIG_DETAIL.k)), 0.016, 8, false);

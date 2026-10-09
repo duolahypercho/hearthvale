@@ -1985,7 +1985,10 @@ export class AnimalSystem implements System, AnimalsApi {
     const outdoors = this.mapId === 'farm';
     for (const l of this.live) {
       l.actor.farmers = farmers;
-      l.actor.setFar(outdoors && cam.distanceTo(l.actor.pos) > 14);
+      // (r22: big stock keeps the full sculpt out to 18 m — at the 11 m petting lens the Jersey at the back
+      // fence was ~16 m out and its coarse LOD barrel read as faceted beside the smooth Holstein; the 21 m
+      // pasture lens still draws the herd at LOD)
+      l.actor.setFar(outdoors && cam.distanceTo(l.actor.pos) > (l.actor.gait.radius * l.actor.scale > 0.22 ? 18 : 14));
       l.actor.update(dt, t, actors);
       if (l.actor.isSleeping && !l.actor.resting) {
         l.zT -= dt;
@@ -2953,15 +2956,20 @@ export class AnimalSystem implements System, AnimalsApi {
         // (r13 close-up: the herd spread over the pen instead of piling into the trough corner — the old
         // second sheep stood inside the drinking Holstein; the Jersey grazes the back middle, the second
         // sheep the open left, every body a clear gap of grass from the next)
-        cow: close ? [[trough.x - 1.82, trough.z + 0.2, Math.PI / 2], [47.75, 36.95, -2.05]] : [[trough.x - 1.84, trough.z + 0.2, Math.PI / 2], [38.45, 39.45, 1.05]],
+        // (r22: the drinking Holstein 14 cm further in — her muzzle hung on the trough's near rim, not the water)
+        cow: close ? [[trough.x - 1.82, trough.z + 0.2, Math.PI / 2], [47.75, 36.95, -2.05]] : [[trough.x - 1.7, trough.z + 0.2, Math.PI / 2], [38.45, 39.45, 1.05]],
         // (r6: one sheep grazes out in the middle of the pen — the herd no longer hugs the fence)
         sheep: close ? [[44.2, 39.2, 0], [42.3, 39.75, 1.1]] : [[46.45, 37.35, 0.75], [44.2, 37.25, 0.3]],
         // Beside the farmer (who faces right), side-on to the camera and turned to them: in front of the
         // farmer the crouch put the hat brim over the goat's head.
         // (r11: a step towards the lens too — the farmer turns three-quarters to the camera to reach its
         // crown instead of showing the lens their back)
-        goat: [[40.85, 42.5, Math.atan2(-0.55, -1.0)]],
-        pig: [[wallow.x - 0.05, wallow.z - 0.05, -0.45]],
+        // (r22: the 11 m petting lens cut the goat in half at the bottom-left corner — it steps up beside the
+        // pond, face to the lens)
+        goat: close ? [[41.25, 41.55, 0.55]] : [[40.85, 42.5, Math.atan2(-0.55, -1.0)]],
+        // (r22: at the 11 m petting lens the wallow sits under the energy HUD — the pig steps out onto the
+        // wallow's upper-left rim, snout to the lens, instead of hiding behind the bars)
+        pig: close ? [[wallow.x - 1.15, wallow.z - 0.75, -0.75]] : [[wallow.x - 0.05, wallow.z - 0.05, -0.45]],
         chicken: [[40.75, 38.15, 2.4], [42.4, 37.6, -1.3], [42.15, 38.65, 0.4], [39.85, 37.35, 1.9]],
         duck: [[pond.x - 0.55, pond.z - 0.15, 1.3], [pond.x + 0.75, pond.z + 0.3, -2.2]],
       };
@@ -3030,6 +3038,10 @@ export class AnimalSystem implements System, AnimalsApi {
           if (k === 'goat' && !showcase.includes('pet-close')) {
             l.actor.area = { x0: s[0] - 0.05, z0: s[1] - 0.05, x1: s[0] + 0.05, z1: s[1] + 0.05 };
             this.demoPet = l;
+          } else if (k === 'goat') {
+            // (r22: the close-up goat holds its mark by the pond instead of wandering out of frame)
+            l.actor.area = { x0: s[0] - 0.12, z0: s[1] - 0.12, x1: s[0] + 0.12, z1: s[1] + 0.12 };
+            l.actor.calm = true;
           }
         }
       }

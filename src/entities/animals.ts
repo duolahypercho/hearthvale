@@ -281,6 +281,10 @@ export class AnimalActor {
     this.species = species;
     this.gait = m.gait;
     this.mesh = m.mesh;
+    // r22: opt into the GTAO G-buffer (the herd group is noAO). Skipped, the AO of whatever stood BEHIND
+    // the animal was multiplied onto its pixels — the fence rails painted dark horizontal bands across the
+    // Jersey's flank and the stall boards blotched the pig's back: the "faceted box" the critic saw.
+    this.mesh.userData.ao = true;
     this.b = m.bones;
     this.root.add(this.mesh);
     this.root.name = `animal:${species}`;
@@ -334,6 +338,7 @@ export class AnimalActor {
       lo.boundingSphere = this.mesh.boundingSphere?.clone() ?? null;
       lo.castShadow = this.mesh.castShadow && !this.small;
       lo.receiveShadow = true;
+      lo.userData.ao = true;
       this.root.add(lo);
       this.lo = lo;
     }
@@ -1177,6 +1182,7 @@ export class AnimalActor {
       mesh.boundingSphere = tpl.mesh.boundingSphere?.clone() ?? null;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
+      mesh.userData.ao = true;
       let body: THREE.Bone | undefined;
       let head: THREE.Bone | undefined;
       mesh.traverse((o) => {
