@@ -2925,12 +2925,18 @@ export class AnimalSystem implements System, AnimalsApi {
     g.seqHook = ((i: number, n: number) => this.seqFrame(name, i, n)) as unknown as (i: number, n: number) => string;
     if (params.get('act') === '0') return;
     // Run once the page is warm: the scripted beats start ~0.4 s after ready().
+    // (r19: under automation — shot.mjs / Playwright — they wait 8 s for a sequence capture to take the
+    // act over (seqFrame starts it at frame 0). On a loaded machine the 1.5 s settle + font wait before
+    // the first frame let the whole act — order, bed, night, card, morning — run out in real time, and
+    // every frame of the overnight sheet showed the next morning.)
     const act = this.act;
+    const lead = navigator.webdriver ? 8000 : 400;
     void g.ready().then(() =>
       window.setTimeout(() => {
+        if (act.started) return;
         act.started = true;
         g.setPaused(false);
-      }, 400),
+      }, lead),
     );
   }
 
@@ -3057,10 +3063,12 @@ export class AnimalSystem implements System, AnimalsApi {
         { label: 'coop ordered (staked site)', test: m('order'), settle: 1.0 },
         { label: 'bedside in the farmhouse', test: m('bedside'), settle: 0.3, max: 30 },
         { label: 'quilt tuck', test: () => sleep() === 'tucked', settle: 0.7, max: 30 },
-        { label: 'lamps dim, Zzz', test: () => sleep() === 'tucked', settle: 1.0, max: 30 },
+        // (r19: 0.6 s on from the tuck — the tuck holds 1.5 s, at 1.0 the frame landed in the fade's black)
+        { label: 'lamps dim, Zzz', test: () => sleep() === 'tucked', settle: 0.6, max: 30 },
         { label: 'fade to night', test: () => sleep() === 'fading', settle: 0.02, realMs: 140, max: 30 },
         { label: 'day-end summary', test: m('summary'), settle: 0.9, max: 30 },
-        { label: 'wake beside the bed', test: m('wake'), settle: 0.6, max: 30 },
+        // (r19: once the card is dismissed — sleep:wake fires under the card, and the frame showed the card twice)
+        { label: 'wake beside the bed', test: () => m('wake')() && !this.game.hud.openPanelName, settle: 0.35, max: 30 },
         { label: 'morning: the new coop stands', test: m('out'), settle: 1.0, max: 30 },
       ];
     }

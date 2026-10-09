@@ -94,6 +94,23 @@ const HOUSE = 'house';
 const WAKE = { x: 9.6, z: 2.9 };
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * r19: a bedtime beat in SIM time while a milestone sequence capture holds the loop (`game.holdLoop`,
+ * shot.mjs --frames): with wall-clock waits the whole tuck → Zzz → fade ran out while the harness was
+ * busy writing the previous PNG, and the sheet jumped from the bedside straight to the next morning.
+ */
+function beat(game: Game, ms: number): Promise<void> {
+  if (!game.holdLoop) return wait(ms);
+  const until = game.time + ms / 1000;
+  return new Promise((r) => {
+    const tick = (): void => {
+      if (game.time >= until || !game.holdLoop) r();
+      else setTimeout(tick, 8);
+    };
+    tick();
+  });
+}
+
 const PROMPT_CSS = `
 .hv-bedask{position:absolute;left:50%;bottom:150px;translate:-50% 0;z-index:40;min-width:380px;padding:18px 26px 20px;border-radius:20px;
   background:linear-gradient(180deg,#fbf0d6,#f1dcad);border:4px solid #8a5528;box-shadow:inset 0 2px 0 #fffaf0,0 6px 0 rgba(60,30,10,.35),0 18px 40px rgba(20,10,4,.45);
@@ -304,7 +321,7 @@ export class SleepSystem implements System, SleepApi {
       if (!this.lying) {
         await g.hud.fade(true);
         this.lieDown(true);
-        await wait(120);
+        await beat(g, 120);
         await g.hud.fade(false);
       }
       this.phase = 'tucked';
@@ -313,11 +330,11 @@ export class SleepSystem implements System, SleepApi {
       this.zzz = true;
       this.zT = 0.25;
       g.services.audio?.play('sleep');
-      await wait(1500);
+      await beat(g, 1500);
     }
     this.phase = 'fading';
     await g.hud.fade(true);
-    await wait(300);
+    await beat(g, 300);
     this.zzz = false;
     this.phase = 'night';
     this.sleep();

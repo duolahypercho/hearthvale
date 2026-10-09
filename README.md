@@ -1409,7 +1409,10 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   glazing bars carried down the beam and a thinning far face; the top-shelf bowls oatmeal-glazed (they bloomed into a
   white orb at night). *Action demos* — `animals-chores` / `-rain` / `-overnight` / `-live` capture one frame per
   milestone with `shot.mjs --frames N` (egg lift, hay, pat, rain, doorway, quilt, fade, card, wake, new coop); the
-  overnight demo now goes to bed in the farmhouse bed. `sleep.phase` exposes the bedtime stage.
+  overnight demo now goes to bed in the farmhouse bed. `sleep.phase` exposes the bedtime stage; while a capture holds
+  the loop the bedtime beats run in sim time, and under automation (`navigator.webdriver`) an action demo waits 8 s
+  for the capture to start it (on a loaded machine the act used to run out before frame 0 — every frame showed the
+  next morning).
 
 ## Co-op multiplayer (1–4 farmers)
 
