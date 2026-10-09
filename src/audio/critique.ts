@@ -206,6 +206,15 @@ export function critiquePiece(id: string, seed = 1): Critique {
   const breathsPer8 = Math.round((breaths / Math.max(1, tuneBars / 8)) * 10) / 10;
   const lo = mel.reduce((m, e) => Math.min(m, e.midi), 999);
   const hi = mel.reduce((m, e) => Math.max(m, e.midi), 0);
+  // (Round 19) Range is a property of a voice: when B / C hand the tune to another instrument (and its
+  // own register — First Furrow's clarinet bridge an octave under the flute), each player's compass is
+  // judged on its own; NARROW / WIDE use the widest single voice.
+  const byInst = new Map<string, [number, number]>();
+  for (const e of mel) {
+    const r = byInst.get(e.inst) ?? [999, 0];
+    byInst.set(e.inst, [Math.min(r[0], e.midi), Math.max(r[1], e.midi)]);
+  }
+  const voiceRange = Math.max(0, ...[...byInst.values()].map(([a, b]) => b - a));
 
   // ── rubs against sounding harmony
   const rubs: Rub[] = [];
@@ -356,8 +365,8 @@ export function critiquePiece(id: string, seed = 1): Critique {
     if (b9 > 0) flags.push('B9-BASS');
     if (clashes / minutes > 2.5) flags.push('CLASHY');
     if (strongPct < 60) flags.push('WEAK-STRONG-BEATS');
-    if (hi - lo < 9) flags.push('NARROW');
-    if (hi - lo > 26) flags.push('WIDE');
+    if (voiceRange < 9) flags.push('NARROW');
+    if (voiceRange > 26) flags.push('WIDE');
     if (unrecPct > 0.35 && unrec > 3) flags.push('LEAPY');
     // Round 7 (critic r6: "conspicuously leap-heavy … algorithmically busy"): more than half the
     // moves skipping a third or more, or more than 8 % of all moves an unrecovered leap of a 4th+.

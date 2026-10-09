@@ -770,7 +770,13 @@ export class Sfx {
           // Shell clank: three inharmonic plate partials over a hollow knock, a chitin crunch.
           // (Round 17: the plate partials are the chitin body's modes above; a hollow knock and a dry
           // rattle — and the claws clack shut a beat later, which no other creature does.)
-          this.tone(d, t, { type: 'triangle', f0: 380, f1: 300, glide: 0.04, amp: 0.12, tau: 0.04, lp: 1400 });
+          // (Round 19: blind recognition heard the crab as the bare sword hit 2 / 6 — its 380 Hz knock sat on
+          // the blade's 300 Hz slap. The shell answers HOLLOW instead: a narrow cavity "tok" at ~1.1 kHz
+          // with an upper shell ring, like a struck coconut, and the claws snap twice.)
+          const cav = 1050 + r.next() * 160;
+          this.noise(d, t + 0.001, { f: cav, q: 9, amp: 0.34, attack: 0.0008, tau: 0.035 });
+          this.noise(d, t + 0.002, { f: cav * 1.83, q: 7, amp: 0.12, attack: 0.0008, tau: 0.022 });
+          for (let i = 0; i < 2; i++) this.noise(d, t + 0.07 + i * (0.022 + r.next() * 0.01), { type: 'highpass', f: 2600, amp: 0.07 - i * 0.02, attack: 0.0004, tau: 0.004 });
           this.modal(d, t + 0.055 + r.next() * 0.02, 'chitin', 0.05, 1.45);
           this.modal(d, t + 0.1 + r.next() * 0.03, 'chitin', 0.035, 1.6);
           this.crunch(d, t + 0.003, 0.16, { n: 6, span: 0.035, lo: 2000, hi: 5200, click: 0 });
@@ -809,6 +815,10 @@ export class Sfx {
           // Imp: a leathery smack, a low growl and the hiss of its embers.
           this.tone(d, t + 0.01, { type: 'sawtooth', f0: 125, f1: 90, glide: 0.12, amp: 0.07, attack: 0.01, tau: 0.06, lp: 520 });
           this.noise(d, t + 0.01, { f: 2600, q: 0.9, amp: 0.025, attack: 0.01, tau: 0.1, buf: this.g.pink });
+          // (Round 19: the blow knocks sparks out of it — a 200 ms spit of embers and a hiss, which no
+          // other body has; blind recognition still heard 1 imp in 6 as the bare blade.)
+          this.crunch(d, t + 0.03, 0.08, { n: 8, span: 0.2, lo: 2600, hi: 6500, click: 0 });
+          this.noise(d, t + 0.02, { type: 'highpass', f: 4200, amp: 0.028, attack: 0.03, tau: 0.13 });
           if (killed) {
             this.noise(d, t + 0.05, { f: 380, f1: 1200, q: 0.9, amp: 0.26, attack: 0.03, tau: 0.12, buf: this.g.brown });
             this.noise(d, t + 0.08, { f: 1800, q: 0.8, amp: 0.04, attack: 0.02, tau: 0.22, buf: this.g.pink });

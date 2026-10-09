@@ -38,7 +38,10 @@ export const THEMES: Record<string, ThemeDef> = {
       outro: ['IVmaj7', 'Iadd9'],
     },
     melody: {
-      inst: 'flute', range: [67, 89], density: 0.55, legato: true, ornament: 0.3, cInst: 'clarinet',
+      // (Round 19: cOctave -1 — the clarinet bridge was written D5-C6, its bright clarion: 3.1 kHz
+      // centroid and 44 % of it in 2-5 kHz against the flute's 1.9 kHz / 30 %, the whole C strain
+      // FORM-GLARE. Down an octave it is the warm chalumeau / throat register the strain was written for.)
+      inst: 'flute', range: [67, 89], density: 0.55, legato: true, ornament: 0.3, cInst: 'clarinet', cOctave: -1,
       tune: {
         octave: 1,
         // "F.. G A C | D.. C Bb A | A C D.. C | Bb A G.. (C D) | ..." — a dotted walk up and a sigh down.
@@ -195,7 +198,7 @@ export const THEMES: Record<string, ThemeDef> = {
       outro: ['iv6', 'Imaj7'],
     },
     melody: {
-      inst: 'musicBox', range: [76, 93], density: 0.35, ornament: 0.15, bInst: 'celesta', cInst: 'flute', double: { inst: 'glock', interval: 12, on: 'repeat' },
+      inst: 'musicBox', range: [76, 93], density: 0.35, ornament: 0.15, bInst: 'celesta', cInst: 'flute', double: { inst: 'glock', interval: 12, on: 'repeat', handoff: true },
       tune: {
         octave: 1,
         // "B. C# B G# | D#. E D# B | E. F# E C# | C# B G# | ... | C. B A G | G# F# E" — rising thirds, then the minor iv.
@@ -312,7 +315,9 @@ export const THEMES: Record<string, ThemeDef> = {
         // "E.. F#.. E | D.. C#.. A | C#.. E.. G# A | A G# F#.. E |" — 3+3+2, a neighbour-note hook that
         // climbs the arpeggio and sighs back down by step; B is a falling sequence (A G# F# / G# F# E / ...).
         A: ['5:3 6:3 5:2', '4:3 3:3 1:2', "3:3 5:3 7:1 1':1", "1':2 7:1 6:3 r:2", '2:1 3:1 4:1 6:1 4:2 2:2', '5:3 4:2 3:1 2:2', '3:2 5:2 6:2 5:1 3:1', '4:2 2:2 2:1 1:1 7,:2'],
-        B: ["1':4 7:2 6:2", '7:4 6:2 5:2', '6:4 5:2 4:2', '3:3 2:1 3:2 5:2', "6:1 1':1 2':1 1':1 6:2 4:2", "7:1 2':1 3':1 2':1 7:2 5:2", "1':3 7:1 6:2 5:2", '2:4 r:4'],
+        // (Round 19: B climbs into its high A from the tonic — it used to jump a ninth straight off A's
+        // closing G#, the only unbreathed register leap left in the pan's line.)
+        B: ["1:1 3:1 5:1 1':3 7:1 6:1", '7:4 6:2 5:2', '6:4 5:2 4:2', '3:3 2:1 3:2 5:2', "6:1 1':1 2':1 1':1 6:2 4:2", "7:1 2':1 3':1 2':1 7:2 5:2", "1':3 7:1 6:2 5:2", '2:4 r:4'],
         C: ['6:3 4:3 3:2', '5:3 3:3 2:2', "1':3 6:3 5:2", '3:6 r:2', "b7:3 2':3 4':2", "1':3 6:3 4:2", '2:3 4:3 6:2', '5:4 7,:2 r:2'],
         Aend: ['4:2 2:2 5:2 4:1 2:1', '1:3 3:3 1:2'],
         pickup: '3:1 4:1',
@@ -634,7 +639,10 @@ export const THEMES: Record<string, ThemeDef> = {
         octave: 1,
         // "E. G B. G | A. F# D. F# | E F# G B. C# | C#.. B. A |" — the raised sixth (C#) is the forest's colour.
         A: ['1:2 3:1 5:2 3:1', '4:2 3:1 2:2 3:1', '1:1 2:1 3:1 5:2 6:1', '6:3 5:2 4:1', '1:2 3:1 5:2 3:1', '7:2 6:1 5:2 4:1', '6:1 5:1 4:1 2:1 4:1 3:1', '1:3 r:3'],
-        B: ['5:2 6:1 7:2 6:1', '7:2 6:1 5:2 4:1', "6:2 7:1 1':2 7:1", '5:3 r:3', '3:1 4:1 5:1 7:2 6:1', "2':2 1':1 7:2 6:1", "4:2 5:1 6:2 1':1", "2':2 1':1 7:3"],
+        B: ['5:2 6:1 7:2 6:1', '7:2 6:1 5:2 4:1', "6:2 7:1 1':2 7:1", '5:3 r:3', '3:1 4:1 5:1 7:2 6:1', "2':2 1':1 7:2 6:1", "4:2 5:1 6:2 1':1", '6:1 5:1 4:1 2:1 r:2'],
+        // (Round 19: B's last bar runs down the scale into the A pickup (which sounds over its last beat) —
+        // it held the top F# a second time and then dropped a tenth to the B, the whistle's one
+        // unbreathed register jump.)
         C: ['5:2 6:1 7:3', "1':2 7:1 5:3", '4:2 3:1 2:3', '1:3 r:3', '2:2 1:1 7,:3', '3:2 5:1 7:3', '6:2 5:1 4:3', '7:3 r:3'],
         pickup: '5,:1 7,:1',
       },

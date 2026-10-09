@@ -93,8 +93,16 @@ export interface ThemeDef {
     bInst?: InstrumentName;
     /** The bridge (C) passes the tune to another voice. */
     cInst?: InstrumentName;
+    /** (Round 19) Octaves the C strain is played away from the written tune (cInst's own register). */
+    cOctave?: number;
     octaveOnRepeat?: boolean;
-    double?: { inst: InstrumentName; interval: number; on: When };
+    /**
+     * A doubling voice on the tune. (Round 19) It colours the tune's OWN instrument: when B / C hand
+     * the strain to bInst / cInst the doubling sits out (a glockenspiel an octave over the nylon
+     * guitar's bridge, or over the clarinet's B, was the brightest thing in those strains —
+     * FORM-GLARE) unless `handoff` keeps it.
+     */
+    double?: { inst: InstrumentName; interval: number; on: When; handoff?: boolean };
     tune?: Tune;
   };
   counter?: { inst: InstrumentName; range: [number, number]; on: When; style?: 'guide' | 'moving' };
@@ -381,10 +389,13 @@ export class Composer {
         if (!notes) return;
         const n0 = ev.length;
         const secInst = b.section === 'B' && m.bInst ? m.bInst : b.section === 'C' && m.cInst ? m.cInst : m.inst;
-        const oct = m.octaveOnRepeat && b.section === 'A' && b.occ > 0 ? 12 : 0;
+        const repOct = m.octaveOnRepeat && b.section === 'A' && b.occ > 0 ? 12 : 0;
+        const secOct = b.section === 'C' && m.cOctave ? 12 * m.cOctave : 0;
         const crescendo = b.section === 'B' ? 0.94 + 0.1 * b.pos : b.section === 'C' ? 0.9 + 0.14 * b.pos : this.isFinalA(b) ? 1.05 : 1;
         notes.forEach((n, ni) => {
           const inst = n.pick ? m.inst : secInst;
+          // (A pickup at the end of a C bar belongs to the next A: its own instrument and register.)
+          const oct = n.pick ? repOct : repOct + secOct;
           const t = this.at(b, n.step) + this.jit(0.007);
           const hold = b.section === 'outro' ? 0.95 : m.staccato ? 0.55 : m.legato ? 0.97 : 0.86;
           const dur = (n.steps / this.S) * b.dur * hold;
@@ -415,7 +426,7 @@ export class Composer {
           }
           ev.push({ t, track: 'melody', inst, midi: n.midi + oct, dur: tied ? dur * 1.03 : dur, vel, o });
           last = n.midi + oct;
-          if (m.double && this.active(m.double.on, b)) {
+          if (m.double && this.active(m.double.on, b) && (inst === m.inst || m.double.handoff)) {
             ev.push({ t: t + 0.004, track: 'double', inst: m.double.inst, midi: n.midi + oct + m.double.interval, dur, vel: vel * 0.7, o: { art: o.art } });
           }
         });
@@ -464,7 +475,11 @@ export class Composer {
         }
         this.barMel = mel[bi] ?? undefined;
         if (th.bass && !(isIntro && b.i === 0 && th.prog.intro === undefined)) this.bass(ev, b, sp, nextChord, lastBar, lastSpan && (b.fill || b.brk) && !!nextBar);
-        if (th.counter && this.active(th.counter.on, b)) {
+        // (Round 19) The player who plays the counter-line is the one the strain is handed to: when B / C
+        // give the tune to the counter's own instrument (Market Morning's clarinet B, First Furrow's
+        // clarinet bridge) the counter rests instead of doubling the timbre a fifth below the tune.
+        const handed = b.section === 'B' ? th.melody?.bInst : b.section === 'C' ? th.melody?.cInst : undefined;
+        if (th.counter && this.active(th.counter.on, b) && handed !== th.counter.inst) {
           cntPrev = this.counter(ev, b, sp, nextChord, cntPrev, mel[bi] ?? undefined);
         }
       });
@@ -477,6 +492,7 @@ export class Composer {
     ev.sort((a, b) => a.t - b.t);
     this.clearTune(ev);
     this.letRing(ev);
+    this.dampAtChanges(ev, bars);
     const lastBar = bars[bars.length - 1]!;
     const barInfo = bars.map((b) => ({ t: b.t0, chords: b.spans.map((sp) => sp.chord.symbol).join(' '), section: b.i === 0 ? b.section : '', i: b.i, shift: b.shift }));
     return { theme: th.id, seed: this.seed, events: ev, duration: lastBar.t0 + lastBar.dur, bars: bars.length, barInfo };
@@ -489,6 +505,64 @@ export class Composer {
    * 13-30 dB in the beat before nearly every downbeat (fall, town-2, forest-2, title: BASS-HOLE).
    * Stop-time hits (staccato) stay short: that silence is the arrangement.
    */
+  /**
+   * The comping hands and the strings let go at each change of harmony (round 19). A harp / guitar /
+   * pad note was written to the end of its span (+2 %, + the humanised drift), so the old chord rang
+   * on under the new one: up to 18-19 notes sounding at once at the changes of Snowlight / the title /
+   * the Harvest Reel's C strain (FORM-CROWD), a 0.1-0.6 s smear of e.g. A + Bb over a C minor. A
+   * player damps the strings that are NOT in the next chord just before it lands (their own release
+   * still decays them — the harp's 0.5 s damper, the pad's swell); common tones ring through, and a
+   * span that repeats its chord is no change at all.
+   */
+  private dampAtChanges(ev: NoteEvent[], bars: Bar[]): void {
+    const changes: { t: number; pcs: Set<number> }[] = [];
+    let prevSym = '';
+    for (const b of bars) {
+      for (const sp of b.spans) {
+        const sym = `${sp.chord.symbol}/${b.shift}`;
+        if (sym !== prevSym) changes.push({ t: this.at(b, sp.s0), pcs: new Set(sp.chord.tones.map((x) => (((this.keyPc + sp.chord.root + x + b.shift) % 12) + 12) % 12)) });
+        prevSym = sym;
+      }
+    }
+    if (changes.length < 2) return;
+    let k = 0;
+    const sorted = ev.filter((e) => (e.track === 'accomp' || e.track === 'accomp2' || e.track === 'pad') && e.dur > 0.25).sort((a, b) => a.t - b.t);
+    for (const e of sorted) {
+      // The first change after the note's own onset (60 ms of slack: a chord struck on its change,
+      // humanised a little late, belongs to that change).
+      while (k < changes.length && changes[k]!.t <= e.t + 0.06) k++;
+      const c = changes[k];
+      if (!c) break;
+      if (e.t + e.dur <= c.t - 0.05) continue;
+      if (c.pcs.has(((e.midi % 12) + 12) % 12)) continue;
+      e.dur = Math.max(0.12, c.t - 0.05 - e.t);
+    }
+    // A string (or a pad voice) struck again stops its previous sound: an anticipated chord re-struck
+    // on the beat, a common tone re-struck by the next chord. Two strikes of one pitch on one track
+    // within 80 ms (a roll whose voicing doubled its top note) are one note.
+    const last = new Map<string, NoteEvent>();
+    const drop = new Set<NoteEvent>();
+    for (const e of sorted) {
+      const key = `${e.track}:${e.midi}`;
+      const p = last.get(key);
+      if (p && e.t < p.t + p.dur) {
+        if (e.t - p.t < 0.08) {
+          p.dur = Math.max(p.dur, e.t + e.dur - p.t);
+          p.vel = Math.max(p.vel, e.vel);
+          drop.add(e);
+          continue;
+        }
+        p.dur = Math.max(0.06, e.t - p.t - 0.01);
+      }
+      last.set(key, e);
+    }
+    if (drop.size) {
+      let w = 0;
+      for (let i = 0; i < ev.length; i++) if (!drop.has(ev[i]!)) ev[w++] = ev[i]!;
+      ev.length = w;
+    }
+  }
+
   private letRing(ev: NoteEvent[]): void {
     const cfg = this.th.bass;
     if (!cfg || SUSTAINED_BASS.has(cfg.inst)) return;
