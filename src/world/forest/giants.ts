@@ -24,6 +24,20 @@ import { InstancedSet, BatchPool, type InstancedPart } from '../props/instanced'
 import type { GiantKind } from './layout';
 import { CardBuilder, leafClusterTexture, needleSprayTexture, applyBillboard, applyCardMap, applyCardShadowLift, applyPaintedLight, applySeeThrough } from './foliage';
 
+/**
+ * Perf r22 depth-pass trims in the forest (pillar 14): giants and shrubs cast from coarser shadow proxies
+ * (shadowProxy), winter berries / stalks skip the AO G-buffer, the finest winter whips skip the depth-only
+ * passes, snow collars cull per tree. `?forestlod=0` = old (A/B).
+ */
+export const FOREST_LOD = ((): boolean => {
+  try {
+    const q = new URLSearchParams(location.search).get('forestlod');
+    return !(q === '0' || q === 'false');
+  } catch {
+    return true;
+  }
+})();
+
 const WIND_TRUNK = { mode: 'attribute' as const, amplitude: 0.1, flutter: 0 };
 const WIND_LEAF = { mode: 'attribute' as const, amplitude: 0.16, flutter: 0.45 };
 const WIND_CARD = { mode: 'attribute' as const, amplitude: 0.16, flutter: 0.8 };
@@ -176,7 +190,9 @@ function branchTree(b: MeshBuilder, m: THREE.Material, rng: Rng, from: THREE.Vec
   const last = level >= TWIG_LEVELS - 1;
   const rEnd = last ? 0.01 : r * 0.55;
   // Lean geometry: radial sides 5 -> 3 with depth, 3 bends on the scaffold, 2 on the whips.
-  bough(b, m, r, rEnd, from, ctrl, end, Math.max(3, 5 - level), level < 2 ? 3 : 2, 1);
+  // The finest whips (1-5 cm across, ~57 % of the winter crown's triangles) are detail: below a shadow
+  // texel run and the half-res AO, they draw in the colour pass only (snow-day: -65k shadow, -23k AO tris).
+  bough(b, m, r, rEnd, from, ctrl, end, Math.max(3, 5 - level), level < 2 ? 3 : 2, 1, last && FOREST_LOD);
   if (last) return;
   const curve = new THREE.QuadraticBezierCurve3(from, ctrl, end);
   const kids = level === 0 ? 3 : level === 1 ? 2 + rng.int(0, 1) : 1 + rng.int(0, 1);
@@ -454,7 +470,7 @@ const LIMB_SEGS = ((): number => {
 })();
 
 /** Curved limb: several tapered segments along a quadratic bezier (reads as a bough, not a stick). */
-function bough(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THREE.Vector3, ctrl: THREE.Vector3, e: THREE.Vector3, radial: number, n = 3, segs = LIMB_SEGS): void {
+function bough(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THREE.Vector3, ctrl: THREE.Vector3, e: THREE.Vector3, radial: number, n = 3, segs = LIMB_SEGS, detail = false): void {
   const curve = new THREE.QuadraticBezierCurve3(a, ctrl, e);
   let prev = a.clone();
   for (let i = 1; i <= n; i++) {
@@ -463,7 +479,7 @@ function bough(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: THR
     const rb = THREE.MathUtils.lerp(r0, r1, i / n);
     // Overlap the joints a little so there are no seams.
     const dir = p.clone().sub(prev).normalize();
-    b.add(m, limb(ra, rb, prev.clone().addScaledVector(dir, -ra * 0.4), p, radial, segs));
+    b.add(m, limb(ra, rb, prev.clone().addScaledVector(dir, -ra * 0.4), p, radial, segs), undefined, { detail });
     prev = p;
   }
 }
@@ -529,7 +545,7 @@ function trunkGeometry(rng: Rng, h: number, r0: number, lobes: number, flare: nu
 }
 
 /** Root tubes: arch out of the trunk foot and dive into the soil (each a tapered, curved limb). */
-function roots(b: MeshBuilder, m: THREE.Material, rng: Rng, r0: number, n: number, reach: number, thick: number): void {
+function roots(b: MeshBuilder, m: THREE.Material, rng: Rng, r0: number, n: number, reach: number, thick: number, radial = 10): void {
   const phase = rng.next() * Math.PI * 2;
   for (let i = 0; i < n; i++) {
     const a = phase + (i / n) * Math.PI * 2 + (rng.next() - 0.5) * 0.5;
@@ -542,7 +558,7 @@ function roots(b: MeshBuilder, m: THREE.Material, rng: Rng, r0: number, n: numbe
     const c = new THREE.Vector3(Math.cos(a) * (r0 + len * 0.62), 0.5, Math.sin(a) * (r0 + len * 0.62));
     // 11 x 10 (was 14 x 12): the knee arch stays smooth with welded normals, -35 % root triangles
     // (forest-fall peaked 445 tris under the 1.5 M budget, perf r4; roots draw in main + shadow + AO).
-    rootTube(b, m, thick * (0.8 + rng.next() * 0.35), thick * 0.22, s, c, e, 11, 10);
+    rootTube(b, m, thick * (0.8 + rng.next() * 0.35), thick * 0.22, s, c, e, 11, radial);
   }
 }
 
@@ -578,6 +594,9 @@ function rootTube(b: MeshBuilder, m: THREE.Material, r0: number, r1: number, a: 
 interface GiantGeo {
   /** Winter-only fine twig crown (elders). */
   twigs?: THREE.BufferGeometry;
+  /** Shadow-map proxies (see shadowProxy): the same surfaces on every other ring / vertex. */
+  shadowTrunk?: THREE.BufferGeometry;
+  shadowLeaves?: THREE.BufferGeometry;
   trunk: THREE.BufferGeometry;
   leaves: THREE.BufferGeometry;
   cards: THREE.BufferGeometry;
@@ -613,16 +632,16 @@ function cluster(out: Blob[], rng: Rng, c: THREE.Vector3, r: number, n: number):
 
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 
-function elder(rng: Rng): GiantGeo {
+function elder(rng: Rng, proxy = false): GiantGeo {
   const b = new MeshBuilder();
   const bark = giantBarkMaterial();
   const leaf = canopyMaterial('elder');
   const trunkH = 4.5 + rng.next() * 0.8;
   const r0 = 0.9 + rng.next() * 0.18;
   const trunkAO = (p: THREE.Vector3) => 0.4 + 0.6 * THREE.MathUtils.smoothstep(p.y, -0.3, 2.2);
-  b.add(bark, trunkGeometry(rng, trunkH + 0.6, r0, 5 + rng.int(0, 2), 0.55), undefined, { aoWorld: trunkAO });
+  b.add(bark, trunkGeometry(rng, trunkH + 0.6, r0, 5 + rng.int(0, 2), 0.55, 28, proxy ? 9 : 18), undefined, { aoWorld: trunkAO });
   // Root tubes diving into the ground between the swells.
-  roots(b, bark, rng, r0, 6 + rng.int(0, 1), 1.5, 0.34);
+  roots(b, bark, rng, r0, 6 + rng.int(0, 1), 1.5, 0.34, proxy ? 5 : 10);
   const tb = new MeshBuilder();
   const twig = giantTwigMaterial();
   const top = new THREE.Vector3(0, trunkH, 0);
@@ -682,7 +701,7 @@ function elder(rng: Rng): GiantGeo {
   }
   for (const bl of blobs) {
     // Inner fill is mostly hidden: a coarser mesh is plenty. Shells sit a touch inside the card fringe.
-    const g = lumpySphere(bl.r * 0.82, 1, 0.12, rng, 1.4);
+    const g = lumpySphere(bl.r * 0.82, proxy ? 0 : 1, 0.12, rng, 1.4);
     g.scale(1, 0.8, 1);
     uvScale(g, 1.5, 1.1);
     g.translate(bl.c.x, bl.c.y, bl.c.z);
@@ -698,7 +717,8 @@ function elder(rng: Rng): GiantGeo {
   const p = new THREE.Vector3();
   const nrm = new THREE.Vector3();
   const cc = new THREE.Color();
-  for (const bl of blobs) {
+  // (The shadow proxy twin stops drawing from its RNG here: it only keeps the trunk and shells.)
+  for (const bl of proxy ? [] : blobs) {
     if (bl.inner) continue;
     const n = Math.round(12 + bl.r * 12);
     const rot0 = rng.next() * Math.PI * 2;
@@ -736,19 +756,19 @@ function elder(rng: Rng): GiantGeo {
   const leafW = (pp: THREE.Vector3) => 0.3 + 0.7 * THREE.MathUtils.clamp((pp.y - trunkH) / (H - trunkH), 0, 1);
   addWindAttr(leaves, leafW);
   addWindAttr(cardGeo, leafW);
-  const twigs = tb.geometries().get(twig)!;
+  const twigs = tb.geometries(FOREST_LOD).get(twig)!;
   addWindAttr(twigs, (pp) => 0.4 + 0.6 * Math.pow(THREE.MathUtils.clamp((pp.y - trunkH * 0.6) / (H - trunkH * 0.6), 0, 1), 1.4));
   return { trunk, leaves, cards: cardGeo, twigs, height: H, radius: spread + 2.5 };
 }
 
-function fir(rng: Rng): GiantGeo {
+function fir(rng: Rng, proxy = false): GiantGeo {
   const b = new MeshBuilder();
   const bark = giantBarkMaterial();
   const leaf = canopyMaterial('fir');
   const H = 10.8 + rng.next() * 2.0;
   const trunkAO = (p: THREE.Vector3) => 0.42 + 0.58 * THREE.MathUtils.smoothstep(p.y, -0.3, 2.0);
-  b.add(bark, trunkGeometry(rng, H * 0.9, 0.62, 5, 0.6, 20, 14), undefined, { aoWorld: trunkAO });
-  roots(b, bark, rng, 0.62, 5, 1.0, 0.24);
+  b.add(bark, trunkGeometry(rng, H * 0.9, 0.62, 5, 0.6, 20, proxy ? 7 : 14), undefined, { aoWorld: trunkAO });
+  roots(b, bark, rng, 0.62, 5, 1.0, 0.24, proxy ? 5 : 10);
   const cards = new CardBuilder();
   const tiers = 6 + rng.int(0, 1);
   const base = 2.0;
@@ -840,6 +860,29 @@ function fir(rng: Rng): GiantGeo {
   return { trunk, leaves, cards: cardGeo, height: H, radius: 3.9 };
 }
 
+/** A copy of `r` at its current state (the proxy twin replays the same draws). */
+function cloneRng(r: Rng): Rng {
+  return Object.assign(Object.create(Object.getPrototypeOf(r) as object) as Rng, r);
+}
+
+/**
+ * Shadow-map proxies (Perf r22, pillar 14). The giants were ~30 % of every forest frame's triangles, most
+ * of them in the sun's shadow pass (forest-canopy: 417k shadow vs 107k colour): the shadow box reaches the
+ * rim wall far past the lens. The proxy twin is built from a clone of the same RNG state with a coarser
+ * tessellation of the SAME surfaces — every other trunk ring (lathe rings are f = j / rings), every other
+ * root-tube side, icosphere detail 0 under the detail-1 canopy puffs (its vertices are a subset, same
+ * displacement noise) — so each proxy vertex lies on the colour mesh and its convex faces sit inside it
+ * (no self-shadow on the lit side). Boughs, needle tiers and cards cast as before. `?forestlod=0` = off.
+ */
+function shadowProxy(g: GiantGeo, p: GiantGeo, kind: GiantKind): void {
+  g.shadowTrunk = p.trunk;
+  // Fir tiers are scalloped cones (lobes alias at half the sides): they keep their own shadow.
+  if (kind === 'elder') g.shadowLeaves = p.leaves;
+  else p.leaves.dispose();
+  p.cards.dispose();
+  p.twigs?.dispose();
+}
+
 export interface GiantHandle {
   kind: GiantKind;
   set: InstancedSet;
@@ -875,7 +918,12 @@ export class GiantGrove {
     if (!v) {
       const r = this.rng.fork(`giant-${kind}`);
       v = [];
-      for (let i = 0; i < 3; i++) v.push(kind === 'elder' ? elder(r) : fir(r));
+      for (let i = 0; i < 3; i++) {
+        const twin = FOREST_LOD ? cloneRng(r) : null;
+        const g = kind === 'elder' ? elder(r) : fir(r);
+        if (twin) shadowProxy(g, kind === 'elder' ? elder(twin, true) : fir(twin, true), kind);
+        v.push(g);
+      }
       this.variants.set(kind, v);
     }
     return v;
@@ -889,11 +937,13 @@ export class GiantGrove {
       GiantGrove.depthTrunk ??= windDepthMaterial(WIND_TRUNK);
       GiantGrove.depthLeaf ??= windDepthMaterial(WIND_LEAF);
       const parts: InstancedPart[] = [
-        { geometry: g.trunk, material: giantBarkMaterial(), depthMaterial: GiantGrove.depthTrunk },
-        { geometry: g.leaves, material: canopyMaterial(kind), tinted: true, depthMaterial: GiantGrove.depthLeaf },
+        { geometry: g.trunk, material: giantBarkMaterial(), depthMaterial: GiantGrove.depthTrunk, castShadow: !g.shadowTrunk },
+        { geometry: g.leaves, material: canopyMaterial(kind), tinted: true, depthMaterial: GiantGrove.depthLeaf, castShadow: !g.shadowLeaves },
         { geometry: g.cards, material: cardMaterial(kind), tinted: true, depthMaterial: cardDepthMaterial(kind) },
       ];
       if (g.twigs) parts.push({ geometry: g.twigs, material: giantTwigMaterial(), depthMaterial: GiantGrove.depthTrunk });
+      if (g.shadowTrunk) parts.push({ geometry: g.shadowTrunk, material: giantBarkMaterial(), depthMaterial: GiantGrove.depthTrunk, shadowOnly: true });
+      if (g.shadowLeaves) parts.push({ geometry: g.shadowLeaves, material: canopyMaterial(kind), depthMaterial: GiantGrove.depthLeaf, shadowOnly: true });
       s = new InstancedSet(`giant-${key}`, parts, this.pool);
       this.sets.set(key, s);
     }
@@ -943,7 +993,7 @@ const SHRUB_PALETTE: Record<Season, number[]> = {
   winter: [0x3f6a48, 0x456f4a],
 };
 
-function shrubGeometry(rng: Rng): { shell: THREE.BufferGeometry; cards: THREE.BufferGeometry } {
+function shrubGeometry(rng: Rng, proxy = false): { shell: THREE.BufferGeometry; cards: THREE.BufferGeometry } {
   const b = new MeshBuilder();
   const leaf = canopyMaterial('elder');
   const blobs: Blob[] = [];
@@ -964,7 +1014,7 @@ function shrubGeometry(rng: Rng): { shell: THREE.BufferGeometry; cards: THREE.Bu
   for (const bl of blobs) {
     const v = 0.9 + rng.next() * 0.2;
     const tint = new THREE.Color(v, v, v).offsetHSL((rng.next() - 0.5) * 0.05, 0, 0);
-    const g = lumpySphere(bl.r * 0.8, 1, 0.12, rng, 1.4);
+    const g = lumpySphere(bl.r * 0.8, proxy ? 0 : 1, 0.12, rng, 1.4);
     g.scale(1, 0.85, 1);
     g.translate(bl.c.x, bl.c.y, bl.c.z);
     sphericalNormals(g, bl.c, 0.5);
@@ -1005,13 +1055,17 @@ export class ShrubField {
   constructor(private rng: Rng) {
     for (let i = 0; i < 3; i++) {
       const g = shrubGeometry(rng.fork(`shrub-${i}`));
+      // Shadow proxy shell (see shadowProxy): fork() restarts the same stream, so the twin is exact.
+      const twin = FOREST_LOD ? shrubGeometry(rng.fork(`shrub-${i}`), true) : null;
+      twin?.cards.dispose();
       GiantGrove.leafDepth();
       this.sets.push(
         new InstancedSet(
           `shrub-${i}`,
           [
-            { geometry: g.shell, material: canopyMaterial('elder'), tinted: true, depthMaterial: GiantGrove.leafDepth() },
+            { geometry: g.shell, material: canopyMaterial('elder'), tinted: true, depthMaterial: GiantGrove.leafDepth(), castShadow: !twin },
             { geometry: g.cards, material: cardMaterial('elder'), tinted: true, depthMaterial: cardDepthMaterial('elder') },
+            ...(twin ? [{ geometry: twin.shell, material: canopyMaterial('elder'), depthMaterial: GiantGrove.leafDepth(), shadowOnly: true }] : []),
           ],
           this.pool,
         ),

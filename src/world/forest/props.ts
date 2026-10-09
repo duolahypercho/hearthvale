@@ -15,7 +15,7 @@ import { smoothRock, forestRockMaterial } from './rocks';
 import type { InstancedPart } from '../props/instanced';
 import type { Season } from '../../core/time';
 import { forestMoss } from './rocks';
-import { applyLeafClumps } from './giants';
+import { applyLeafClumps, FOREST_LOD } from './giants';
 import { ivyLeafTexture, applyCardMap } from './foliage';
 import { patchMaterial, before, after } from '../../render/patch';
 
@@ -552,7 +552,9 @@ export function buildWinterBerry(r: Rng): InstancedPart[] {
     }
   }
   const out: InstancedPart[] = [];
-  for (const [m, geo] of b.geometries()) out.push({ geometry: geo, material: m as THREE.Material, castShadow: true });
+  // 4 cm berries (~9 px at the lens, ~4 in the half-res AO) occlude nothing the AO can resolve and sit on
+  // the leaf mound it already sees: skip the G-buffer (snow-day: 74k AO triangles).
+  for (const [m, geo] of b.geometries()) out.push({ geometry: geo, material: m as THREE.Material, castShadow: true, noAO: FOREST_LOD && m === berry });
   return out;
 }
 
@@ -576,7 +578,8 @@ export function buildWinterTwigs(r: Rng): InstancedPart[] {
     }
   }
   const out: InstancedPart[] = [];
-  for (const [mm, geo] of b.geometries()) out.push({ geometry: geo, material: mm as THREE.Material, castShadow: false });
+  // 1-4 cm stalks cast no shadow and are below the half-res AO's reach: no G-buffer draw either.
+  for (const [mm, geo] of b.geometries()) out.push({ geometry: geo, material: mm as THREE.Material, castShadow: false, noAO: FOREST_LOD });
   return out;
 }
 

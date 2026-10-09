@@ -51,7 +51,7 @@ import {
   ForestShape,
   type GiantKind,
 } from './layout';
-import { GiantGrove, ShrubField, giantBarkMaterial } from './giants';
+import { GiantGrove, ShrubField, giantBarkMaterial, FOREST_LOD } from './giants';
 import { buildMossyLog, buildMushroomCluster, buildShrine, buildRuinedTower, buildFootbridge, buildBridgeIcicles, buildFallsRocks, buildSteppingStones, runeMaterial, emberMaterial, setIvySeason, fungusMaterial, glowcapMaterial, towerWindowMaterial, buildWinterBerry, buildWinterTwigs, setTowerSpill, buildFallenBranch, buildSnowHummock, buildHareTracks, winterTrackMaterial, winterLeafMaterial, winterBerryMaterial, winterTwigMaterial, type MushroomKind } from './props';
 import { buildWaterfall, buildChurn, buildMist, buildFlow } from './stream';
 import { ForageField, forageKey, type ForageSpot, type ForageItem } from './forage';
@@ -998,6 +998,18 @@ export class ForestMap implements GameMap {
     const pos: number[] = [];
     const col: number[] = [];
     const idx: number[] = [];
+    // Perf r22: one geometry per tree in a batch (per-collar frustum culling in the colour and AO passes;
+    // the merged mesh drew every collar on the map, 46k triangles x 2 passes in every winter forest frame).
+    const ring = (from: number): THREE.BufferGeometry => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos.slice(from * 3), 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(col.slice(from * 3), 3));
+      g.setIndex(idx.map((i) => i - from));
+      g.computeVertexNormals();
+      return g;
+    };
+    const id = new THREE.Matrix4();
+    let n = 0;
     for (const h of this.giants.handles) {
       // Only the walkable map: the rim forest beyond it is seen through fog / from far above.
       if (h.x < -3 || h.x > FOREST_SIZE.w + 3 || h.z < -3 || h.z > FOREST_SIZE.d + 3) continue;
@@ -1007,6 +1019,11 @@ export class ForestMap implements GameMap {
       const rIn = (elder ? 0.72 : 0.42) * s;
       const peak = (elder ? 1.35 : 0.66) * s;
       const sd = h.seed * 97;
+      if (FOREST_LOD) {
+        pos.length = 0;
+        col.length = 0;
+        idx.length = 0;
+      }
       const base = pos.length / 3;
       for (let i = 0; i <= RINGS; i++) {
         const t = i / RINGS;
@@ -1036,13 +1053,11 @@ export class ForestMap implements GameMap {
           const d = b + RAD;
           idx.push(a, b, c, b, d, c);
         }
+      // Winter-only: the pool's winterTwig batches are shown / hidden with the season (setSeason).
+      if (FOREST_LOD) new InstancedSet(`snow-collar-${n++}`, [{ geometry: ring(0), material: winterTwigMaterial(), castShadow: false }], this.pool).add(id);
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    const m = new THREE.Mesh(g, winterTwigMaterial());
+    if (FOREST_LOD) return;
+    const m = new THREE.Mesh(ring(0), winterTwigMaterial());
     m.name = 'snow-collars';
     m.receiveShadow = true;
     m.userData.perfTag = 'nature';

@@ -166,6 +166,12 @@ function newSlot(mesh: Internal, st: CacheState): Slot {
 }
 
 function cachedBeforeRender(this: Internal, renderer: THREE.WebGLRenderer, scene: THREE.Scene | null, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material): void {
+  // Shadow-map proxies (instanced.ts `shadowOnly`): camera passes (colour, AO G-buffer) draw nothing.
+  // Shadow passes arrive via onBeforeShadow with a null scene.
+  if (scene !== null && this.userData.shadowOnly === true) {
+    this._multiDrawCount = 0;
+    return;
+  }
   if (!enabled || this.sortObjects || (camera as THREE.ArrayCamera).isArrayCamera || (material as THREE.Material & { wireframe?: boolean }).wireframe) {
     // Stock path; make sure the stock arrays / texture are in place.
     const st = this._hvCache;
