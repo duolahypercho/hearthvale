@@ -2568,7 +2568,8 @@ export class FarmingSystem implements System, FarmingApi {
     const pathRows = plan.rows.map((id, i) => (id ? -1 : Z0 + i)).filter((z) => z >= 0);
     const giantAt = { x: X0 + 1, z: Z1 - 2 };
     // (r24) The giant is opt-in on the hero field (`&giant=1`; `farm-giant` is its own showcase).
-    const withGiant = new URLSearchParams(location.search).get('giant') === '1';
+    // (r26) `farm-giant` stages the giant itself (r24 made it opt-in and the showcase lost its giant).
+    const withGiant = this.showcase === 'giant' || new URLSearchParams(location.search).get('giant') === '1';
     const giant = withGiant ? plan.giant : null;
     // The west head sits clear of the hero farmer (its jets used to stripe across him).
     // (r13: on the bed's west edge, > 3.5 tiles from either season's hero farmer: at [18, 22] the

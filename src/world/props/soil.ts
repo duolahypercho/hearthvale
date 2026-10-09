@@ -253,6 +253,15 @@ function soilMaterial(): THREE.MeshStandardMaterial {
             // (r17) Darker than the dry bed (turned earth is moist under the crust), crumbs only a
             // shade paler — never the bleached plate the r10 critic saw.
             vec3 turned = base * vec3(0.86, 0.68, 0.5) * (0.78 + 0.36 * clumps) * (0.6 + 0.55 * ridgeT);
+            // (r26) Crumbly, not a smooth dark smudge: lumps of turned earth with lit tops and near-black
+            // crevices between them (two scales of cells), so the new square reads as broken clods.
+            {
+              float l1 = hvNoise(wq * 17.0 + 7.0);
+              float l2 = hvNoise(wq * 41.0 + 3.0);
+              float lump = smoothstep(0.38, 0.62, l1 * 0.65 + l2 * 0.35);
+              float crev = 1.0 - smoothstep(0.08, 0.2, abs(l1 - 0.5));
+              turned *= (0.7 + 0.42 * lump) * (1.0 - crev * 0.4 * smoothstep(0.3, 0.7, l2));
+            }
             turned = mix(turned, base * vec3(1.25, 1.05, 0.82), crumbs * 0.45);
             c = mix(c, turned, fk * 0.94);
           }

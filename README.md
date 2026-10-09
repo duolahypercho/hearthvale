@@ -921,6 +921,23 @@ actors such as Pip the shop cat).
   warm cream sun, exposure and gain off the clip with more contrast (`tone.ts`), roof snow in wider
   overlapping strips along one slow wave (no stair-step jaggies), slush warmed to a brown-violet melt.
 
+- **Round 17** — *Crisp bubbles*: villager barks and emotes sit on their own layer (`BUBBLE_LAYER`)
+  and NpcSystem draws them over the finished frame (`game.afterRender`, the remote-emote precedent) —
+  the tilt-shift no longer smears a bark in the soft top band of the establishing lens; a turned-away
+  speaker behind a nearer head keeps a whole bubble (the 35 % ghost read as a glitch in town-coop).
+  *Close lenses*: any lit festoon string hanging in frame nearer the lens than the nearest actor
+  comes down for the shot (odessa-4 had a row of blown bulbs across the lower third). *Faces*: the 3D
+  'thinking' face arches one brow and half-drops the lids with no inner-down knit (it read as a scowl
+  while the card mused). *Gift tag*: the "Loved it!" ribbon hangs from the card's top edge over the
+  scene, never over the portrait's hat or brow. *Town*: hero cherries grow smaller blossom clusters
+  with air between them, satellite sprays on the twigs, fresh leaves among the florets and a warmer
+  pink (the crown read as one lilac cloud); sun-faded stall canopies and shop awnings (the near-white
+  stripes clipped in town-day); Kit's chalk on the plaza (a numbered hopscotch court, a smiling sun, a
+  heart, an arrow to the bakery, a dropped stub) breaks the foreground setts of the plaza lenses; the
+  dusk tone is bluer (sky fill, ground, fog, gain) so the evening plaza reads blue-violet under warm
+  pools; in winter the swept lanes keep snow in their joints and a thin uneven dusting. Evening knot:
+  Odessa stands at Bram's left instead of between him and the lens.
+
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
 (the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (19:05, lamps lit, the bakery and market row), `town-winter` (the establishing lens in snow,
 its own winter blocking), `town-winter-square` (the plaza in snow), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
@@ -1225,6 +1242,15 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   fuller; seedlings (stages 1–2) ~10 % bigger; stage 0 is a dark moist dibble hole with a smooth lip, one seed
   standing tip-up and a pressed drill line (no pebble ring). *Cursor* — a held tool always keeps a quiet
   neutral bracket on the facing tile (it vanished at the gameplay lens after acting).
+- **r26 polish**: `farm-giant` stages its giant again (the r24 `&giant=1` opt-in had left the showcase with
+  no giant at all). Fresh-till earth is crumbly, not a smooth dark smudge: two scales of lumps with lit tops and
+  near-black crevices in the soil shader. Sprinkler jets: the glass core necks and fades over 0.42–0.7 of the
+  throw and the rope beads take over from 0.36 (the r25 full-length core read as a white wire from the hero
+  lens). Mature tomatoes carry five broader leaves a tier plus a leafy crown (the front tomato block read as
+  staked poles). Live-play event check (`?map=farm`, tile 36,31): `soil:tilled` lands with `tool:impact`
+  (+13 frames after `tool:swing`), `soil:watered` one frame after the pour's impact, `crop:sown` with the seed
+  impact, and hoeing untillable lawn sends `tool:impact` `hit:'blocked'`. Perf: `farm-harvest` 194 draws /
+  0.82 M tris (crops 228 k), `farm-harvest-fall` 193 / 0.79 M, both at 60 fps in the harness.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,

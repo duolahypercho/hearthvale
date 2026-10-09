@@ -1102,8 +1102,12 @@ const BUILDERS: Record<CropId, Builder> = {
     for (let t = 0; t < tiers; t++) {
       const y = (t / tiers) * h * 0.9 + 0.04;
       // r15: four compound leaves a tier (was three) and longer — a leafy staked bush, not a pole.
-      rosette(add, r, 4, 0.13 + (1 - t / tiers) * 0.09 + k * 0.015, 0.11, { shape: 'lance', serrate: 0.4, lift: 0.3, bend: 0.5, fold: 0.3, c0: C(0x2c6428), c1: C(0x5a9e3c), segs: 4 }, t * 1.1, y);
+      // (r26) Mature plants carry five broader leaves a tier (the r10 critic's front tomato block read as
+      // scrawny staked poles with soil showing between them — Stardew's tomato is a full leafy bush).
+      rosette(add, r, k >= 2 ? 5 : 4, 0.13 + (1 - t / tiers) * 0.1 + k * 0.022, k >= 2 ? 0.14 : 0.11, { shape: 'lance', serrate: 0.4, lift: 0.3, bend: 0.5, fold: 0.3, c0: C(0x2c6428), c1: C(0x5a9e3c), segs: 4 }, t * 1.1, y);
     }
+    // A leafy crown over the top truss, so the stake never ends in a bare tip.
+    if (k >= 2) rosette(add, r, 3, 0.1, 0.1, { shape: 'lance', serrate: 0.4, lift: 0.9, bend: 0.4, fold: 0.3, c0: C(0x3a7430), c1: C(0x6aae46), segs: 3 }, 0.5, h * 0.96);
     if (k === 2) for (let i = 0; i < 4; i++) flower(add, 0.02, C(0xffd83a), C(0xe8a020), mat((r.next() - 0.5) * 0.18, h * (0.5 + r.next() * 0.4), (r.next() - 0.5) * 0.18, 0.4, 0, 0), 6);
     if (k >= 2) {
       // Trusses: fruit in little clusters, ripening from the bottom up.

@@ -1080,7 +1080,7 @@ void main() {
     float wr = mix(0.03, 0.17, smoothstep(0.05, 0.55, sr)) * dk;
     // (r25) A solid glass core inside the sheath (r10 critic: jets read as strings of beads): ~2.4 cm
     // off the nozzle tapering to ~1.4 cm, as a fraction of the ribbon's half-width.
-    float coreW = mix(0.032, 0.018, sr) * dk;
+    float coreW = mix(0.036, 0.012, smoothstep(0.0, 0.66, sr)) * dk;
     pr += sider * position.y * wr;
     vec4 mvr = viewMatrix * vec4(pr, 1.0);
     gl_Position = projectionMatrix * mvr;
@@ -1098,7 +1098,9 @@ void main() {
     // (r22) Softer still (no glassy wire): a column off the nozzle, a whisper of veil beyond it.
     // (r25) The core: a continuous body of water off the nozzle, thinning (never pulsing off) as it
     // breaks up over the landing third.
-    vA = aA.x * smoothstep(0.0, 0.04, sr) * (0.62 - 0.22 * sr + 0.06 * pulse) * (1.0 - smoothstep(0.66, 0.94, sr));
+    // (r26) The glass core breaks up past the apex (r25's full-length core read as a white wire from
+    // the hero lens): solid off the nozzle, necking + fading over 0.42–0.7 where the bead packets take over.
+    vA = aA.x * smoothstep(0.0, 0.04, sr) * (0.62 - 0.22 * sr + 0.06 * pulse) * (1.0 - smoothstep(0.42, 0.7, sr));
     #ifdef USE_FOG
     vFogDepth = -mvr.z;
     #endif
@@ -1167,7 +1169,8 @@ void main() {
   vS = land;
   // Denser near the nozzle, fading as the jet breaks up into spray; a quick fade-in at the nozzle.
   // (r25) Rope beads only show where the core breaks up (the landing third); the shed spray stays fine.
-  vA = aA.x * smoothstep(0.0, 0.05, s) * (rope ? (1.0 - 0.35 * s) * (0.08 + 0.92 * smoothstep(0.55, 0.78, s)) : 0.5 - 0.22 * s) * (land > 0.0 ? 1.0 - land : 1.0);
+  // (r26) ...and they take over from the core as it necks (0.36–0.6), so the outer arc is a beaded throw.
+  vA = aA.x * smoothstep(0.0, 0.05, s) * (rope ? (1.0 - 0.3 * s) * (0.08 + 0.92 * smoothstep(0.36, 0.6, s)) : 0.6 - 0.25 * s) * (land > 0.0 ? 1.0 - land : 1.0);
   #include <fog_vertex>
 }`;
 const ARC_FS = /* glsl */ `
