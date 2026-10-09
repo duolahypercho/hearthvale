@@ -849,7 +849,10 @@ function windVoice(o: WindSpec): InstrumentFn {
   };
 }
 
-export const flute = windVoice({ name: 'flute', soft: FLUTE_SOFT, bright: FLUTE_BRIGHT, mid: 83, attack: 0.07, breath: 0.5, air: 0.07, breathQ: 9, chiff: 0.09, puff: 0.05, formant: 2.6, vibRate: 5.3, vibDepth: 0.012, ceil: 6, release: 0.07, level: 0.6 });
+// (Round 20: clarion 86 — above D6 the flute's tone rounds instead of brightening. Its third octave is
+// nearly a pure tone (the embouchure overblows a short air column: few upper partials), but the
+// generic "higher = brighter" colour gave First Furrow's B, cresting on G6, 26 % of its tone in 2-5 kHz.)
+export const flute = windVoice({ name: 'flute', soft: FLUTE_SOFT, bright: FLUTE_BRIGHT, mid: 83, attack: 0.07, breath: 0.5, air: 0.07, breathQ: 9, chiff: 0.09, puff: 0.05, formant: 2.6, vibRate: 5.3, vibDepth: 0.012, ceil: 6, release: 0.07, level: 0.6, clarion: 86 });
 export const whistle = windVoice({ name: 'whistle', soft: WHISTLE_SOFT, bright: WHISTLE_BRIGHT, mid: 84, attack: 0.03, breath: 0.3, air: 0.04, breathQ: 10, chiff: 0.14, puff: 0.035, formant: 2.2, vibRate: 5.8, vibDepth: 0.01, ceil: 7, release: 0.04, level: 0.5 });
 export const ocarina = windVoice({ name: 'ocarina', soft: OCARINA_SOFT, bright: OCARINA_BRIGHT, mid: 78, attack: 0.05, breath: 0.45, air: 0.05, breathQ: 8, chiff: 0.06, puff: 0.04, formant: 2, vibRate: 5.4, vibDepth: 0.011, ceil: 4.5, release: 0.05, level: 0.6 });
 export const clarinet = windVoice({ name: 'clarinet', soft: CLARINET_SOFT, bright: CLARINET_BRIGHT, mid: 76, attack: 0.05, breath: 0.16, air: 0.02, breathQ: 12, chiff: 0.02, puff: 0.015, formant: 1.5, vibRate: 4.8, vibDepth: 0.005, ceil: 3, release: 0.07, level: 0.52, clarion: 72 });

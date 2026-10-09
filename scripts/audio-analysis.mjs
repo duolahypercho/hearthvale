@@ -442,7 +442,11 @@ export async function calibrate(themes, call, { root, seconds: secs = OPENING_SE
     return [c(house[f].low - m[0]), c(house[f].high - m[1])];
   };
   const toneOut = { ...toneCur };
-  for (const t of themes) {
+  // (Round 20: `call` may be an array — one per browser session — and the themes are measured in
+  // parallel; each theme's two log lines are printed together after its render.)
+  const calls = Array.isArray(call) ? call : [call];
+  const queue = [...themes];
+  const measure = async (t, call) => {
     const res = await call('renderTheme', [t, Math.max(secs, OPENING_SECONDS), sr, seed, false]);
     const bytes = Buffer.from(res.data, 'base64');
     const all = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4);
@@ -458,7 +462,10 @@ export async function calibrate(themes, call, { root, seconds: secs = OPENING_SE
     toneOut[t] = [Math.round((tr.low - cl * 0.85) * 10) / 10, Math.round((tr.high - ch * 0.85) * 10) / 10];
     log(`  ${t.padEnd(20)} measured ${fmt(a.lufsIntegrated)} LUFS (trim ${applied >= 0 ? '+' : ''}${fmt(applied)} dB) → untrimmed ${fmt(out[t])}, off target ${fmt(a.lufsIntegrated - tgt)} LU`);
     log(`    tone re mid: low ${fmt(tr.low)} high ${fmt(tr.high)} dB (shelves ${fmt(cl)} / ${fmt(ch)}) → uncorrected [${toneOut[t].join(', ')}]`);
-  }
+  };
+  await Promise.all(calls.map(async (c) => {
+    while (queue.length) await measure(queue.shift(), c);
+  }));
   const body = Object.keys(out).sort().map((k) => `  '${k}': ${out[k]},`).join('\n');
   const next = src.replace(/\/\/ @generated-begin[\s\S]*\/\/ @generated-end/, `// @generated-begin (scripts/audio-render.mjs --calibrate)\nexport const MEASURED_LUFS: Record<string, number> = {\n${body}\n};\n// @generated-end`);
   const toneBody = Object.keys(toneOut).sort().map((k) => `  '${k}': [${toneOut[k][0]}, ${toneOut[k][1]}],`).join('\n');

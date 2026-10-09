@@ -298,7 +298,9 @@ async function main() {
   const allThemes = await sess.page.evaluate(() => window.__audioOffline.listThemes());
   const themes = allThemes.filter((t) => !args.only || args.only.includes(t));
   if (args.calibrate) {
-    await calibrate(themes, call, { root, seconds: process.argv.includes('--seconds') ? args.seconds : OPENING_SECONDS + 2, seed: args.seed, sr: 44100 });
+    const extra = await Promise.all(Array.from({ length: Math.max(0, Math.min(args.parallel, themes.length) - 1) }, () => openSession(base, errors)));
+    const calls = [call, ...extra.map((x) => (fn, a) => x.page.evaluate(async ([fn, a]) => window.__audioOffline[fn](...a), [fn, a]))];
+    await calibrate(themes, calls, { root, seconds: process.argv.includes('--seconds') ? args.seconds : OPENING_SECONDS + 2, seed: args.seed, sr: 44100 });
     await closeAll();
     return;
   }

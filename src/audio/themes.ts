@@ -51,6 +51,8 @@ export const THEMES: Record<string, ThemeDef> = {
         // The clarinet takes the tune down into its warm register: "D. E F A | C.. A G | Bb. A Bb D | C... |".
         C: ['6,:3 7,:1 1:2 3:2', '5:4 3:2 2:2', '4:3 3:1 4:2 6:2', '5:6 r:2', '6:3 5:1 4:2 2:2', '3:3 2:1 3:2 5:2', 'b7:4 4:2 2:2', '1:4 7,:4'],
         Aend: ['6:2 4:1 3:1 2:2 7,:2', '1:8'],
+        // (Round 20: the second A's held tonic walks up G A into B's Bb instead of resting.)
+        again: { A: ['', '', '', '', '', '', '', '1:6 2:1 3:1'] },
         pickup: '5,:1 6,:1',
       },
     },
@@ -101,6 +103,8 @@ export const THEMES: Record<string, ThemeDef> = {
         // bar 6 reaches A' over the ii7, once, above the hook's G.)
         A: ['3:1 5:1 r:1 5:1 6:1 5:1 3:2', "4:1 6:1 r:1 6:1 1':1 6:1 5:2", '3:1 5:1 r:1 5:1 6:1 5:1 3:1 2:1', '1:1 2:1 3:2 6,:1 1:1 r:2', '3:1 5:1 6:1 5:1 3:1 2:1 3:1 5:1', "6:3 2':1 1':2 6:2", "4:1 3:1 4:1 6:1 1':2 6:1 4:1", '2:3 7,:1 5,:1 6,:1 r:2'],
         Aend: ['4:1 3:1 4:1 6:1 5:2 4:1 2:1', '1:3 5,:1 1:2 r:2'],
+        // (Round 20: the second A's half cadence runs up A B C D E F# into B's G instead of resting.)
+        again: { A: ['', '', '', '', '', '', '', '2:2 3:1 4:1 5:1 6:1 7:1 r:1'] },
         B: ["1':4 6:2 5:2", "2':4 7:2 6:2", "3':4 2':2 1':2", "6:2 7:2 1':4", "1':3 7:1 6:2 1':2", '7:4 r:2 5:1 6:1', 'b7:3 6:1 4:2 2:2', '5:6 r:2'],
         // The nylon guitar's turn: long, high, a secondary dominant (A7) lifting into the last A.
         C: ["3':3 2':1 1':2 6:2", "5:4 7:2 2':2", "1':3 7:1 6:2 4:2", '3:6 r:2', "6:2 1':2 2':3 1':1", '6:3 #4:1 2:4', "1:2 4:2 6:2 1':2", "1':4 7:2 r:2"],
@@ -269,6 +273,8 @@ export const THEMES: Record<string, ThemeDef> = {
         // (C opens on the Hearthvale leitmotif — '1 2 3 5.. 3 2' — on the relative minor, then the II7.)
         C: ["6:1 7:1 1':1 3':3 1':1 7:1", "7:1 1':1 2':1 #4':3 2':1 1':1", "4:3 6:1 1':2 6:2", "5:2 7:2 2':4", "2':3 1':1 7:2 5:2", "6:2 #1':2 3':3 2':1", "1':3 6:1 4:2 2:2", '7,:2 2:2 4:2 5:2'],
         Aend: ['6:1 5:1 4:1 6:1 5:1 4:1 2:1 7,:1', '1:2 5,:1 7,:1 1:4'],
+        // (Round 20: the second A walks the ocarina down G F# E D into the clarinet's low B.)
+        again: { A: ['', '', '', '', '', '', '', '1:2 r:2 1:1 7,:1 6,:1 5,:1'] },
         pickup: '1:1 2:1',
       },
     },
@@ -947,6 +953,13 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
             A: ['1:1 2:1 3:1 1:1 5:1 4:1 3:1 2:1', '7,:1 1:1 2:1 7,:1 3:1 2:1 1:1 7,:1', '1:1 3:1 5:1 3:1 4:1 6:1 5:1 3:1', "4:1 5:1 6:1 7:1 1':1 7:1 6:1 5:1", '1:1 2:1 3:1 1:1 5:1 4:1 3:1 2:1', '7,:1 2:1 4:1 5:1 4:1 2:1 4:1 5:1', "6:1 1':1 7:1 6:1 5:1 6:1 5:1 3:1", '2:2 1:2 r:4'],
             B: ["3:1 4:1 5:1 6:1 7:1 1':1 2':1 3':1", "1':1 7:1 1':1 2':1 1':1 7:1 5:1 7:1", "6:1 4:1 6:1 1':1 7:1 6:1 5:1 4:1", '5:1 4:1 3:1 2:1 1:1 3:1 5:1 7:1', "1':1 2':1 3':1 2':1 1':1 7:1 6:1 7:1", "1':1 2':1 3':1 4':1 3':1 2':1 1':1 7:1", '6:1 7:1 6:1 5:1 4:1 5:1 4:1 2:1', '3:2 1:2 r:4'],
             C: ["2':3 1':1 7:2 6:2", '6:3 5:1 4:4', "5:3 6:1 7:2 1':2", "2':4 1':2 r:2", "1':3 7:1 6:2 5:2", '5:4 4:2 3:2', '2:2 3:2 4:3 5:1', '5:4 6:1 5:1 r:2'],
+            // Round 20: a session player never plays the repeat the same — second time through, A's
+            // third bar turns round the tonic (F E D E F G A F) and the strain closes D. F E D instead
+            // of the E-D drop; B's second time comes down through the v and rolls home D A, C D.
+            again: {
+              A: ['', '', '3:1 2:1 1:1 2:1 3:1 4:1 5:1 3:1', '', '', '', '6:1 5:1 4:1 6:1 5:1 3:1 2:1 7,:1', '1:2 3:1 2:1 1:2 r:2'],
+              B: ['', '', '', '', '', '', '6:1 4:1 5:1 6:1 5:1 3:1 2:1 7,:1', '1:1 5,:1 7,:1 1:1 r:4'],
+            },
             pickup: '5,:1 7,:1',
           },
         },

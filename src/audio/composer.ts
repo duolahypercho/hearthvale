@@ -55,6 +55,13 @@ export interface Tune {
   C?: string[];
   /** Replaces the last bars of the final A (a stronger cadence to finish on). */
   Aend?: string[];
+  /**
+   * Second-time bars (round 20): when a strain is played twice in a row (A A, B B), the second
+   * playing takes these bars instead ('' = as written) — a fiddler's second-time ending, a walk-up
+   * into the next strain where the first time closed on the tonic. The hook bars stay as written,
+   * so the tune is still the tune; what changes is where it goes. Never applies to the final A (Aend).
+   */
+  again?: Partial<Record<'A' | 'B' | 'C', string[]>>;
   /** Anacrusis into every A, written into the end of the bar before it. */
   pickup?: string;
 }
@@ -772,6 +779,20 @@ export class Composer {
     const nC = (th.prog.C ?? th.prog.B).length;
     const baseC = th.form.includes('C') ? (tune?.C ? this.parseSection(tune.C, nC) : tune?.B && !th.prog.C ? this.parseSection(tune.B, nC) : this.genCanonical(barsOf('C', 0), 'C', nextAfter('C'))) : [];
     const endA = tune?.Aend ? this.parseSection(tune.Aend, tune.Aend.length) : null;
+    // Second-time bars: which occurrences of a strain directly follow the same strain in the form.
+    const again = new Set<string>();
+    const againBars: Partial<Record<Section, (MNote[] | null)[]>> = {};
+    if (tune?.again) {
+      const seen: Record<string, number> = {};
+      th.form.forEach((s, k) => {
+        const o = (seen[s] = (seen[s] ?? -1) + 1);
+        if (k > 0 && th.form[k - 1] === s) again.add(`${s}:${o}`);
+      });
+      for (const s of ['A', 'B', 'C'] as const) {
+        const src = tune.again[s];
+        if (src) againBars[s] = src.map((x) => (x && x.trim() ? this.parseBar(x, true) : null));
+      }
+    }
     let prev: number | null = null;
     bars.forEach((b, bi) => {
       if (b.section === 'intro') return;
@@ -781,6 +802,7 @@ export class Composer {
       }
       const base = b.section === 'A' ? baseA : b.section === 'C' ? baseC : baseB;
       let src = base[b.i % base.length] ?? [];
+      if (again.has(`${b.section}:${b.occ}`)) src = againBars[b.section]?.[b.i] ?? src;
       if (b.section === 'A' && b.occ === finalOcc && endA && b.i >= b.len - endA.length) src = endA[b.i - (b.len - endA.length)] ?? src;
       const notes = src.map((n) => ({ ...n }));
       // Restatements get ornaments (canonical, so the same every time).

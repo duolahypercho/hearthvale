@@ -98,14 +98,17 @@ export const SONGBOOK_TOWN: Record<string, ThemeDef> = {
       },
     },
     counter: { inst: 'cello', range: [45, 60], on: 'repeat', style: 'moving' },
-    accomp: { inst: 'harp', pattern: 'waltzArp', range: [52, 72], voices: 4, vel: 0.5 },
+    // (Round 20: the harp's rolls start on G3, not E3, and the soft bass sits 3 dB lower — the opening's
+    // 60-200 Hz band was 3.3 dB over the soft house curve with the calibration shelf already at its
+    // -5 dB limit: the E3-G3 harp roots doubled the bass an octave up.)
+    accomp: { inst: 'harp', pattern: 'waltzArp', range: [55, 72], voices: 4, vel: 0.5 },
     bass: { inst: 'softBass', pattern: 'waltz', range: [38, 50], vel: 0.6 },
     pad: { inst: 'pad', range: [52, 67], voices: 3, vel: 0.3, on: 'B' },
     mix: {
       melody: { gain: 0.7, pan: 0.1, send: 0.45 },
       counter: { gain: 0.46, pan: -0.3, send: 0.4 },
       accomp: { gain: 0.6, pan: -0.22, send: 0.38 },
-      bass: { gain: 0.55, pan: 0, send: 0.08 },
+      bass: { gain: 0.39, pan: 0, send: 0.08 },
       pad: { gain: 0.36, pan: 0, send: 0.55 },
     },
     rest: [6, 14],
