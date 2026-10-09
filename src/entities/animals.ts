@@ -543,7 +543,10 @@ export class AnimalActor {
     let y = this.pos.y + this.lift + this.gait.top * this.scale * 0.55;
     if (body) {
       body.getWorldPosition(out);
-      y = out.y + this.gait.radius * this.scale * (this.gait.biped ? 0.85 : 0.95);
+      // (r22: a sheep is stroked on top of its fleece — the puffs crest ~1.45 radii over the spine; at 0.95 the
+      // hand target sat inside the wool and the stroking arm vanished into it)
+      const k = this.gait.biped ? 0.85 : this.species === 'sheep' ? 0.95 + 0.5 * Math.min(1, this.wool) : 0.95;
+      y = out.y + this.gait.radius * this.scale * k;
     }
     return out.set(this.pos.x + Math.sin(this.heading) * L, y, this.pos.z + Math.cos(this.heading) * L);
   }

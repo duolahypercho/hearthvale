@@ -1573,7 +1573,10 @@ export class AnimalSystem implements System, AnimalsApi {
     const ul = Math.hypot(ux, uz) || 1;
     ux /= ul;
     uz /= ul;
-    const r0 = a.gait.radius * a.scale;
+    // (r22: a sheep's fleece stands ~0.12 m proud of its body capsule — staged at the bare radius the farmer
+    // stood in the wool, the stroking arm buried in it and the rump across the farmer's legs)
+    const fleece = a.species === 'sheep' ? 0.12 * Math.min(1, a.wool) : 0;
+    const r0 = a.gait.radius * a.scale + fleece;
     const L0 = a.gait.len * a.scale;
     const cur = -uz * (a.pos.x - pp.x) + ux * (a.pos.z - pp.z);
     for (const side of cur >= 0 ? [1, -1] : [-1, 1]) {
@@ -1606,7 +1609,8 @@ export class AnimalSystem implements System, AnimalsApi {
       // (r19: tried 0.62 — the farmer then turned profile-away from the lens to reach the back; kept 0.42)
       // (r21: 0.42 -> 0.62 again now the farmer turns to the lens and reaches with the near arm: at 0.42 the
       // stroking arm went up behind the big chibi head and the pat read as hands at the chest)
-      const fwd = low ? 0.14 : 0.62;
+      // (r22: a sheep only 0.36 forward — its fleece is wide; at 0.62 the wool sat over the farmer's legs)
+      const fwd = low ? 0.14 : fleece > 0 ? 0.36 : 0.62;
       const sx = pp.x + qx * (r0 + gap) + ux * fwd;
       const sz = pp.z + qz * (r0 + gap) + uz * fwd;
       // The capsule axis passes through that spot at tBack along the body.
@@ -2327,10 +2331,13 @@ export class AnimalSystem implements System, AnimalsApi {
             const fx = pl.position.x - P.x;
             const fz = pl.position.z - P.z;
             const fl = Math.hypot(fx, fz) || 1;
-            const rr = tgt.gait.radius * tgt.scale * 0.45;
+            // (r22: a sheep is patted on the near shoulder of its fleece, not the crest — the hand on the
+            // crest went up behind the farmer's big chibi head and only a fingertip showed)
+            const wool = tgt.species === 'sheep' ? Math.min(1, tgt.wool) : 0;
+            const rr = tgt.gait.radius * tgt.scale * 0.45 + 0.16 * wool;
             P.x += (fx / fl) * rr;
             P.z += (fz / fl) * rr;
-            P.y -= rr * 0.25;
+            P.y -= rr * 0.25 + 0.09 * wool;
           }
           P.y += pat * 0.025;
           this._ikP.copy(P);
