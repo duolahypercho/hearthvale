@@ -178,7 +178,7 @@ export async function renderSfxReel(sr = 44100, only: string[] | null = null): P
   if (!only || only.some((n) => n.startsWith('voice'))) {
     for (const v of Object.keys(VOICES).filter((v) => !only || only.includes('voices') || only.includes(`voice:${v}`))) {
       markers.push({ name: `voice:${v}`, t });
-      t += 2.6;
+      t += 5.2;
     }
   }
   if (!only || only.includes('reel')) {
@@ -192,12 +192,17 @@ export async function renderSfxReel(sr = 44100, only: string[] | null = null): P
     for (const m of markers) {
       if (m.name.startsWith('voice:')) {
         const voice = VOICES[m.name.slice(6)]!;
-        // Dialogue murmurs one "word" per typed word, paced like the typewriter (~28 chars/s).
-        const line = 'Well hello there, neighbour! Lovely morning, isn\'t it?';
+        // Dialogue murmurs one "word" per typed word, paced like the typewriter (~28 chars/s), with
+        // the game's line position (index / last: the falling line end). Round 18: two lines, so the
+        // voice-spread check measures a voice rather than one sentence's luckiest syllable.
         let tt = m.t;
-        for (const w of line.split(' ')) {
-          sfx.murmur(voice, w, { at: tt });
-          tt += Math.max(0.2, (w.length + 1) / 28);
+        for (const line of ['Well hello there, neighbour! Lovely morning, isn\'t it?', 'Careful on the bridge, the planks are wet.']) {
+          const words = line.split(' ');
+          words.forEach((w, i) => {
+            sfx.murmur(voice, w, { at: tt }, { index: i, last: i === words.length - 1 });
+            tt += Math.max(0.2, (w.length + 1) / 28);
+          });
+          tt += 0.35;
         }
       } else if (m.name === 'reel') {
         for (let tt = 0; tt < 1.5; tt += 0.06) sfx.play('reel', { at: m.t + tt, gain: 0.8 });
