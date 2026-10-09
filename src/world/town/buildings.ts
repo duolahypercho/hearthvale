@@ -1459,7 +1459,11 @@ export function roofSnowWinter(b: MeshBuilder, rng: Rng, s: { w: number; d: numb
       const len = (run * reach) / cosS;
       const zc = run - (run * reach) / 2;
       const slab = snowSlab(sw + 0.24, th, len, Math.min(0.06, th * 0.5));
-      add(slab, mat(xc, surf(zc) + th / 2 / cosS + 0.01, sz * zc, sz * slope, 0, 0), 0xeef3fa);
+      // (r18 critic: "a uniform coating" — each strip its own value: older, wind-glazed strips a cool
+      // blue-grey, fresh ones bright, so the pack reads as laid-down layers, not one white sheet)
+      const fresh = rng.next();
+      const tone = new THREE.Color(0xeef3fa).lerp(new THREE.Color(0xc9d4e6), (1 - fresh) * 0.55 * (0.6 + 0.4 * (1 - reach))).getHex();
+      add(slab, mat(xc, surf(zc) + th / 2 / cosS + 0.01, sz * zc, sz * slope, 0, 0), tone);
       // A wind-packed roll along each step's upper edge rounds it off.
       const zt = run - run * reach + 0.06;
       const lump = lumpySphere(0.1 + rng.next() * 0.06, 0, 0.22, rng, 1.8);

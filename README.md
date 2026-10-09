@@ -965,8 +965,32 @@ actors such as Pip the shop cat).
   spills over the lip, five-petal blooms in the box's colours and staked lavender spikes (they were a
   row of green balls with pastel eggs).
 
+- **Round 18** — *Odessa's headscarf* (blind judge on The Lantern Cage: "a mushroom-cap hat that sits like
+  a bowl"): the scarf's cloth dome was 0.8 of the skull's height, so her scalp poked through the crown as a
+  brown patch and the grooved hairline band poked through as a dark blot over the brow — the dome now
+  covers the skull (0.97), the hairline under the hem is a thin even band, and the kerchief is workwear
+  indigo with the fine cream print (red with pale dots was the toadstool read; the portrait follows
+  `hatColor`). *Frozen river*: the town uses the ice — skate tracks carved in figure-eight loops and long
+  glides up- and downstream of the Kettle Bridge, and an ice-fishing hole (open black water in a chipped
+  slush ring, a pail, a fish on the ice; `winter.ts`). *Roof snow* strips each take their own value
+  (older wind-glazed strips cool blue-grey, fresh ones bright) instead of one white sheet. *Night*: a little
+  more moonlit fill and less vignette (`tone.ts`) so the mid-ground of night events reads. *Determinism*:
+  the festival lights' flicker phases were the last `Math.random` in the town (golden-ratio phases now).
+  *Motion*: `town-commute` (11:57 on the plaza lens, the town's own schedule running — at noon Wren
+  leaves her easel for the café and Marigold the store for the fountain on real A* paths); with `&seq=10`
+  and `--frames 6` it is one uninterrupted schedule change. Review sequences (`shots/town-r18/sheet-*.png`,
+  built by `_sheet.py` from `shot.mjs --frames`): `town-commute&seq=10`, `town-day&seq=8`,
+  `town-heart-event&event=odessa-4&seq=10` (wide → close-up cut, typewriter, insert card, tear),
+  `…&spectate=1&seq=10` (the farmhand's handoff), `town-dialogue&npc=bram&gift=pumpkin&seq=6`.
+  *Perf* (pillar 14): wall-clock fps in the shot logs is the shared GPU (load 30–470 while ten teams
+  render), not the frame — `scripts/framebench.mjs` (min-of-samples, the whole frame rendered back to
+  back) puts `town-evening` at 6.3 ms min / 9.7 ms p20 at 1440p High (load 30): ≈ 2.6x headroom on the
+  16.7 ms budget; per-group deltas: props −0.77 ms, GTAO −0.97, point lights −0.40, trees −0.37, the ten
+  villagers +0.13 (noise). The town's own JS (`cpuprof.mjs`) is ≈ 0.6 ms a frame (npcs 0.29, villagers
+  0.16, town 0.15).
+
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
-(the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (19:05, lamps lit, the bakery and market row), `town-winter` (the establishing lens in snow,
+(the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (19:05, lamps lit, the bakery and market row), `town-commute` (r18: noon on the plaza, the schedule runs — `&seq=10`), `town-winter` (the establishing lens in snow,
 its own winter blocking), `town-winter-square` (the plaza in snow), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
 paths a real farmhand's intents take), `town-rain`,
 `town-east`, `town-south`, `town-cast`, `town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1` ·

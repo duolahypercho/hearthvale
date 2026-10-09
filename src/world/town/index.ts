@@ -1128,7 +1128,8 @@ export class TownMap implements GameMap {
       const l = new THREE.PointLight(c, 0, 9, 1.6);
       l.position.set(x, y, z);
       this.root.add(l);
-      this.festivalLights.push({ light: l, max, seed: Math.random() * 10 });
+      // (r18 determinism: a golden-ratio phase per light, no Math.random left in the town)
+      this.festivalLights.push({ light: l, max, seed: ((this.festivalLights.length * 0.618034) % 1) * 10 });
     }
   }
 

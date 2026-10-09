@@ -582,6 +582,123 @@ export function buildWinterWear(
     d.scale(1.6 + rng.next() * 2.2, 0.012, 0.35 + rng.next() * 0.35);
     ice.add('white', d, mat(x, river.waterY + 0.04, z, 0, Math.atan2(tx, tz) - Math.PI / 2 + (rng.next() - 0.5) * 0.3), { tint: 0xf2f6fb });
   }
+  // r18 (critic: "a more unmistakable frozen-river treatment"): the town uses the ice — skate tracks
+  // carved in looping figure-eights and long glides, and an ice-fishing hole (black open water in a
+  // slush collar, a pail beside it). Nobody skates on running water: the read is instant.
+  const near = (x: number, z: number): number => {
+    let bi = 1;
+    let bd = Infinity;
+    for (let k = 1; k < sm.length - 1; k++) {
+      const d = Math.hypot(sm[k]!.x - x, sm[k]!.z - z);
+      if (d < bd) [bd, bi] = [d, k];
+    }
+    return bi;
+  };
+  const frame = (k: number): { p: THREE.Vector3; tx: number; tz: number } => {
+    const p = sm[k]!;
+    const q = sm[Math.min(sm.length - 1, k + 1)]!;
+    const o = sm[Math.max(0, k - 1)]!;
+    const tl = Math.hypot(q.x - o.x, q.z - o.z) || 1;
+    return { p, tx: (q.x - o.x) / tl, tz: (q.z - o.z) / tl };
+  };
+  const strip = (pts: [number, number][], w: number, tint: number): void => {
+    const pos: number[] = [];
+    const idx: number[] = [];
+    let n = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[Math.max(0, i - 1)]!;
+      const b = pts[Math.min(pts.length - 1, i + 1)]!;
+      const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      const nx = -(b[1] - a[1]) / l;
+      const nz = (b[0] - a[0]) / l;
+      const [x, z] = pts[i]!;
+      if (river.skip(x, z)) {
+        n = 0;
+        continue;
+      }
+      const ww = w * (0.6 + 0.4 * Math.sin(i * 0.9) ** 2);
+      const base = pos.length / 3;
+      pos.push(x + nx * ww, river.waterY + 0.046, z + nz * ww, x - nx * ww, river.waterY + 0.046, z - nz * ww);
+      if (n > 0) idx.push(base - 2, base - 1, base, base, base - 1, base + 1);
+      n++;
+    }
+    if (!idx.length) return;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    for (let i = 0; i < g.attributes.normal!.count; i++) g.attributes.normal!.setXYZ(i, 0, 1, 0);
+    ice.add('white', g, new THREE.Matrix4(), { tint });
+  };
+  // Sample `d` metres along the river from the Kettle Bridge (clear of the deck and its abutments).
+  const kb = near(64.2, 25.3);
+  const along = (d: number): number => {
+    let k = kb;
+    let acc = 0;
+    const st = d < 0 ? -1 : 1;
+    while (acc < Math.abs(d) && k + st > 0 && k + st < sm.length - 1) {
+      acc += Math.hypot(sm[k + st]!.x - sm[k]!.x, sm[k + st]!.z - sm[k]!.z);
+      k += st;
+    }
+    return k;
+  };
+  for (const [dist, A, B, turns] of [[-8.5, 2.6, 1.2, 2], [8, 2.1, 1.0, 1], [-15, 3.2, 1.4, 1]] as const) {
+    const { p, tx, tz } = frame(along(dist));
+    const nx = -tz;
+    const nz = tx;
+    for (let r = 0; r < turns + 1; r++) {
+      const pts: [number, number][] = [];
+      const ph = rng.next() * 0.4;
+      const sA = A * (1 - r * 0.12);
+      const sB = B * (1 + r * 0.18) * Math.min(1, river.half / 2.2);
+      for (let i = 0; i <= 64; i++) {
+        const t = (i / 64) * Math.PI * 2 + ph;
+        // Gerono lemniscate (a skater's figure-eight) along the current, a little wobble per lap.
+        const u = sA * Math.sin(t);
+        const v = sB * Math.sin(t) * Math.cos(t) + 0.12 * Math.sin(t * 3 + r);
+        pts.push([p.x + tx * u + nx * v, p.z + tz * u + nz * v]);
+      }
+      strip(pts, 0.04, 0xfbfdff);
+    }
+    // A long glide in and out of the loops.
+    const g: [number, number][] = [];
+    const off = (rng.next() - 0.5) * river.half * 0.8;
+    for (let i = 0; i <= 30; i++) {
+      const u = -A * 2.6 + (i / 30) * A * 5.2;
+      g.push([p.x + tx * u + nx * (off + Math.sin(i * 0.25) * 0.35), p.z + tz * u + nz * (off + Math.sin(i * 0.25) * 0.35)]);
+    }
+    strip(g, 0.032, 0xf6faff);
+  }
+  {
+    // The ice-fishing hole: open black water, a cracked slush collar, a pail and its lid on the ice.
+    const { p, tx, tz } = frame(along(-4.5));
+    const hx = p.x + -tz * river.half * 0.35;
+    const hz = p.z + tx * river.half * 0.35;
+    if (!river.skip(hx, hz)) {
+      const hole = new THREE.CircleGeometry(0.36, 16);
+      hole.rotateX(-Math.PI / 2);
+      ice.add('white', hole, mat(hx, river.waterY + 0.07, hz, 0, 0, 0), { tint: 0x0b1a28 });
+      // (a ring of chipped slush round the hole, not a disc over it)
+      const collar = new THREE.TorusGeometry(0.46, 0.12, 5, 18);
+      collar.rotateX(Math.PI / 2);
+      collar.scale(1.05, 0.35, 1);
+      ice.add('white', collar, mat(hx, river.waterY + 0.06, hz), { tint: 0xd2dce8 });
+      for (let k = 0; k < 5; k++) {
+        const a = k * 1.3 + rng.next();
+        const chip = lumpySphere(0.08 + rng.next() * 0.05, 1, 0.3, rng, 1.2);
+        chip.scale(1, 0.4, 1);
+        ice.add('white', chip, mat(hx + Math.cos(a) * 0.75, river.waterY + 0.06, hz + Math.sin(a) * 0.75), { tint: 0xe4ecf4 });
+      }
+      const pail = new THREE.CylinderGeometry(0.16, 0.13, 0.26, 10);
+      ice.add('white', pail, mat(hx + tx * 0.7, river.waterY + 0.17, hz + tz * 0.7), { tint: 0x9a4a3a });
+      const rim = new THREE.TorusGeometry(0.16, 0.018, 4, 12);
+      rim.rotateX(Math.PI / 2);
+      ice.add('white', rim, mat(hx + tx * 0.7, river.waterY + 0.3, hz + tz * 0.7), { tint: 0x6a6a72 });
+      const fish = lumpySphere(0.12, 1, 0.2, rng, 1.2);
+      fish.scale(1.8, 0.35, 0.55);
+      ice.add('white', fish, mat(hx - tz * 0.55, river.waterY + 0.07, hz + tx * 0.55, 0, 0.6, 0), { tint: 0x8aa0b0 });
+    }
+  }
   const ig = ice.build({ name: 'shore-ice' });
   ig.traverse((o) => {
     const m = o as THREE.Mesh;

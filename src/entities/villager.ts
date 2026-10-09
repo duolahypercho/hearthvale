@@ -1541,7 +1541,9 @@ export class Villager {
         // r10: a visible hairline under the scarf's hem — the hair shell sat inside the skull at the
         // front, so the scarf floated on a bald egg (r7 critic: Odessa "a featureless brown sphere").
         const polar = Math.PI * 0.44;
-        const band = hairShell(R * 1.05, polar - 0.06, 0.34, 18, 0.02, 0.05, (L.hair % 89) * 0.11, 0.3);
+        // (r18: the band starts at the scarf's hem — from 0.06 rad above it the grooved shell poked out
+        // through the flattened cloth dome as a dark rectangular patch over Odessa's brow)
+        const band = hairShell(R * 1.04, polar - 0.005, 0.2, 22, 0.012, 0.03, (L.hair % 89) * 0.11, 0.3);
         rb.add(B.head, band, H(0, R * 0.98, -0.03, BANDANA_TILT, 0, 0), hair);
       }
       // A glossy sheen band across the crown (reads as combed, not a plastic dome) and a darker
@@ -1840,13 +1842,21 @@ export class Villager {
         // Soft cloth folds gathered towards the knot (a sculpted shell, not a smooth dome).
         const dome = hairShell(rr, 0, polar, 7, 0.035, 0, 1.3, 0.2);
         // Hugging the skull (a low crown, not a helmet dome).
-        dome.scale(1.0, 0.8, 1.03);
+        // (r18: 0.8 tall was lower than the skull itself — Odessa's scalp poked through the crown as a
+        // brown patch and a dark blot over the brow: the blind judge's "mushroom cap sitting like a bowl")
+        const DY = 0.97;
+        dome.scale(1.0, DY, 1.03);
         rb.add(B.head, dome, T(), c);
+        // (r18: the cloth wraps down over the back and sides of the skull — tilted back, the dome's hem rode
+        // up behind the ears and the scalp showed as a brown wedge from the high lens / a bowed head)
+        const wrap = new THREE.SphereGeometry(rr * 0.995, 22, 6, Math.PI * 0.82, Math.PI * 1.36, Math.PI * 0.36, Math.PI * 0.27);
+        wrap.scale(1.0, DY, 1.03);
+        rb.add(B.head, wrap, T(), shadeHex(c, 0.97));
         // (r14: a slim self-coloured hem and a finer print — the thick dark rim and big white dots read
         // as a toadstool cap / a bowl, not a scarf)
         const hem = torG(rr * Math.sin(polar) * 1.02, 0.01, 6, 32);
         hem.rotateX(Math.PI / 2);
-        hem.translate(0, rr * Math.cos(polar) * 0.8, 0);
+        hem.translate(0, rr * Math.cos(polar) * DY, 0);
         rb.add(B.head, hem, T(), shadeHex(c, 0.9));
         // r15 (blind judge: "a rigid bowl / helmet … doesn't match the portrait's tied bandana"): the
         // portrait's kerchief — a dozen bold dots, not a fine print; a soft rolled band over the brow;
@@ -1858,7 +1868,7 @@ export class Villager {
         for (let i = 0; i < N; i++) {
           const a = (i * 2.399963) % (Math.PI * 2);
           const th = Math.acos(1 - ((i + 0.5) / N) * (1 - Math.cos(polar - 0.16)));
-          const q = new THREE.Vector3(Math.sin(a) * Math.sin(th) * rr * 1.03, Math.cos(th) * rr * 0.83, Math.cos(a) * Math.sin(th) * rr * 1.06);
+          const q = new THREE.Vector3(Math.sin(a) * Math.sin(th) * rr * 1.03, Math.cos(th) * rr * (DY + 0.03), Math.cos(a) * Math.sin(th) * rr * 1.06);
           const d = new THREE.CircleGeometry(0.0105 + (i % 3) * 0.002, 6);
           d.lookAt(new THREE.Vector3(q.x / 1.08, q.y, q.z / 1.08));
           q.multiplyScalar(1.008);
@@ -1870,7 +1880,7 @@ export class Villager {
         const band = torG(rr * Math.sin(polar) * 1.0, 0.024, 7, 36);
         band.rotateX(Math.PI / 2);
         band.scale(1, 1, 1.03);
-        band.translate(0, rr * Math.cos(polar) * 0.8 + 0.004, 0);
+        band.translate(0, rr * Math.cos(polar) * DY + 0.004, 0);
         rb.add(B.head, band, T(), shadeHex(c, 0.94));
         // The knot at the left temple (+x faces the character's left), rabbit-ear lobes, two tails.
         const kx = R * 0.93;

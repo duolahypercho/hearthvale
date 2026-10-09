@@ -615,7 +615,8 @@ export class NpcSystem implements System {
       // r15: every staging replays the same ambient choices (`?townseed=N` picks another take)
       setTownSeed();
       this.seq = null;
-      this.staged = showcase.includes('npcs');
+      // (r18 'town-commute': the town runs its own schedule — at noon the villagers path to lunch)
+      this.staged = showcase.includes('npcs') && name !== 'town-commute';
       this.festival = showcase.includes('festival');
       if (this.active) this.restage = name;
     });
