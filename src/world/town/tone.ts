@@ -21,9 +21,10 @@ export const TOWN_TONE = { dusk: 1, night: 1, winter: 1 };
 (globalThis as unknown as { __townTone: typeof TOWN_TONE }).__townTone = TOWN_TONE;
 
 const _sunGold = new THREE.Color(0xffc49a);
-const _skyCool = new THREE.Color(0x9aa6dc);
-const _groundCool = new THREE.Color(0x4c4a62);
-const _fogCool = new THREE.Color(0x8e8cb8);
+// (r17: bluer — the plaza still read lavender-pink against Stardew's blue-violet dusk)
+const _skyCool = new THREE.Color(0x8698e0);
+const _groundCool = new THREE.Color(0x3e4668);
+const _fogCool = new THREE.Color(0x7e88bc);
 const _moonSky = new THREE.Color(0x5a6cae);
 const _moonGround = new THREE.Color(0x262a40);
 const _winSky = new THREE.Color(0x7fb4ec);
@@ -83,7 +84,7 @@ function apply(game: Game): void {
   if (dusk > 0.002) {
     L.sun.color.lerp(_sunGold, 0.55 * dusk);
     L.sun.intensity *= 1 - 0.22 * dusk;
-    L.hemi.color.lerp(_skyCool, 0.6 * dusk);
+    L.hemi.color.lerp(_skyCool, 0.68 * dusk);
     L.hemi.groundColor.lerp(_groundCool, 0.45 * dusk);
     L.hemi.intensity *= 1 + 0.4 * dusk;
     L.bounce.color.copy(L.hemi.groundColor).lerp(L.sun.color, 0.5);
@@ -93,7 +94,7 @@ function apply(game: Game): void {
     rc.renderer.toneMappingExposure *= 1 - 0.05 * dusk;
     const g = rc.post.grade.uniforms;
     const gain = g.uGain!.value as THREE.Vector3;
-    gain.lerp(_v.set(1.0, 0.985, 1.02), 0.65 * dusk);
+    gain.lerp(_v.set(0.985, 0.985, 1.04), 0.7 * dusk);
     const lift = g.uLift!.value as THREE.Vector3;
     lift.lerp(_v.set(0.03, 0.035, 0.07), 0.5 * dusk);
     g.uSaturation!.value *= 1 - 0.1 * dusk;

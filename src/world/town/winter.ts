@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import type { Rng } from '../../core/rng';
 import { MeshBuilder, lumpySphere, bevelCylinder, mat } from '../geom';
 import { textures } from '../../render/textures';
+import { patchMaterial, after, before } from '../../render/patch';
 
 const SNOW = 0xeef2f7;
 
@@ -217,6 +218,37 @@ export function buildSweptPaths(
     polygonOffset: true,
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
+  });
+  // r17 (critic: "the plaza is bare grey cobble while it is snowing"): the overnight fall still lies in
+  // the joints and in a thin uneven dusting over the swept setts (the stones' worn crowns show through),
+  // so the lanes read as swept snow, not a summer street under a white rug.
+  patchMaterial(m, 'town-swept-dust', (shader) => {
+    let fs = shader.fragmentShader;
+    fs = before(
+      fs,
+      'void main() {',
+      /* glsl */ `float hvSwH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float hvSwN(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hvSwH(i), hvSwH(i + vec2(1.0, 0.0)), f.x), mix(hvSwH(i + vec2(0.0, 1.0)), hvSwH(i + vec2(1.0, 1.0)), f.x), f.y);
+}`,
+    );
+    fs = after(
+      fs,
+      '#include <map_fragment>',
+      /* glsl */ `
+      {
+        float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+        float joint = 1.0 - smoothstep(0.06, 0.12, lum); // (linear: setts ≈ 0.18, joints ≈ 0.05)
+        vec2 q = vMapUv;
+        float dust = smoothstep(0.42, 0.78, hvSwN(q * 0.9) * 0.65 + hvSwN(q * 3.1 + 7.0) * 0.35);
+        float k = clamp(joint * 0.8 + dust * 0.55, 0.0, 0.88);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9, 0.93, 0.98), k);
+      }`,
+    );
+    shader.fragmentShader = fs;
   });
   const mesh = new THREE.Mesh(g, m);
   mesh.name = 'swept-paths';

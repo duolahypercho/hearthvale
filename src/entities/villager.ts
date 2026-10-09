@@ -231,6 +231,12 @@ const VILLAGER_LOD_D = ((): number => {
   return 15;
 })();
 const _hookPos = new THREE.Vector3();
+/**
+ * r17: speech barks and emote bubbles live on their own layer — the main pass (and the AO / normal
+ * pre-passes) never draw them; NpcSystem draws them crisp over the finished frame (after the tilt-shift,
+ * bloom and grade, which smeared a bark in the top band of the town-day lens into a soft ghost).
+ */
+export const BUBBLE_LAYER = 7;
 
 /**
  * Shadow map and AO G-buffer draw the detail prefix for villagers past VILLAGER_AO_FULL from the view
@@ -2061,6 +2067,7 @@ export class Villager {
   emote(e: Emote, dur = 2.4): void {
     if (!this.emoteSprite) {
       this.emoteSprite = billboard(emoteTexture(e), 20);
+      this.emoteSprite.layers.set(BUBBLE_LAYER);
       this.emoteSprite.name = 'npc-emote';
       this.root.add(this.emoteSprite);
     }
@@ -2500,6 +2507,8 @@ export class Villager {
       this.barkSprite.userData.perfTag = 'npcs';
       this.root.add(this.barkSprite);
       this.barkTail = billboard(barkTailTexture(), 22);
+      this.barkSprite.layers.set(BUBBLE_LAYER);
+      this.barkTail.layers.set(BUBBLE_LAYER);
       this.barkTail.name = 'npc-bark-tail';
       this.barkTail.userData.perfTag = 'npcs';
       this.root.add(this.barkTail);
@@ -2521,6 +2530,16 @@ export class Villager {
 
   get barking(): boolean {
     return !!this.barkSprite?.visible;
+  }
+
+  /** The bubbles to draw in the post-frame overlay (BUBBLE_LAYER), in draw order. */
+  bubbleParts(out: THREE.Object3D[]): void {
+    if (!this.root.visible) return;
+    if (this.emoteSprite?.visible) out.push(this.emoteSprite);
+    if (this.barkSprite?.visible) {
+      out.push(this.barkSprite);
+      if (this.barkTail?.visible) out.push(this.barkTail);
+    }
   }
 
   /** Facial expression the villager wears (follows the dialogue line's [mood] tag; 'neutral' = resting face). */
@@ -2639,9 +2658,11 @@ export class Villager {
         break;
       case 'thinking':
         // One brow up, eyes narrowed, the mouth pressed into a lopsided "hmm".
-        browAsym = 0.07;
-        tilt = 0.18;
-        eyeY = 0.7;
+        // (r17: the inner-down tilt + narrowed eyes read as a scowl in odessa-4's choice beat while the
+        // card mused — one brow arches, the other stays level, the lids only half-drop, no knit)
+        browAsym = 0.085;
+        tilt = -0.06;
+        eyeY = 0.8;
         mx = 0.6;
         my = 0.3;
         smirk = 0.35;

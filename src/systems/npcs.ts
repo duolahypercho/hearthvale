@@ -23,7 +23,7 @@ import type { Game } from '../core/game';
 import type { Facing } from '../core/events';
 import { NPCS, NPC_IDS, pickGroup, heartEvent, seasonLook, memoryBefore, choiceFlags, type NpcId, type NpcLook, type NpcDef, type Activity, type Ask, type HeartEvent, type CutStep, type Place, type Who, type Emote } from '../data/npcs';
 import { itemDef } from '../data/items';
-import { Villager, auditPortraits, buildCat, buildCandle, buildPainting, MOOD_GESTURE, ReactionFx, VILLAGER_FILL, dressFarmerWinter, buildLedger, buildLetter, buildKidMap, buildSparks, buildLanternCage, buildChair, buildPie, buildRose, buildTeacup } from '../entities/villager';
+import { Villager, BUBBLE_LAYER, auditPortraits, buildCat, buildCandle, buildPainting, MOOD_GESTURE, ReactionFx, VILLAGER_FILL, dressFarmerWinter, buildLedger, buildLetter, buildKidMap, buildSparks, buildLanternCage, buildChair, buildPie, buildRose, buildTeacup } from '../entities/villager';
 import { SPOTS, NEW_BUILDINGS, EXTRA_PROPS, FESTOON_POLES, BRIDGES } from '../world/town/layout';
 import { BUILDINGS, TOWN_PROPS } from '../data/town-layout';
 import type { Festoons } from '../world/town/festoons';
@@ -139,6 +139,7 @@ const _sb = new THREE.Vector3();
 const _seen: { id: Who; x: number; y: number; z: number; head: number }[] = [];
 const _seenProp = { id: 'player' as Who, x: 0, y: 0, z: 0, head: 1.3 };
 const _fgP = new THREE.Vector3();
+const _fgNdc = new THREE.Vector3();
 const _fgSeg = new THREE.Vector3();
 const _fgW = new THREE.Vector3();
 /** Candidate lens offsets [yaw delta, pitch delta, distance scale], best-last fallback order. */
@@ -265,7 +266,9 @@ const STAGES: Record<string, Mark[]> = {
     ['june', 43.0, 22.2, -60, 'chat'],
     // (r10: the knot opened up — Odessa had stood square in front of Bram and Rowan in front of June)
     ['rowan', 44.0, 23.8, -140, 'chat'],
-    ['odessa', 40.1, 23.9, 112, 'carry'],
+    // (r17: she stood square between the lens and Bram — his own bark pointed at a hidden head; she
+    // comes round to his left at his depth, crate on her hip, the knot reading left to right)
+    ['odessa', 39.75, 22.5, 100, 'carry'],
     // (r11: the lens swings 26° round to the bakery and the market row — the plaza no longer a
     // symmetric stage between two storefronts; Marigold and Hazel set off home across the plaza, Wren
     // drifts over to join the bakery knot, Linus crosses the near foreground to the clinic road)
@@ -495,6 +498,7 @@ export class NpcSystem implements System {
 
   init(game: Game): void {
     this.game = game;
+    game.afterRender.push(() => this.drawBubbles());
     for (const id of NPC_IDS) {
       const v = new Villager(NPCS[id], { blob: false });
       this.agents.set(id, { v, def: NPCS[id], stepKey: '', path: [], goal: null, activity: 'idle', inside: false, vis: 1, visTarget: 1, wanderT: 0, chatT: 2 + townRand(`npcs.agent.${id}`) * 3, emoteT: 4 + townRand(`npcs.agent.${id}`) * 8, speakT: 0, anchor: null, scripted: false, onArrive: null, run: false });
@@ -3019,6 +3023,12 @@ export class NpcSystem implements System {
     const p = _fgP;
     const seg = _fgSeg;
     const w = _fgW;
+    // r17 (odessa-4: a lit string slung across the lower third between the lens and the pair — a row of
+    // blown bulbs over the cobbles): any string hanging in frame nearer the lens than the nearest actor
+    // comes down too; the strings behind the pair stay up as the mood.
+    let nearAct = Infinity;
+    for (const a of acts) nearAct = Math.min(nearAct, Math.hypot(a.x - cam.x, a.y - cam.y, a.z - cam.z));
+    const camObj = this.game.rc.camera;
     for (let i = 0; i < f.spans.length; i++) {
       if (dayEvent) {
         hide.push(i);
@@ -3027,7 +3037,12 @@ export class NpcSystem implements System {
       let bad = false;
       for (let t = 0; t <= 1.0001 && !bad; t += 1 / 16) {
         f.point(i, t, p);
-        if (p.distanceTo(cam) < 4) bad = true;
+        const dc = p.distanceTo(cam);
+        if (dc < 4) bad = true;
+        else if (dc < nearAct - 1.2) {
+          _fgNdc.copy(p).project(camObj);
+          if (_fgNdc.z < 1 && Math.abs(_fgNdc.x) < 1.05 && Math.abs(_fgNdc.y) < 1.05) bad = true;
+        }
         for (let ei = 0; ei < ne; ei++) {
           const e = pool[ei]!;
           // Distance from the cord point to the lens→face segment.
@@ -3296,6 +3311,53 @@ export class NpcSystem implements System {
     }
   }
 
+  private bubbleList: THREE.Object3D[] = [];
+  private bubbleFrame = -1;
+  /**
+   * r17: villager barks and emotes are drawn over the finished frame (BUBBLE_LAYER) — after the
+   * tilt-shift, bloom and grade, so a bubble in the soft top band of the establishing lens stays crisp
+   * (the remote-emote overlay precedent). They were already depth-test-free and fog-free; the order is
+   * by renderOrder (emote < bubble < tail), the counters keep accumulating (info.autoReset is off).
+   */
+  private drawBubbles(): void {
+    const rc = this.game.rc;
+    const r = rc.renderer;
+    const frame = r.info.render.frame;
+    if (frame === this.bubbleFrame) return;
+    const list = this.bubbleList;
+    list.length = 0;
+    for (const a of this.agents.values()) if (!a.inside || a.v.root.visible) a.v.bubbleParts(list);
+    if (!list.length) {
+      this.bubbleFrame = frame;
+      return;
+    }
+    const cam = rc.camera;
+    const auto = r.autoClear;
+    const target = r.getRenderTarget();
+    const mask = cam.layers.mask;
+    r.autoClear = false;
+    r.setRenderTarget(null);
+    cam.layers.set(BUBBLE_LAYER);
+    try {
+      for (const o of list) {
+        // (only what the main pass could have drawn: every ancestor visible, under the live scene)
+        let p: THREE.Object3D | null = o.parent;
+        let ok = true;
+        while (p && ok) {
+          if (!p.visible) ok = false;
+          if (!p.parent && p !== this.game.scene) ok = false;
+          p = p.parent;
+        }
+        if (ok) r.render(o, cam);
+      }
+    } finally {
+      cam.layers.mask = mask;
+      r.setRenderTarget(target);
+      r.autoClear = auto;
+    }
+    this.bubbleFrame = r.info.render.frame;
+  }
+
   /** Last candidate each barking villager's bubble took (hysteresis: no flicker between equal spots). */
   private bubblePick = new Map<string, number>();
   /**
@@ -3407,7 +3469,10 @@ export class NpcSystem implements System {
       const yaw = (v as unknown as { yaw: number }).yaw;
       const ly = v.lensYaw ?? yaw;
       const off = Math.abs(Math.atan2(Math.sin(yaw - ly), Math.cos(yaw - ly)));
-      if (my && off > THREE.MathUtils.degToRad(110)) for (const hb of heads) if (hb !== my && hb.d < my.d - 0.3 && overlap(my, hb) > 0.35) fade = 0.35;
+      // (r17 critic: a 35 % ghost of Bram's bubble over Juniper read as a rendering glitch — the name
+      // tab and the tail already say whose line it is: a turned-away speaker hidden behind a nearer head
+      // keeps a whole bubble, nudged up clear of that head by the solver above)
+      if (my && off > THREE.MathUtils.degToRad(110)) for (const hb of heads) if (hb !== my && hb.d < my.d - 0.3 && overlap(my, hb) > 0.85) fade = 0.9;
       if (hidden) fade = 0;
       const ux = (ox2: number, oy2: number, axis: 'x' | 'y' | 'z'): number => right[axis] * ox2 + up[axis] * oy2;
       const tx = (aox + 0) * 0.5;

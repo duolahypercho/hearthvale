@@ -317,6 +317,11 @@ body:has(.coop-roster:not(.hv-hidden)) .dlg-insert { top: max(19vh, 150px); }
 .hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice .lk { margin-left: auto; width: 16px; height: 18px; flex: none; opacity: .75; }
 .hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice.picked { opacity: 1; filter: none; background: #fff6dc; border-color: #c8573e; transform: translateX(6px); box-shadow: 0 3px 0 rgba(120,60,20,.25); }
 .hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice.picked .k { background: linear-gradient(180deg, var(--wood-1), var(--wood-2)); border-color: var(--wood-3); }
+/* r17 (critic: the "Loved it!" rosette sat over the portrait's hat / brow): the gift ribbon is a tag
+   pinned to the card's top edge from outside — it hangs over the scene, never the face; the card and
+   the heart strip keep their one size and place. */
+.hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) { overflow: visible; }
+.hv-dialogue.dlg2 .dlg-ribbon { top: -35px !important; transform: translateX(-50%) rotate(-2.5deg); box-shadow: 0 3px 0 rgba(60,30,10,.35), 0 6px 14px rgba(30,15,5,.35); }
 `;
 
 

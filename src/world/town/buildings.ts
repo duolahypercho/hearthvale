@@ -608,12 +608,20 @@ export function buildStall(rng: Rng, stripes: [number, number], goods: 'produce'
   }
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add('woodGrain', roundedBox(0.09, 2.3, 0.09, 0.03), mat(sx * (W / 2 + 0.05), 1.15, sz * 0.5), { tint: 0xa87a50 });
   const n = 7;
+  // r17 (critic: "the stall canopy is blown out in town-day"): a sunlit near-white canvas top clipped
+  // to paper white under the high sun — the light stripe is a sun-faded linen, a step down in value.
+  const canopy = stripes.map((c) => {
+    const col = new THREE.Color(c);
+    const hsl = { h: 0, s: 0, l: 0 };
+    col.getHSL(hsl);
+    return hsl.l > 0.82 ? col.multiplyScalar(0.84).getHex() : c;
+  });
   for (let i = 0; i < n; i++) {
     const x = -W / 2 - 0.15 + (i + 0.5) * ((W + 0.3) / n);
-    b.add('cloth', roundedBox((W + 0.3) / n + 0.01, 0.04, 1.4, 0.015), mat(x, 2.36, 0.05, 0.22, 0, 0), { tint: stripes[i % 2]! });
+    b.add('cloth', roundedBox((W + 0.3) / n + 0.01, 0.04, 1.4, 0.015), mat(x, 2.36, 0.05, 0.22, 0, 0), { tint: canopy[i % 2]! });
     const sc = new THREE.CylinderGeometry((W + 0.3) / n / 2, (W + 0.3) / n / 2, 0.035, 10, 1, false, 0, Math.PI);
     sc.rotateX(Math.PI / 2);
-    b.add('cloth', sc, mat(x, 2.15, 0.74, 0, 0, Math.PI), { tint: stripes[i % 2]! });
+    b.add('cloth', sc, mat(x, 2.15, 0.74, 0, 0, Math.PI), { tint: canopy[i % 2]! });
   }
   const top = 0.98;
   if (goods === 'produce') {

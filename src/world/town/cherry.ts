@@ -110,13 +110,17 @@ vec4 hvFloret(vec3 P) {
         float clumpT = smoothstep(0.25, 0.75, hvNoise(vHvWorldPos.xz * 3.4 + vHvWorldPos.y * 2.9));
         float eye = 1.0 - smoothstep(0.05, 0.1, f.x);
         float tone = hvNoise(vHvWorldPos.xz * 1.3 + vHvWorldPos.y * 0.9);
-        vec3 deep = mix(vec3(0.84, 0.28, 0.42), vec3(0.95, 0.42, 0.52), tone);
-        vec3 petal = mix(vec3(1.0, 0.72, 0.79), vec3(1.0, 0.88, 0.9), f.z);
+        // (r17: a warmer, more saturated pink — the canopy read lilac / cotton candy under the blue fill)
+        vec3 deep = mix(vec3(0.78, 0.2, 0.38), vec3(0.92, 0.34, 0.48), tone);
+        vec3 petal = mix(vec3(1.0, 0.64, 0.75), vec3(1.0, 0.84, 0.88), f.z);
         float cover = max(fl, big * 0.45) * mix(0.55, 1.0, smoothstep(-0.4, 0.7, up)) * mix(0.7, 1.0, clumpT);
         vec3 bl = mix(deep, petal, cover);
         bl = mix(bl, vec3(0.86, 0.28, 0.4), eye * fl * 0.65);
+        // r17: fresh leaves breaking among the florets (a tree in bloom, not a cloud of floss)
+        float leafy = (1.0 - step(0.09, f.y)) * fl;
+        bl = mix(bl, mix(vec3(0.46, 0.66, 0.26), vec3(0.62, 0.78, 0.34), f.w), leafy * 0.85);
         bl = mix(bl, bl * vec3(1.06, 1.02, 1.0), top * 0.4);
-        bl = mix(bl, bl * vec3(0.74, 0.54, 0.62), under * 0.7);
+        bl = mix(bl, bl * vec3(0.62, 0.42, 0.54), under * 0.8);
         bl *= diffuseColor.rgb;
         diffuseColor.rgb = mix(leaf, bl, uBloom);
       }`,
@@ -213,19 +217,22 @@ function growCherry(rng: Rng): CherryGeo {
       const tip = s0.clone().add(sd.clone().multiplyScalar(len)).add(new THREE.Vector3(0, 0.2 + rng.next() * 0.35, 0));
       const c = s0.clone().lerp(tip, 0.5).add(new THREE.Vector3(0, 0.08, 0));
       bough(b, bark, 0.065, 0.02, s0, c, tip, 2, 5, trunkAO);
-      const r = 0.6 + rng.next() * 0.2;
+      // (r17: smaller clusters with air between them — the crown read as one pink cloud)
+      const r = 0.48 + rng.next() * 0.16;
       puffs.push({ c: tip.clone().add(new THREE.Vector3(0, r * 0.32, 0)), r });
       spread = Math.max(spread, Math.hypot(tip.x - lean.x, tip.z - lean.z) + r);
       // A bare twig poking out past the cluster (the wood reads through the blossom).
       if (rng.next() < 0.6) {
         const tw = tip.clone().add(sd.clone().multiplyScalar(0.45 + rng.next() * 0.2)).add(new THREE.Vector3((rng.next() - 0.5) * 0.3, -0.05 + rng.next() * 0.25, (rng.next() - 0.5) * 0.3));
         b.add(bark, limb(0.022, 0.006, tip, tw, 4), undefined, { aoWorld: trunkAO });
+        // r17: a little satellite spray of blossom on some twigs — breaks the canopy's outline.
+        if (rng.next() < 0.55) puffs.push({ c: tw.clone().add(new THREE.Vector3(0, 0.06, 0)), r: 0.2 + rng.next() * 0.1 });
       }
     }
     // A smaller cluster midway along some boughs (layers the canopy, keeps gaps).
     if (rng.next() < 0.55) {
       const m0 = main.getPoint(0.5);
-      puffs.push({ c: m0.clone().add(new THREE.Vector3(0, 0.42, 0)).add(dir.clone().multiplyScalar(0.1)), r: 0.48 + rng.next() * 0.12 });
+      puffs.push({ c: m0.clone().add(new THREE.Vector3(0, 0.38, 0)).add(dir.clone().multiplyScalar(0.1)), r: 0.38 + rng.next() * 0.1 });
     }
   }
   // Crown: two or three clusters riding over the fork, a leader bough up into them.
@@ -235,7 +242,7 @@ function growCherry(rng: Rng): CherryGeo {
   for (let i = 0; i < nCrown; i++) {
     const a = rng.next() * Math.PI * 2;
     const rr = i === 0 ? 0 : 0.42 + rng.next() * 0.2;
-    puffs.push({ c: crownTop.clone().add(new THREE.Vector3(Math.cos(a) * rr, 0.2 - i * 0.12, Math.sin(a) * rr)), r: 0.72 + rng.next() * 0.14 });
+    puffs.push({ c: crownTop.clone().add(new THREE.Vector3(Math.cos(a) * rr, 0.2 - i * 0.12, Math.sin(a) * rr)), r: 0.58 + rng.next() * 0.12 });
   }
   // Clusters: lumpy puffs with flat, tucked undersides (cloud layering) and baked AO — dark where they
   // face into the crown or down, a little warmer / paler per cluster.
@@ -257,14 +264,14 @@ function growCherry(rng: Rng): CherryGeo {
     const tint = new THREE.Color(v, v * (0.96 + rng.next() * 0.04), v);
     // A cluster = one body + three or four smaller lobes riding its upper / outer surface (a
     // cauliflower outline, not a smooth stone), all with flat tucked undersides.
-    const lobes: { c: THREE.Vector3; r: number; d: number }[] = [{ c: pc, r, d: 2 }];
-    const nl = 3 + rng.int(0, 1);
+    const lobes: { c: THREE.Vector3; r: number; d: number }[] = [{ c: pc, r, d: r < 0.32 ? 1 : 2 }];
+    const nl = p.r < 0.32 ? 2 : 4 + rng.int(0, 2);
     const out = inward.clone().negate();
     for (let i = 0; i < nl; i++) {
       const a = (i / nl) * Math.PI * 2 + rng.next() * 0.9;
       const dir = new THREE.Vector3(Math.cos(a), 0.55 + rng.next() * 0.5, Math.sin(a)).add(out.clone().multiplyScalar(0.5)).normalize();
-      const lr = r * (0.42 + rng.next() * 0.14);
-      lobes.push({ c: pc.clone().add(dir.multiplyScalar(r * 0.78)), r: lr, d: 1 });
+      const lr = r * (0.36 + rng.next() * 0.18);
+      lobes.push({ c: pc.clone().add(dir.multiplyScalar(r * (0.8 + rng.next() * 0.2))), r: lr, d: 1 });
     }
     for (const l of lobes) {
       const g = lumpySphere(l.r, l.d, l.d === 2 ? 0.22 : 0.16, rng, 2.4);

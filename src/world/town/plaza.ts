@@ -136,6 +136,150 @@ function wearTexture(cx: number, cz: number, R: number, seed = 5): THREE.CanvasT
     g.fill();
     g.restore();
   }
+  // r17 (critic: "large empty cobble expanses in the foreground" of the plaza lenses): Kit's chalk —
+  // a hopscotch court laid across the view south-east of the basin (numbered, a home arc at the end),
+  // a lopsided sun, a heart, an arrow and a dropped stub of chalk. Grainy dry strokes over the setts.
+  {
+    const chalkLine = (x0: number, y0: number, x1: number, y1: number, col: string, wpx: number): void => {
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      const n = Math.max(2, Math.round(len / 2.2));
+      for (let pass = 0; pass < 2; pass++) {
+        g.strokeStyle = `rgba(${col},${pass ? 0.42 : 0.78})`;
+        g.lineWidth = wpx * (pass ? 1.7 : 1);
+        g.lineCap = 'round';
+        g.beginPath();
+        for (let i = 0; i <= n; i++) {
+          const t = i / n;
+          const jx = (rnd() - 0.5) * wpx * 0.5;
+          const jy = (rnd() - 0.5) * wpx * 0.5;
+          const x = x0 + (x1 - x0) * t + jx;
+          const y = y0 + (y1 - y0) * t + jy;
+          if (i === 0) g.moveTo(x, y);
+          else g.lineTo(x, y);
+        }
+        g.stroke();
+      }
+      // dry-chalk skips: tiny gaps where the stroke missed the stone's low spots
+      g.save();
+      g.globalCompositeOperation = 'destination-out';
+      for (let i = 0; i < len / 3; i++) {
+        const t = rnd();
+        blob(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, wpx * (0.4 + rnd() * 0.5), '0,0,0', 0.5);
+      }
+      g.restore();
+    };
+    const W = 'cream';
+    const C: Record<string, string> = { cream: '246,240,226', pink: '246,170,196', yellow: '250,224,120', blue: '150,196,240', green: '170,226,150' };
+    const lw = m * 0.055;
+    const box = (x: number, z: number, s: number, col: string): void => {
+      const a = px(x - s / 2);
+      const b = px(x + s / 2);
+      const c0 = pz(z - s / 2);
+      const d = pz(z + s / 2);
+      chalkLine(a, c0, b, c0, col, lw);
+      chalkLine(b, c0, b, d, col, lw);
+      chalkLine(b, d, a, d, col, lw);
+      chalkLine(a, d, a, c0, col, lw);
+    };
+    const num = (x: number, z: number, n: number, col: string): void => {
+      g.save();
+      g.translate(px(x), pz(z));
+      g.rotate((rnd() - 0.5) * 0.3);
+      g.font = `700 ${Math.round(m * 0.26)}px Nunito, 'Trebuchet MS', sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillStyle = `rgba(${C[col]},0.86)`;
+      g.fillText(String(n), 0, 0);
+      g.restore();
+    };
+    // The court: 1 · 2 · 3|4 · 5 · 6|7 · home (left to right as the plaza lens sees it).
+    const s = 0.44;
+    const z0 = cz + 4.35;
+    let x = cx + 1.25;
+    const cols = ['pink', 'yellow', 'blue', 'green'];
+    let k = 1;
+    const plan = [1, 1, 2, 1, 2];
+    for (let i = 0; i < plan.length; i++) {
+      const col = C[cols[i % cols.length]!]!;
+      if (plan[i] === 1) {
+        box(x, z0, s, col);
+        num(x, z0, k++, cols[i % cols.length]!);
+      } else {
+        box(x, z0 - s / 2, s, col);
+        box(x, z0 + s / 2, s, col);
+        num(x, z0 - s / 2, k++, cols[i % cols.length]!);
+        num(x, z0 + s / 2, k++, cols[i % cols.length]!);
+      }
+      x += s;
+    }
+    // home: a half-round cap
+    g.save();
+    g.strokeStyle = `rgba(${C[W]},0.6)`;
+    g.lineWidth = lw;
+    g.beginPath();
+    g.arc(px(x - s / 2), pz(z0), m * s * 0.95, -Math.PI / 2, Math.PI / 2);
+    g.stroke();
+    g.restore();
+    // the start line and a stub of chalk left on it
+    chalkLine(px(cx + 1.25 - s / 2 - 0.25), pz(z0 - 0.5), px(cx + 1.25 - s / 2 - 0.25), pz(z0 + 0.5), C[W]!, lw * 0.8);
+    g.save();
+    g.translate(px(cx + 0.72), pz(z0 + 0.38));
+    g.rotate(0.6);
+    g.fillStyle = 'rgba(246,170,196,0.95)';
+    g.fillRect(-m * 0.05, -m * 0.017, m * 0.1, m * 0.034);
+    g.restore();
+    // A lopsided sun with rays, a heart, an arrow pointing at the bakery.
+    const sx = px(cx - 2.15);
+    const sy = pz(cz + 3.75);
+    const sr = m * 0.36;
+    g.save();
+    g.strokeStyle = `rgba(${C.yellow},0.7)`;
+    g.lineWidth = lw;
+    g.beginPath();
+    for (let i = 0; i <= 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      const r = sr * (1 + (rnd() - 0.5) * 0.08);
+      if (i === 0) g.moveTo(sx + Math.cos(a) * r, sy + Math.sin(a) * r);
+      else g.lineTo(sx + Math.cos(a) * r, sy + Math.sin(a) * r);
+    }
+    g.stroke();
+    g.restore();
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + 0.2;
+      chalkLine(sx + Math.cos(a) * sr * 1.3, sy + Math.sin(a) * sr * 1.3, sx + Math.cos(a) * sr * 1.85, sy + Math.sin(a) * sr * 1.85, C.yellow!, lw * 0.9);
+    }
+    // a smile in the sun
+    g.save();
+    g.strokeStyle = `rgba(${C.yellow},0.7)`;
+    g.lineWidth = lw * 0.8;
+    g.beginPath();
+    g.arc(sx, sy + sr * 0.05, sr * 0.5, 0.35, Math.PI - 0.35);
+    g.stroke();
+    g.fillStyle = `rgba(${C.yellow},0.75)`;
+    for (const e of [-1, 1]) g.fillRect(sx + e * sr * 0.32 - lw / 2, sy - sr * 0.3, lw, lw * 1.6);
+    g.restore();
+    // heart
+    const hx = px(cx - 1.25);
+    const hy = pz(cz + 4.6);
+    const hs = m * 0.2;
+    g.save();
+    g.strokeStyle = `rgba(${C.pink},0.72)`;
+    g.lineWidth = lw;
+    g.beginPath();
+    g.moveTo(hx, hy + hs);
+    g.bezierCurveTo(hx - hs * 1.6, hy - hs * 0.2, hx - hs * 0.7, hy - hs * 1.3, hx, hy - hs * 0.4);
+    g.bezierCurveTo(hx + hs * 0.7, hy - hs * 1.3, hx + hs * 1.6, hy - hs * 0.2, hx, hy + hs);
+    g.stroke();
+    g.restore();
+    // arrow towards the bakery (north-east)
+    const ax0 = px(cx + 4.1);
+    const ay0 = pz(cz + 3.0);
+    const ax1 = px(cx + 4.9);
+    const ay1 = pz(cz + 2.1);
+    chalkLine(ax0, ay0, ax1, ay1, C.blue!, lw);
+    chalkLine(ax1, ay1, ax1 - m * 0.3, ay1 + m * 0.02, C.blue!, lw);
+    chalkLine(ax1, ay1, ax1 - m * 0.02, ay1 + m * 0.3, C.blue!, lw);
+  }
   // Fade out at the decal's round edge (no visible square).
   g.globalCompositeOperation = 'destination-in';
   const edge = g.createRadialGradient(S / 2, S / 2, S * 0.38, S / 2, S / 2, S * 0.5);
