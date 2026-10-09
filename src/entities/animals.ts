@@ -54,13 +54,15 @@ function instantiate(species: Species, variant: number): AnimalModel {
   return { mesh, bones, gait: t.gait, species };
 }
 
-/** Far LOD templates: the same rig built at ~0.55 tessellation (same bones, same bone order). */
+/** Far LOD templates: the same rig built at ~0.55 tessellation (same bones, same bone order).
+ *  Perf g18: + a 0.75 mid LOD (big stock 14-18 m out under the farm-wide lenses). */
 const loTemplates = new Map<string, AnimalModel>();
-function loTemplate(species: Species, variant: number): AnimalModel {
-  const key = `${species}:${variant}`;
+const LOD_K = [0.55, 0.75] as const;
+function loTemplate(species: Species, variant: number, lod: 0 | 1 = 0): AnimalModel {
+  const key = `${species}:${variant}:${lod}`;
   let t = loTemplates.get(key);
   if (!t) {
-    RIG_DETAIL.k = 0.55;
+    RIG_DETAIL.k = LOD_K[lod];
     try {
       t = buildAnimal(species, variant);
     } finally {
@@ -300,8 +302,14 @@ export class AnimalActor {
 
   private readonly variant: number;
   private headRest: THREE.Vector3 | null = null;
-  private lo: THREE.SkinnedMesh | null = null;
+  /** LOD meshes built on demand: [0] far (0.55 tessellation), [1] mid (0.75, big stock only). */
+  private readonly lods: [THREE.SkinnedMesh | null, THREE.SkinnedMesh | null] = [null, null];
+  private lodIx: 0 | 1 = 0;
   private far = false;
+  /** The LOD mesh drawn instead of the full sculpt (null at full detail). */
+  private get lo(): THREE.SkinnedMesh | null {
+    return this.far ? this.lods[this.lodIx] : null;
+  }
 
   /**
    * Far LOD (outdoor herd from the high farm camera): swap to the low-tessellation mesh, skinned to this
@@ -318,7 +326,7 @@ export class AnimalActor {
   setCastShadow(on: boolean): void {
     if (this.mesh.castShadow === on) return;
     this.mesh.castShadow = on;
-    if (this.lo) this.lo.castShadow = on && !this.small;
+    for (const m of this.lods) if (m) m.castShadow = on && !this.small;
   }
 
   /** r18 (perf): birds and pets at far LOD skip the sun-shadow pass — a few pixels of shadow under a
@@ -327,23 +335,30 @@ export class AnimalActor {
     return this.gait.radius < 0.2;
   }
 
-  setFar(far: boolean): void {
-    if (far === this.far) return;
+  /** `mid`: the 0.75-tessellation LOD instead of the 0.55 one (perf g18: big stock 14-18 m out). */
+  setFar(far: boolean, mid = false): void {
+    const ix: 0 | 1 = mid ? 1 : 0;
+    if (far === this.far && (!far || ix === this.lodIx)) return;
     this.far = far;
-    if (far && !this.lo) {
-      const t = loTemplate(this.species, this.variant);
+    this.lodIx = ix;
+    if (far && !this.lods[ix]) {
+      const t = loTemplate(this.species, this.variant, ix);
       const lo = new THREE.SkinnedMesh(t.mesh.geometry, t.mesh.material);
-      lo.name = `${this.mesh.name}:lo`;
+      lo.name = `${this.mesh.name}:${ix ? 'mid' : 'lo'}`;
       lo.bind(this.mesh.skeleton, this.mesh.bindMatrix);
       lo.boundingSphere = this.mesh.boundingSphere?.clone() ?? null;
       lo.castShadow = this.mesh.castShadow && !this.small;
       lo.receiveShadow = true;
       lo.userData.ao = true;
       this.root.add(lo);
-      this.lo = lo;
+      this.lods[ix] = lo;
     }
-    this.mesh.visible = !far && !this.curled;
-    if (this.lo) this.lo.visible = far && !this.curled;
+    const curled = this.curled;
+    this.mesh.visible = !far && !curled;
+    for (let i = 0; i < 2; i++) {
+      const m = this.lods[i];
+      if (m) m.visible = far && i === ix && !curled;
+    }
   }
 
   place(x: number, z: number, heading = this.heading): void {
