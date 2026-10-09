@@ -369,6 +369,9 @@ export abstract class FestivalMap implements GameMap {
   private pips: Pip[] = [];
   private readonly pipWant: string[] = ['', ''];
   private readonly pipV = new THREE.Vector3();
+  /** Layer size, cached by a ResizeObserver so the per-frame step never forces a layout read. */
+  private pipW = 0;
+  private pipH = 0;
 
   private updatePips(dt: number, game: Game): void {
     const c = this.crowd;
@@ -386,14 +389,28 @@ export abstract class FestivalMap implements GameMap {
       this.pipLayer = document.createElement('div');
       this.pipLayer.className = 'fest-pips';
       game.hud.root.append(this.pipLayer);
+      const lay = this.pipLayer;
+      const measure = (): void => {
+        this.pipW = lay.clientWidth;
+        this.pipH = lay.clientHeight;
+      };
+      measure();
+      if (typeof ResizeObserver !== 'undefined') new ResizeObserver(measure).observe(lay);
+      else addEventListener('resize', measure);
       const off = game.events.on('map:change', ({ map }) => {
         if (this.pipLayer) this.pipLayer.style.display = map === this.id ? '' : 'none';
       });
       void off;
     }
     const layer = this.pipLayer;
-    layer.style.display = '';
+    if (layer.style.display !== '') layer.style.display = '';
     const hush = !!this.play || !!game.hud.openPanelName || !!(game as { cinematic?: unknown }).cinematic;
+    // Hushed (mini-game, menu, cutscene) with every tag already faded out: nothing to do.
+    if (hush && this.pips.length) {
+      let live = false;
+      for (const q of this.pips) if (q.a >= 0.02 || q.el.style.opacity !== '0') live = true;
+      if (!live) return;
+    }
     const p = game.player.position;
     // Only the one or two villagers you're actually next to (or about to talk to) are tagged: a
     // floating label over every face buried the hosts, the player and the activity in the crowd.
@@ -424,11 +441,11 @@ export abstract class FestivalMap implements GameMap {
       el.style.opacity = '0';
       el.innerHTML = '<span></span><i></i>';
       layer.append(el);
-      this.pips.push({ el, id: '', a: 0, hearts: -1, x: 0, y: 0, w: 0, on: false });
+      this.pips.push({ el, id: '', a: 0, hearts: -1, x: 0, y: 0, w: 0, ow: 0, on: false });
     }
     const cam = game.rc.camera;
-    const W = layer.clientWidth || innerWidth;
-    const H = layer.clientHeight || innerHeight;
+    const W = this.pipW || innerWidth;
+    const H = this.pipH || innerHeight;
     const k = Math.min(1.3, Math.max(0.9, H / 900));
     for (const pip of this.pips) {
       pip.on = false;
@@ -441,6 +458,7 @@ export abstract class FestivalMap implements GameMap {
           const npc = NPCS[free as keyof typeof NPCS];
           (pip.el.firstElementChild as HTMLElement).textContent = npc?.name.split(/\s+/)[0] ?? free;
           pip.hearts = -1;
+          pip.ow = 0;
         }
       }
       const dist = pip.id && pip.id === want[0] ? d0 : pip.id && pip.id === want[1] ? d1 : Infinity;
@@ -466,7 +484,8 @@ export abstract class FestivalMap implements GameMap {
       pip.on = true;
       pip.x = ((this.pipV.x + 1) / 2) * W;
       pip.y = ((1 - this.pipV.y) / 2) * H;
-      pip.w = (pip.el.offsetWidth || 80) * k;
+      if (!pip.ow) pip.ow = pip.el.offsetWidth;
+      pip.w = (pip.ow || 80) * k;
     }
     // Declutter: two villagers standing close together stack their tags (the one nearer the
     // camera — lower on screen — keeps its spot, the other steps up).
@@ -1202,6 +1221,8 @@ interface Pip {
   x: number;
   y: number;
   w: number;
+  /** Measured CSS width of the tag (0 = re-measure; only after its name text changes). */
+  ow: number;
   on: boolean;
 }
 

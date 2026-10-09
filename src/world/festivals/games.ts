@@ -82,7 +82,8 @@ const CSS = /* css */ `
   background: radial-gradient(circle at 35% 35%, #ffe9a8, #c89030 60%, #7a5018); box-shadow: 0 2px 0 rgba(0,0,0,.35); }
 .fg-plaque::before { left: 9px; } .fg-plaque::after { right: 9px; }
 /* The result card (trophy / slam) owns the top of the screen: the plaque steps aside. */
-.fg-root:has(.fg-result) .fg-plaque { animation: none; opacity: 0; transform: translate(-50%, -24px); transition: opacity 220ms ease, transform 260ms ease; }
+/* Class toggle, not :has() — a :has() rule here made every text change on the page re-run style+layout (~12 ms at 1440p). */
+.fg-root.fg-has-result .fg-plaque { animation: none; opacity: 0; transform: translate(-50%, -24px); transition: opacity 220ms ease, transform 260ms ease; }
 .fg-howto { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); max-width: 640px; text-align: center; font-weight: 800; font-size: 17px; color: #fff8e8;
   padding: 7px 18px; border-radius: 999px; background: rgba(40, 22, 10, .55); backdrop-filter: blur(4px); text-shadow: 0 1px 2px rgba(0,0,0,.5); animation: fgFade 5s ease both; }
 @keyframes fgShakeX { 0%,100% { translate: 0 0; } 20% { translate: -4px 1px; } 40% { translate: 4px -1px; } 60% { translate: -3px 0; } 80% { translate: 2px 1px; } }
@@ -185,7 +186,7 @@ const CSS = /* css */ `
 .fg-card.sel { transform: translateY(-5px) scale(1.04); background: #fff6dc; border-color: #c8573e; box-shadow: 0 6px 0 rgba(120,60,20,.25), 0 0 0 4px rgba(255, 200, 120, .45); }
 .fg-card .star { color: #e8a820; letter-spacing: -1px; }
 .fg-wish { font-family: var(--font-hand); font-size: 27px !important; line-height: 28px !important; font-weight: 700 !important; text-wrap: balance; }
-.fg-choose .fg-card:has(.fg-wish) { min-height: 176px; display: flex; flex-direction: column; justify-content: center; }
+.fg-choose .fg-card.wish { min-height: 176px; display: flex; flex-direction: column; justify-content: center; }
 /* ── race ── */
 .fg-race { left: 50%; bottom: 30px; transform: translateX(-50%); width: min(900px, calc(100vw - 32px)); }
 .fg-race > .in { height: 150px; }
@@ -358,6 +359,17 @@ function installCss(): void {
   document.head.appendChild(s);
 }
 
+/** Per-frame HUD writes: touch the DOM only when the value changed (each text mutation costs a style pass). */
+function setText(el: Element, s: string): void {
+  if (el.textContent !== s) el.textContent = s;
+}
+const lastStyle = new WeakMap<HTMLElement, { width?: string; left?: string }>();
+function setStyle(el: HTMLElement, k: 'width' | 'left', v: string): void {
+  let m = lastStyle.get(el);
+  if (!m) lastStyle.set(el, (m = {}));
+  if (m[k] !== v) el.style[k] = m[k] = v;
+}
+
 function div(cls: string, html = ''): HTMLDivElement {
   const d = document.createElement('div');
   d.className = cls;
@@ -487,6 +499,7 @@ export class FestivalOverlay {
 
   private clearBody(root: HTMLElement, keep: HTMLElement): void {
     for (const c of [...root.children]) if (c !== keep) c.remove();
+    root.classList.remove('fg-has-result');
   }
 
   private play(env: GameEnv): Promise<GameResult | null> {
@@ -669,7 +682,7 @@ export class FestivalOverlay {
     // Few cards (≤ 4): one row of exactly that many equal columns (no empty auto-fill slot).
     if (cards.length <= 4) grid.style.gridTemplateColumns = `repeat(${cards.length}, minmax(0, 1fr))`;
     const els = cards.map((html, i) => {
-      const c = div('fg-card', html);
+      const c = div(html.includes('fg-wish') ? 'fg-card wish' : 'fg-card', html);
       c.style.animationDelay = `${i * 40}ms`;
       c.addEventListener('mouseenter', () => (sel = i));
       c.addEventListener('click', () => (chosen = i));
@@ -741,6 +754,7 @@ export class FestivalOverlay {
     if (win || r.reaction) env.map.playEvent('win', r.reaction ? 0 : r.place);
     else env.map.playEvent('lose', r.place);
     root.append(card);
+    root.classList.add('fg-has-result');
     if (!r.noRibbon && r.reaction !== 'dislike') this.confetti(root, r.reaction ? [0xff5a7a, 0xffa0b8, 0xffffff, 0xf2d27a] : env.festival.colors, big ? 130 : 40);
     this.sfx(r.noRibbon || r.reaction === 'dislike' ? 'plop' : big ? 'catch:perfect' : 'catch', 1);
     let go = false;
@@ -765,6 +779,7 @@ export class FestivalOverlay {
       return hold ? false : env.auto ? t > 4.2 : go || (t > 0.5 && this.hit('Space', 'Enter', 'KeyX', 'KeyF', 'Escape'));
     });
     card.remove();
+    root.classList.remove('fg-has-result');
     root.querySelectorAll('.fg-rays, .fg-sting').forEach((e) => e.remove());
   }
 
@@ -1215,11 +1230,11 @@ export class FestivalOverlay {
       env.play.hop = last < 0 ? 1 : Math.min(1, (t - last) / 0.3);
       kL!.classList.toggle('next', next === 0 && finT[0]! < 0);
       kR!.classList.toggle('next', next === 1 && finT[0]! < 0);
-      meter.style.width = `${Math.round(bounce * 100)}%`;
-      placeEl.textContent = ['1st', '2nd', '3rd', '4th', '5th'][rankOf(0)]!;
+      setStyle(meter, 'width', `${Math.round(bounce * 100)}%`);
+      setText(placeEl, ['1st', '2nd', '3rd', '4th', '5th'][rankOf(0)]!);
       for (let i = 0; i < N; i++) {
         env.play.progress[i] = pos[i]! / LEN;
-        toks[i]!.style.left = `${(pos[i]! / LEN) * 100}%`;
+        setStyle(toks[i]!, 'left', `${((pos[i]! / LEN) * 100).toFixed(2)}%`);
       }
       // Finished: hold 1.4 s for the others (a farmer a few hops behind still gets placed).
       // Co-op: wait (up to 8 s) for every other farmer to cross, so both machines rank the same finish.
@@ -1384,7 +1399,7 @@ export class FestivalOverlay {
     const ptsEls = cards.map((c) => c.querySelector('.pts') as HTMLElement);
     await this.loop((_dt, t) => {
       const k = Math.min(1, t / 1.6);
-      table.forEach((e, i) => (ptsEls[i]!.textContent = String(Math.round(e.score * k * k * (3 - 2 * k)))));
+      table.forEach((e, i) => setText(ptsEls[i]!, String(Math.round(e.score * k * k * (3 - 2 * k)))));
       if (Math.floor(t * 12) !== Math.floor((t - 0.016) * 12)) this.sfx('ui:tick', 0.6);
       return t > 1.7;
     });
@@ -1710,13 +1725,13 @@ export class FestivalOverlay {
       }
       if (lap > last.lap) this.judge(root, lap === st.laps ? 'Final lap!' : `Lap ${lap}`, 'p', '50%', '22%');
       last = { stars, gates, cracks, lap };
-      num.textContent = `${stars} / ${st.starsTotal ?? 0}`;
-      lapEl.textContent = `Lap ${lap} / ${st.laps ?? 4}`;
-      gEl.textContent = `${gates}/${st.gatesTotal ?? 0}`;
-      cEl.textContent = String(cracks);
-      comboEl.textContent = `×${st.combo ?? 0}`;
-      ctimer.style.width = `${Math.round((st.comboT ?? 0) * 100)}%`;
-      bar.style.width = `${Math.round((env.play.progress[0] ?? 0) * 100)}%`;
+      setText(num, `${stars} / ${st.starsTotal ?? 0}`);
+      setText(lapEl, `Lap ${lap} / ${st.laps ?? 4}`);
+      setText(gEl, `${gates}/${st.gatesTotal ?? 0}`);
+      setText(cEl, String(cracks));
+      setText(comboEl, `×${st.combo ?? 0}`);
+      setStyle(ctimer, 'width', `${Math.round((st.comboT ?? 0) * 100)}%`);
+      setStyle(bar, 'width', `${Math.round((env.play.progress[0] ?? 0) * 100)}%`);
       return env.play.done;
     });
     env.play.live = false;
