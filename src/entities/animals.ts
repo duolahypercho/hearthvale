@@ -92,8 +92,16 @@ function curlAoMat(): THREE.MeshBasicMaterial {
 
 /** Personal space per species (m, world): capsules are padded to at least this radius when separating. */
 const SPACE: Record<Species, number> = { chicken: 0.25, duck: 0.25, goat: 0.4, sheep: 0.42, cow: 0.46, pig: 0.44, dog: 0.3, cat: 0.25 };
+/** r18: social spacing per species (m, body surface to body surface) — how far apart animals like to
+ *  stand. Wander targets that would land closer than this to another animal (or to the spot another
+ *  animal is already walking to) are rejected, and a crowded animal walks off instead of idling in a
+ *  knot. Big stock keep more room than the flock birds; sheep bunch a little closer (a flock). */
+const SOCIAL: Record<Species, number> = { chicken: 0.32, duck: 0.36, goat: 0.75, sheep: 0.6, cow: 1.05, pig: 0.85, dog: 0.6, cat: 0.55 };
 /** Soft personal-space ring round each farmer (m, from the animal's body surface). */
 const FARMER_SPACE = 0.7;
+/** r18: the curious animals' semicircle round the farmer (angles in the XZ plane; -PI/2 = up-screen,
+ *  so the visitors stand behind the farmer as seen from the lens, faces to the camera, none in front). */
+const CURIOUS_SLOTS = [-Math.PI / 2, -Math.PI / 2 - 0.82, -Math.PI / 2 + 0.82, -Math.PI / 2 - 1.55, -Math.PI / 2 + 1.55];
 
 /** Animals currently walking up to the farmer (curiosity is capped so the herd never mobs them). */
 const curiousNow = new Set<AnimalActor>();
@@ -241,7 +249,13 @@ export class AnimalActor {
   setCastShadow(on: boolean): void {
     if (this.mesh.castShadow === on) return;
     this.mesh.castShadow = on;
-    if (this.lo) this.lo.castShadow = on;
+    if (this.lo) this.lo.castShadow = on && !this.small;
+  }
+
+  /** r18 (perf): birds and pets at far LOD skip the sun-shadow pass — a few pixels of shadow under a
+   *  hen from the high pasture lens; the contact pool grounds them. -4 dynamic shadow draws a frame. */
+  private get small(): boolean {
+    return this.gait.radius < 0.2;
   }
 
   setFar(far: boolean): void {
@@ -253,7 +267,7 @@ export class AnimalActor {
       lo.name = `${this.mesh.name}:lo`;
       lo.bind(this.mesh.skeleton, this.mesh.bindMatrix);
       lo.boundingSphere = this.mesh.boundingSphere?.clone() ?? null;
-      lo.castShadow = this.mesh.castShadow;
+      lo.castShadow = this.mesh.castShadow && !this.small;
       lo.receiveShadow = true;
       this.root.add(lo);
       this.lo = lo;
@@ -435,12 +449,126 @@ export class AnimalActor {
     return out.set(this.pos.x + Math.sin(this.heading) * L, y, this.pos.z + Math.cos(this.heading) * L);
   }
 
-  /** Body capsule in world XZ: segment a→b (along the heading) with radius r. */
+  /** Body capsule in world XZ: segment a→b (along the heading) with radius r. (r18: written into a
+   *  per-actor scratch object — the n² separation pass allocated ~14 KB a frame.) */
   capsule(): { ax: number; az: number; bx: number; bz: number; r: number } {
     const h = this.gait.len * this.scale;
     const sx = Math.sin(this.heading) * h;
     const sz = Math.cos(this.heading) * h;
-    return { ax: this.pos.x - sx, az: this.pos.z - sz, bx: this.pos.x + sx, bz: this.pos.z + sz, r: this.gait.radius * this.scale };
+    const c = this._cap;
+    c.ax = this.pos.x - sx;
+    c.az = this.pos.z - sz;
+    c.bx = this.pos.x + sx;
+    c.bz = this.pos.z + sz;
+    c.r = this.gait.radius * this.scale;
+    return c;
+  }
+  private readonly _cap = { ax: 0, az: 0, bx: 0, bz: 0, r: 0 };
+  /** The other animals on this map (last update's list). */
+  private nbrs: readonly AnimalActor[] = [];
+  /** Seconds the way ahead has been blocked by another body (gives up the target after a while). */
+  private blockedT = 0;
+
+  /** Rough footprint radius (body radius + part of the half-length): spacing checks between bodies. */
+  get extent(): number {
+    return (this.gait.radius + this.gait.len * 0.75) * this.scale;
+  }
+
+  /** Where this animal is headed (its walk target) or standing — a spot others should not pick. */
+  private claim(out: { x: number; z: number }): { x: number; z: number } {
+    if (this.state === 'walk') {
+      out.x = this.target.x;
+      out.z = this.target.z;
+    } else {
+      out.x = this.pos.x;
+      out.z = this.pos.z;
+    }
+    return out;
+  }
+
+  /**
+   * r18: true when (x, z) leaves social room to every other animal — both where they stand and where they
+   * are walking to (reserved destinations: two cows never pick the same patch of grass).
+   */
+  private roomAt(x: number, z: number, k = 1): boolean {
+    const me = this.extent;
+    for (const o of this.nbrs) {
+      if (o === this || !o.root.visible) continue;
+      const gap = (me + o.extent + Math.max(SOCIAL[this.species], SOCIAL[o.species]) * k) ** 2;
+      if ((o.pos.x - x) ** 2 + (o.pos.z - z) ** 2 < gap) return false;
+      if (o.state === 'walk') {
+        const c = o.claim(_claim);
+        if ((c.x - x) ** 2 + (c.z - z) ** 2 < gap) return false;
+      }
+    }
+    return true;
+  }
+
+  /** r18: the walk target is now taken by a standing / arriving animal and we are nearly there. */
+  private destTaken(d: number): boolean {
+    if (d > this.extent * 2 + 1.2) return false;
+    const me = this.extent;
+    for (const o of this.nbrs) {
+      if (o === this || !o.root.visible) continue;
+      const c = o.claim(_claim);
+      const gap = me + o.extent + 0.12;
+      if ((c.x - this.target.x) ** 2 + (c.z - this.target.z) ** 2 < gap * gap) return true;
+    }
+    return false;
+  }
+
+  private readonly _steer = { x: 0, z: 0, slow: 1 };
+  /**
+   * r18: local avoidance. Every body in a short cone ahead (radius-aware: its extent + ours + a margin)
+   * pushes the walking direction sideways — away from the side it is on, harder the closer it is — and
+   * slows the walk when it sits right across the path. Returns null when the way is clear.
+   */
+  private avoid(ux: number, uz: number, dist: number): { x: number; z: number; slow: number } | null {
+    const me = this.extent;
+    const look = me + 1.1;
+    let side = 0;
+    let slow = 1;
+    let hit = false;
+    for (const o of this.nbrs) {
+      if (o === this || !o.root.visible) continue;
+      const vx = o.pos.x - this.pos.x;
+      const vz = o.pos.z - this.pos.z;
+      const f = vx * ux + vz * uz;
+      if (f <= 0 || f > look + o.extent || f > dist + o.extent) continue;
+      const lat = vx * uz - vz * ux; // + = the other body lies on the -perp side (perp = (-uz, ux))
+      const clear = me + o.extent + 0.18;
+      if (Math.abs(lat) >= clear) continue;
+      hit = true;
+      const w = (1 - Math.abs(lat) / clear) * (1 - Math.max(0, f - me - o.extent) / look);
+      side += (lat >= 0 ? 1 : -1) * w * 1.6;
+      if (f < me + o.extent + 0.25) slow = Math.min(slow, Math.max(0.2, (f - me - o.extent) / 0.25));
+    }
+    if (!hit) {
+      this.blockedT = Math.max(0, this.blockedT - 0.05);
+      return null;
+    }
+    if (slow < 0.5) this.blockedT += 1 / 60;
+    // perpendicular to the path (left = (-uz, ux) in this frame), added to the straight line
+    const s = this._steer;
+    s.x = ux + -uz * side;
+    s.z = uz + ux * side;
+    s.slow = this.forced ? Math.max(0.45, slow) : slow;
+    return s;
+  }
+
+  /** The nearest other body inside this animal's social space (null = room to breathe). */
+  private crowdedBy(): AnimalActor | null {
+    let best: AnimalActor | null = null;
+    let bd = Infinity;
+    for (const o of this.nbrs) {
+      if (o === this || !o.root.visible) continue;
+      const d = Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) - this.extent - o.extent;
+      if (d < Math.max(SOCIAL[this.species], SOCIAL[o.species]) * 0.55 && d < bd) {
+        bd = d;
+        best = o;
+      }
+    }
+    return best;
   }
 
   private setState(s: State, dur: number): void {
@@ -451,19 +579,22 @@ export class AnimalActor {
     this.dur = dur;
   }
 
-  private pickTarget(): boolean {
+  private pickTarget(away: AnimalActor | null = null): boolean {
     const a = this.area;
     // Grazers drift towards the middle of the pasture (and the hay rack / trough the system names in
     // `lure`): a herd strung out along the fence left the pen's centre empty.
     const cx = this.lure ? this.lure.x : (a.x0 + a.x1) / 2;
     const cz = this.lure ? this.lure.z : (a.z0 + a.z1) / 2;
-    const pull = this.grazes ? 0.35 : 0;
-    for (let i = 0; i < 8; i++) {
-      const r = 0.8 + Math.random() * 2.6;
-      const ang = Math.random() * Math.PI * 2;
+    const pull = this.grazes && !away ? 0.35 : 0;
+    // (r18: away from a crowding neighbour = a half-plane of headings pointing off it)
+    const base = away ? Math.atan2(this.pos.z - away.pos.z, this.pos.x - away.pos.x) : 0;
+    for (let i = 0; i < 14; i++) {
+      const r = (away ? 1.0 : 0.8) + Math.random() * 2.6;
+      const ang = away ? base + (Math.random() - 0.5) * 2.2 : Math.random() * Math.PI * 2;
       const x = THREE.MathUtils.clamp(THREE.MathUtils.lerp(this.pos.x + Math.cos(ang) * r, cx + (Math.random() - 0.5) * (a.x1 - a.x0) * 0.6, pull), a.x0, a.x1);
       const z = THREE.MathUtils.clamp(THREE.MathUtils.lerp(this.pos.z + Math.sin(ang) * r, cz + (Math.random() - 0.5) * (a.z1 - a.z0) * 0.6, pull), a.z0, a.z1);
-      if (this.walkable(x, z) && !this.inPool(x, z, 0.5) && Math.hypot(x - this.pos.x, z - this.pos.z) > 0.5) {
+      // (r18: later tries relax the social gap so a full pen still finds somewhere to go)
+      if (this.walkable(x, z) && !this.inPool(x, z, 0.5) && Math.hypot(x - this.pos.x, z - this.pos.z) > 0.5 && this.roomAt(x, z, i < 10 ? 1 : 0.4)) {
         this.target.set(x, 0, z);
         return true;
       }
@@ -549,12 +680,13 @@ export class AnimalActor {
     if (this.curious && this.blissT <= 0 && this.player && r < 0.22 && this.curiousCD <= 0 && curiousNow.size < MAX_CURIOUS) {
       const pd = Math.hypot(this.player.x - this.pos.x, this.player.z - this.pos.z);
       if (pd < 4.5) {
-        // Fan out on a ring around the farmer (golden-angle slots) instead of piling onto them.
-        const ang = this.slotId * 2.39996 + 0.4;
-        const rad = 1.3 + ((this.slotId * 7) % 4) * 0.16 + this.gait.len * this.scale;
-        const x = THREE.MathUtils.clamp(this.player.x + Math.cos(ang) * rad, this.area.x0, this.area.x1);
-        const z = THREE.MathUtils.clamp(this.player.z + Math.sin(ang) * rad, this.area.z0, this.area.z1);
-        if (this.walkable(x, z) && Math.hypot(x - this.pos.x, z - this.pos.z) > 0.4) {
+        // r18: a readable semicircle behind the farmer (as the lens sees it): fixed slots, the first one
+        // with room wins, the radius scaled to the body so the muzzle stops a hand's reach off the farmer.
+        const rad = Math.max((this.gait.len + this.gait.radius) * this.scale + FARMER_SPACE + 0.12, this.gait.reach * this.scale + 0.62);
+        for (const ang of CURIOUS_SLOTS) {
+          const x = THREE.MathUtils.clamp(this.player.x + Math.cos(ang) * rad, this.area.x0, this.area.x1);
+          const z = THREE.MathUtils.clamp(this.player.z + Math.sin(ang) * rad, this.area.z0, this.area.z1);
+          if (!this.walkable(x, z) || this.inPool(x, z, 0.3) || Math.hypot(x - this.pos.x, z - this.pos.z) < 0.4 || !this.roomAt(x, z, 0.35)) continue;
           this.target.set(x, 0, z);
           this.setState('walk', 8);
           // Only a couple wander up at a time, then lose interest for 20–40 s (no scrum round the farmer).
@@ -563,6 +695,12 @@ export class AnimalActor {
           return;
         }
       }
+    }
+    // r18: hemmed in (another body inside the social space) → amble off rather than stand in a knot.
+    const crowd = this.grazes || this.curious ? this.crowdedBy() : null;
+    if (crowd && r < 0.85 && this.pickTarget(crowd)) {
+      this.setState('walk', 8);
+      return;
     }
     // Grazers spend most of the day head-down (≥ 40 % of the herd grazing at any moment): shorter
     // ambles, long mouthfuls.
@@ -608,13 +746,19 @@ export class AnimalActor {
           if (this.stalled) this.faceTo = this.sleeping ? null : 0;
           else if (this.curious && this.blissT <= 0 && this.player && Math.hypot(this.player.x - this.pos.x, this.player.z - this.pos.z) < 2.6) this.faceTo = Math.atan2(this.player.x - this.pos.x, this.player.z - this.pos.z);
         }
+      } else if (!this.forced && !this.remote && !this.hungry && !this.sleeping && this.destTaken(d)) {
+        // r18: occupied destination — someone stands (or is about to) where we were going: stop short.
+        this.setState(Math.random() < 0.6 ? 'eat' : 'idle', 1 + Math.random() * 2);
       } else {
-        const want = Math.atan2(dx, dz);
+        // r18: local avoidance — steer round the bodies ahead instead of walking into them, slow down
+        // behind one, and give the target up after ~1.4 s of being blocked.
+        const steer = this.remote ? null : this.avoid(dx / d, dz / d, d);
+        const want = steer ? Math.atan2(steer.x, steer.z) : Math.atan2(dx, dz);
         let dh = want - this.heading;
         dh = Math.atan2(Math.sin(dh), Math.cos(dh));
         this.heading += dh * (1 - Math.exp(-6 * dt));
         const align = Math.max(0, Math.cos(dh));
-        const spd = this.gait.speed * this.speedK * (this.forced ? this.hurry : 1) * align * Math.min(1, d * 2 + 0.3) * (this.sleeping ? 1.2 : 1);
+        const spd = this.gait.speed * this.speedK * (this.forced ? this.hurry : 1) * align * Math.min(1, d * 2 + 0.3) * (this.sleeping ? 1.2 : 1) * (steer ? steer.slow : 1);
         const nx = this.pos.x + Math.sin(this.heading) * spd * dt;
         const nz = this.pos.z + Math.cos(this.heading) * spd * dt;
         if (this.walkable(nx, nz)) {
@@ -634,6 +778,10 @@ export class AnimalActor {
           }
         } else {
           this.setState('idle', 0.8 + Math.random());
+        }
+        if (this.blockedT > 1.4 && !this.forced && this.state === 'walk') {
+          this.blockedT = 0;
+          this.setState('idle', 0.6 + Math.random());
         }
       }
     } else if (this.state === 'eat' && this.hungry && this.feedSpot) {
@@ -662,8 +810,27 @@ export class AnimalActor {
     // Separation: body capsules (long cows vs goats) padded to a per-species personal space, resolved
     // fully each step (each side takes half; a confined stall animal pushes the other the whole way),
     // plus a personal-space ring round every farmer on the map.
+    this.nbrs = neighbours;
     const me = this.capsule();
     const myR = Math.max(me.r, SPACE[this.species]);
+    // r18: the head too — a circle round the muzzle end is kept out of every other body (long faces
+    // poking into a neighbour's flank read as two animals fused together).
+    const hr = (this.gait.headR ?? 0) * this.scale;
+    const hk = this.gait.reach * this.scale * 0.8;
+    for (const o of neighbours) {
+      if (o === this || hr <= 0 || this.state === 'sleep') continue;
+      const oc = o.capsule();
+      const hx = this.pos.x + Math.sin(this.heading) * hk;
+      const hz = this.pos.z + Math.cos(this.heading) * hk;
+      segPoint(oc.ax, oc.az, oc.bx, oc.bz, hx, hz, _cp);
+      const ddx = hx - _cp.px;
+      const ddz = hz - _cp.pz;
+      const dd = Math.hypot(ddx, ddz);
+      const mn = hr + oc.r + 0.04;
+      if (dd >= mn || dd < 1e-4) continue;
+      const push = (mn - dd) / dd;
+      this.nudge(ddx * push * (o.confine && !this.confine ? 1 : 0.6), ddz * push * (o.confine && !this.confine ? 1 : 0.6), me);
+    }
     for (const o of neighbours) {
       if (o === this) continue;
       const oc = o.capsule();
@@ -834,8 +1001,12 @@ export class AnimalActor {
     me.bz += mz;
   }
 
+  private restList: Rest[] | null = null;
   private reset(): void {
-    for (const r of Object.values(this.rest)) {
+    // (r18: a cached list — Object.values() allocated a fresh array per animal per frame)
+    const list = (this.restList ??= Object.values(this.rest));
+    for (let i = 0; i < list.length; i++) {
+      const r = list[i]!;
       r.bone.position.copy(r.p);
       r.bone.rotation.copy(r.q);
       r.bone.scale.set(1, 1, 1);
@@ -1026,6 +1197,7 @@ export class AnimalActor {
 // ───────────────────────────────────────────── capsule geometry
 
 const _cp = { px: 0, pz: 0, qx: 0, qz: 0 };
+const _claim = { x: 0, z: 0 };
 
 /** Closest point on segment a→b to point p (written to out.px/pz; out.qx/qz = p). */
 function segPoint(ax: number, az: number, bx: number, bz: number, px: number, pz: number, out: typeof _cp): void {
@@ -1294,7 +1466,8 @@ export class AnimalPops {
     // (r10: hugs the head it belongs to — 0.2 m up it drifted between the petted animal and its neighbour)
     const h = this.spawn('heart', actor ? new THREE.Vector3(0, 0.06, 0) : at.clone().setY(at.y + 0.06), null, 1.55);
     h.actor = actor;
-    h.px = 72 / 1080;
+    // (r18: 72 → 52 px — the big heart covered the farmer, the pond and the stall dressing)
+    h.px = HEART_PX;
     const n = 3 + Math.floor(Math.random() * 3);
     // (r10: the little hearts fan out on the side away from the farmer — bursting both ways, half of
     // them landed on the farmer's cheek and read as the farmer's hearts)
@@ -1305,7 +1478,7 @@ export class AnimalPops {
       const off = new THREE.Vector3(Math.cos(a) * 0.12, 0.28, Math.sin(a) * 0.12);
       const p = this.spawn('mini', actor ? off : at.clone().add(off), null, 0.75 + Math.random() * 0.3);
       p.actor = actor;
-      p.px = (22 + Math.random() * 8) / 1080;
+      p.px = (17 + Math.random() * 6) / 1080;
       p.vel = new THREE.Vector3(Math.cos(a) * 1.1, 1.0 + Math.random() * 0.5, Math.sin(a) * 0.7);
     }
     for (let i = 0; i < 5; i++) {
@@ -1328,7 +1501,7 @@ export class AnimalPops {
       // silhouettes; it reads as a quick tag on the pat, not a sign)
       const p = this.spawn('tag', actor ? new THREE.Vector3(0, 0, 0) : at.clone(), m, 1.45);
       p.actor = actor;
-      p.px = 48 / 1080;
+      p.px = 40 / 1080;
       p.aspect = nt.aspect;
       p.tagKey = `${tag.name}|${tag.hearts}`;
     }
@@ -1479,7 +1652,7 @@ export class AnimalPops {
         const sk = screenK(o);
         // Constant on screen, a touch larger from far cameras (≥ 18 px text at 1080p everywhere).
         const h = (p.px ?? 0.04) * sk * THREE.MathUtils.clamp(1 + ((refK || sk) - 7) * 0.03, 1, 1.15) * pop;
-        const heart = (72 / 1080) * sk * 1.18;
+        const heart = HEART_PX * sk * 1.18;
         const w = h * (p.aspect ?? 3);
         if (camera) _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
         let dir = 1;
@@ -1570,6 +1743,8 @@ export class AnimalPops {
   }
 }
 
+/** Heart pop size (fraction of the view height). */
+const HEART_PX = 52 / 1080;
 const POP_CAP = 64;
 const _popM = new THREE.Matrix4();
 

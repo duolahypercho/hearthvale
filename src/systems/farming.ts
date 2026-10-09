@@ -253,7 +253,9 @@ const SEQ_PLANS: Partial<Record<ActionKind, [number, string][]>> = {
   // (r19) Dip → heave → tip; the water leaves at 0.38 s and lands ~0.32 s later (0.70).
   pour: [[0.1, 'anticipation (dip)'], [0.28, 'lift'], [0.44, 'tip: stream leaves'], [0.6, 'arc in flight'], [0.74, 'lands: splash'], [0.9, 'soaking'], [1.18, 'tail lands'], [1.8, 'wet tile']],
   sweep: [[0.03, 'ready'], [0.09, 'wind-up'], [0.13, 'top'], [0.18, 'cut'], [0.21, 'impact'], [0.27, 'follow-through'], [0.38, 'recoil'], [0.52, 'recovery']],
-  pull: [[0.04, 'reach'], [0.13, 'crouch'], [0.2, 'yank'], [0.27, 'spring'], [0.36, 'catch (squash)'], [0.55, 'present'], [0.8, 'hold'], [0.98, 'to backpack']],
+  // (r22) The whole reward beat (r9 critic: the inventory arc was never shown): yank → squash catch →
+  // presented with the star → the icon arcs into the toolbar → the count lands with the tier burst.
+  pull: [[0.05, 'reach'], [0.15, 'crouch (anticipation)'], [0.27, 'yank: stretch'], [0.36, 'catch (squash)'], [0.6, 'present + star'], [0.9, 'to backpack'], [1.12, 'icon arcs to toolbar'], [1.42, 'lands in slot (+1, burst)']],
   lift: [[0.05, 'reach'], [0.15, 'squat'], [0.24, 'heave'], [0.34, 'rise'], [0.46, 'hug (squash)'], [0.7, 'present'], [1.0, 'hold'], [1.2, 'recovery']],
   sow: [[0.02, 'reach'], [0.07, 'dip'], [0.12, 'scoop'], [0.16, 'throw'], [0.19, 'seeds land'], [0.25, 'scatter'], [0.34, 'settle'], [0.44, 'recovery']],
 };
@@ -300,7 +302,9 @@ const HARVEST_ROWS: Record<Season, { rows: HarvestRow[]; giant: CropId | null; t
   // r19: still dense, but every bed side is ONE family (r9 critic: tomato / pepper rows merged into a
   // green-red carpet): staked tomatoes NW, pepper bushes NE, blueberries across the front beds' back
   // row, then peppers (W, beside the giant) | tomatoes (E) — family blocks read at a glance.
-  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], ['tomato', 'hotPepper'], ['tomato', 'hotPepper'], null, ['melon', 'blueberry'], ['hotPepper', 'tomato'], ['hotPepper', 'tomato'], ['melon', 'melon']], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
+  // r22: one bare furrow lane in the SE bed between the blueberry bushes and the staked tomatoes (r9
+  // critic: the front beds merged into a green-red carpet with no walkable negative space).
+  summer: { rows: [['corn', 'sunflower'], ['corn', 'sunflower'], ['tomato', 'hotPepper'], ['tomato', 'hotPepper'], null, ['melon', 'blueberry'], ['hotPepper', 'gap'], ['hotPepper', 'tomato'], ['melon', 'melon']], giant: 'melon', trellis: null, crate: ['tomato', 'melon', 'corn', 'hotPepper', 'blueberry'] },
   fall: { rows: [['corn', 'grape'], ['corn', 'grape'], ['beet', 'eggplant'], 'eggplant', null, 'beet', 'pumpkin', 'pumpkin', 'yam'], giant: 'pumpkin', trellis: 'grape', crate: ['pumpkin', 'eggplant', 'beet', 'corn', 'yam'] },
   winter: { rows: [], giant: null, trellis: null, crate: [] },
 };
@@ -343,6 +347,9 @@ export class FarmingSystem implements System, FarmingApi {
   private autoLoop: { tool: string; t: number } | null = null;
   /** Frame-sequence capture state (see SEQ_PLANS / seqFrame). */
   private seq: { tool: string; energy: number | null; acks: string[]; after?: number; kind?: ActionKind; dur?: number } | null = null;
+  /** (r22) Toolbar icon flights (WAAPI) launched during a sequence capture: paused and scrubbed on the
+   *  sequence clock, so `--frames` shows the item arcing into its slot and the count landing with it. */
+  private seqFlights: { anim: Animation; t0: number }[] = [];
   /** farm-coop-tools: staged farmhands (real co-op avatars) frozen mid-action beside the host. */
   private crew: { f: RemoteFarmer; pour: boolean }[] = [];
   /** farm-crows `&ring`: show the scarecrow's reach (hidden by default — it smeared across the lawn). */
@@ -662,6 +669,8 @@ export class FarmingSystem implements System, FarmingApi {
       this.fxScale = 1;
       this.fx.clear();
       this.seq = { tool, energy: game.services.energy?.value() ?? null, acks: [] };
+      for (const f of this.seqFlights) f.anim.finish();
+      this.seqFlights.length = 0;
       // Settle a few frames at rest so the restart (fresh lawn / dry furrow) is what frame 0 sees.
       for (let k = 0; k < 3; k++) game.step(1 / 60);
       this.demoAct(tool, new URLSearchParams(location.search), -1);
@@ -707,6 +716,20 @@ export class FarmingSystem implements System, FarmingApi {
       seq.after = Math.max(tt, seq.after ?? 0);
     }
     if (seq.energy !== null) game.services.energy?.set(seq.energy);
+    // (r22) Scrub the paused toolbar flights to this moment (finishing one lands the count + burst).
+    for (let k = this.seqFlights.length - 1; k >= 0; k--) {
+      const f = this.seqFlights[k]!;
+      const ms = (T - f.t0) * 1000;
+      const end = Number(f.anim.effect?.getComputedTiming().endTime ?? 0);
+      if (ms >= end) {
+        // Land NOW (onfinish would only fire on a later frame, after the capture).
+        const h = f.anim.onfinish;
+        f.anim.onfinish = null;
+        f.anim.finish();
+        h?.call(f.anim, new AnimationPlaybackEvent('finish'));
+        this.seqFlights.splice(k, 1);
+      } else f.anim.currentTime = Math.max(0, ms);
+    }
     // Two still frames: the pose settles in the post chain (TAA-free, but bloom / AO history).
     acts.timeScale = 0;
     const fx = this.fxScale;
@@ -1113,8 +1136,21 @@ export class FarmingSystem implements System, FarmingApi {
     // (r19) The reward is reserved now (authoritative: the inventory has it), but the toolbar keeps
     // showing the old count until the produce's icon lands in the slot (cause → effect).
     const snap = style !== 'instant' ? this.snapToolbar() : null;
+    // (r22) The pickup toast waits for the landing too (it popped on the yank, before the produce had
+    // even left the soil — r9 critic: reward before cause).
+    const toastBox = style !== 'instant' ? this.game.opts.uiRoot?.querySelector?.('.h-toasts') : null;
+    const toastsBefore = toastBox ? new Set(toastBox.children) : null;
     this.game.events.emit('item:give', { itemId: def.produce, qty, quality });
     if (snap) this.holdToolbar(snap, def.produce, quality);
+    if (toastBox && toastsBefore) {
+      for (const ch of [...toastBox.children]) {
+        if (toastsBefore.has(ch)) continue;
+        const e = ch as HTMLElement;
+        e.style.visibility = 'hidden';
+        this.toastHolds.push({ itemId: def.produce, el: e });
+        this.later(3, () => this.releaseToast(e));
+      }
+    }
     this.addXp(harvestXp(def));
     this.game.events.emit('crop:harvested', { cropId: c.id, x, z, qty, quality });
     const oldHandle = c.handle;
@@ -1265,6 +1301,8 @@ export class FarmingSystem implements System, FarmingApi {
     const land = (): void => {
       // The count ticks up as the icon lands, with a quality-tier star burst + the land SFX hook.
       if (hold) this.releaseHold(hold);
+      const th = this.toastHolds.find((h) => h.itemId === itemId);
+      if (th) this.releaseToast(th.el);
       this.game.events.emit('harvest:land', { itemId, qty, quality });
       if (target) slotBurst(target, quality);
     };
@@ -1273,14 +1311,43 @@ export class FarmingSystem implements System, FarmingApi {
       const idx = slot < 0 ? (inv?.slots.findIndex((s) => s?.id === itemId) ?? -1) : slot;
       const slots = this.toolbarSlots();
       target = hold?.el ?? (idx >= 0 && idx < slots.length ? slots[idx]! : null);
-      if (target) flyItemTo(itemId, { x: sx, y: sy }, target, quality, land, 44, { duration: 460, bounce: 1.15 });
+      const before = this.seq ? new Set(document.getAnimations()) : null;
+      // (r22) No slot for it on the bar: it still arcs into the toolbar (the backpack end), and lands.
+      // (The bar itself is never the target: its bump would replace its own centring transform.)
+      const slots2 = target ? [] : this.toolbarSlots();
+      const end = slots2.length ? slots2[slots2.length - 1]! : null;
+      if (target) flyItemTo(itemId, { x: sx, y: sy }, target, quality, land, 58, { duration: 460, bounce: 1.15 });
+      else if (end) flyItemTo(itemId, { x: sx, y: sy }, end, quality, land, 58, { duration: 460, bounce: 1.12 });
       else {
         flyItemToToolbar(this.game.opts.uiRoot, itemId, { x: sx, y: sy }, idx, quality, { duration: 460, bounce: 1.15 });
         land();
       }
+      if (before) {
+        const now = this.actions?.active ? this.actions.time : (this.seq?.after ?? 0);
+        for (const anim of document.getAnimations()) {
+          if (before.has(anim)) continue;
+          anim.pause();
+          this.seqFlights.push({ anim, t0: now });
+        }
+      }
     } catch {
       /* HUD not mounted (tests) */
       if (hold) this.releaseHold(hold);
+    }
+  }
+
+  /** (r22) Pickup toasts hidden until their produce lands in the toolbar. */
+  private toastHolds: { itemId: string; el: HTMLElement }[] = [];
+
+  private releaseToast(e: HTMLElement): void {
+    const i = this.toastHolds.findIndex((h) => h.el === e);
+    if (i < 0) return;
+    this.toastHolds.splice(i, 1);
+    e.style.visibility = '';
+    try {
+      e.animate([{ transform: 'translateX(-14px) scale(0.7)', opacity: 0 }, { transform: 'translateX(3px) scale(1.06)', opacity: 1, offset: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 240, easing: 'ease-out' });
+    } catch {
+      /* no WAAPI (tests) */
     }
   }
 
@@ -1784,7 +1851,7 @@ export class FarmingSystem implements System, FarmingApi {
     // the lowering; the soil soak is scheduled on the same flight.
     const P0 = 0.38;
     const P1 = 0.98;
-    const FLY = 0.32;
+    const FLY = 0.36;
     const sweep = (i: number): number => P0 + ((P1 - P0) * i) / Math.max(1, targets.length);
     const wetSet = new Set(wet.map(([a, b]) => key(a, b)));
     targets.forEach(([tx, tz], i) => {
@@ -1829,7 +1896,9 @@ export class FarmingSystem implements System, FarmingApi {
           const fz = tz + 0.5 - pl.z;
           const fl = Math.hypot(fx, fz) || 1;
           const along = ((sp.x - (tx + 0.5)) * fx + (sp.z - (tz + 0.5)) * fz) / fl;
-          const k = THREE.MathUtils.clamp(along + 0.45, -0.44, 0.52);
+          // (r22) ~0.75 m of run (r9 critic: "a short near-vertical bundle"): a long, clearly parabolic
+          // throw from the rose into the far half of the tile.
+          const k = THREE.MathUtils.clamp(along + 0.75, -0.3, 0.42);
           aim.set(tx + 0.5 + (fx / fl) * k, 0, tz + 0.5 + (fz / fl) * k);
           aim.y = this.surfaceY(aim.x, aim.z);
         }
@@ -1844,7 +1913,7 @@ export class FarmingSystem implements System, FarmingApi {
         const pitch = THREE.MathUtils.clamp(Math.atan2(sd.y, Math.hypot(sd.x, sd.z)), -0.9, 0.3);
         // (r20) A floor of 0.3 s keeps the launch near-level (a curving parabola out of the rose, not a
         // straight drop): at ~0.6 m drop the stream leaves at ≤ 0.5 m/s downward.
-        const flyT = THREE.MathUtils.clamp(Math.sqrt(Math.max(0.02, drop + run * Math.tan(pitch)) / 4.9), 0.3, 0.36);
+        const flyT = THREE.MathUtils.clamp(Math.sqrt(Math.max(0.02, drop + run * Math.tan(pitch)) / 4.9), 0.33, 0.4);
         if (pouring) this.fx.stream.aim(sp, aim, flyT);
         // Droplets shed along the stream (a rose showers, it doesn't pour a laser): ~30 per pour
         // ride the same ballistic arc, fanned a little, and a fine spray around the landing spot.
@@ -2297,6 +2366,14 @@ export class FarmingSystem implements System, FarmingApi {
       this.crows.spawn(x + 0.5, z + 0.5, this.crowMeal(t), 0, { landed: true, stay: true, eatAt, onPeck: this.crowPeck(t), scale: 1.1, side: [Math.PI, 0.35, 0, Math.PI * 0.72][i]! });
       this.later(0.4 + i * 0.3, () => this.game.events.emit('crow:arrive', { x, z }));
     });
+    // (r22) `&raid=beats`: staged beats (r9 critic: parked birds) — a late-comer swooping in over the
+    // patch and, a beat later, the near raiders startled up off their plants (crouch → leap →
+    // flapping climb) while the other two keep tearing at theirs. Wall-clock timed (the capture moment
+    // drifts with machine load), so the default still stays the all-pecking raid.
+    if (new URLSearchParams(location.search).get('raid') === 'beats') {
+      this.later(0.15, () => this.sendCrows(1));
+      this.later(1.85, () => this.crows.scare(24.5, 31.5, 0.75));
+    }
     // The scuffle so far: feathers and torn leaf scraps already lying around the raid.
     for (let k = 0; k < 9; k++) {
       const fx = 24 + rnd(0, 3);

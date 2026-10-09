@@ -1052,3 +1052,44 @@ export function chickenWire(): THREE.MeshStandardMaterial {
   wireMat.name = 'chicken-wire';
   return wireMat;
 }
+
+/**
+ * r18: the paddock's front gate — a five-bar field gate between two stout posts, the leaf a touch
+ * ajar inward (hung on the left post, its free end resting on a stone), with a diagonal brace,
+ * black hinge straps and a ring latch. Local frame: the opening spans x ∈ [-w/2, w/2] at z = 0;
+ * +z faces out of the paddock. Breaks up the straight front run as the pen's one "door".
+ */
+export function buildPaddockGate(w: number, rng: Rng): THREE.Group {
+  const b = new MeshBuilder();
+  const postH = 1.12;
+  const wood = 0xd9b48a;
+  for (const sx of [-1, 1]) {
+    b.add('woodGrain', roundedBox(0.2, postH, 0.2, 0.05, 1), mat(sx * (w / 2 + 0.06), postH / 2 - 0.06, 0, 0, (rng.next() - 0.5) * 0.2, 0), { tint: 0xc9a47a, aoWorld: groundAO(0.3) });
+    b.add('woodGrain', new THREE.ConeGeometry(0.15, 0.14, 4), mat(sx * (w / 2 + 0.06), postH, 0, 0, Math.PI / 4, 0), { tint: 0xb8946a });
+  }
+  // The leaf: hinged at the left post, swung ~16° into the paddock (local -z).
+  const L = w - 0.1;
+  const leaf = new THREE.Matrix4().makeTranslation(-w / 2 + 0.05, 0, 0).multiply(new THREE.Matrix4().makeRotationY(0.28));
+  const at = (x: number, y: number, rz = 0, len = L, h = 0.075): void => {
+    const m = leaf.clone().multiply(mat(x, y, 0, 0, 0, rz));
+    b.add('woodGrain', roundedBox(len, h, 0.055, 0.022, 1), m, { tint: wood });
+  };
+  for (const y of [0.22, 0.4, 0.58, 0.76, 0.94]) at(L / 2, y + (rng.next() - 0.5) * 0.01);
+  // stiles (heel at the hinge, head at the latch)
+  for (const x of [0.05, L - 0.05]) {
+    const m = leaf.clone().multiply(mat(x, 0.58, 0));
+    b.add('woodGrain', roundedBox(0.09, 0.86, 0.075, 0.025, 1), m, { tint: 0xcfa87c });
+  }
+  // diagonal brace from the low heel to the high head (it reads as a gate, not more fence)
+  const dl = Math.hypot(L - 0.1, 0.72);
+  at(L / 2, 0.58, Math.atan2(0.72, L - 0.1), dl, 0.07);
+  // hinge straps + the ring latch
+  for (const y of [0.3, 0.86]) {
+    const m = leaf.clone().multiply(mat(0.2, y, 0.035));
+    b.add('metal', roundedBox(0.38, 0.035, 0.012, 0.006, 1), m, { tint: 0x3a3634 });
+  }
+  b.add('metal', new THREE.TorusGeometry(0.05, 0.011, 5, 14), leaf.clone().multiply(mat(L + 0.02, 0.8, 0.04)), { tint: 0x3a3634 });
+  // a flat stone under the latch end where the gate rests, a tuft of trodden earth
+  b.add('stone', lumpySphere(0.13, 1, 0.3, rng), leaf.clone().multiply(mat(L - 0.05, 0.02, 0, 0, 0, 0, 1, 0.35, 0.8)), { tint: 0x9a968c, aoWorld: groundAO(0.1) });
+  return b.build({ name: 'paddock-gate' });
+}

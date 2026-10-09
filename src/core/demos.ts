@@ -58,7 +58,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // (r17: pulled back to ~1.4x gameplay zoom — the whole farmer, hat to boots, the bed and the tool's arc in frame.)
   // (r18: from the farmer's front-left (3/4, face and blade both to the lens) at ~1.3x gameplay zoom: the r17
   // lens sat behind his shoulder and the swing read as a back and a hat.)
-  'farm-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -48, pitch: 38, distance: 9.2, offsetX: -0.5, offsetZ: -0.4 }, showcase: ['tools'] },
+  'farm-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -38, pitch: 34, distance: 8.2, offsetX: -0.55, offsetZ: -0.35 }, showcase: ['tools'] },
   'farm-giant': { map: 'farm', x: 20.6, z: 27.7, facing: 'left', time: 15.8, season: 'fall', weather: 'sun', camera: { yaw: -30, pitch: 37, distance: 10, offsetX: -0.75, offsetZ: 0.1 }, showcase: ['giant'] },
   'farm-crops': { map: 'farm', x: 28.6, z: 27.2, facing: 'left', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 12.2, offsetX: -4.6, offsetZ: -4.0 }, showcase: ['gallery'] },
   'farm-crows': { map: 'farm', x: 30.5, z: 30.5, facing: 'left', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 44, distance: 9.4, offsetX: -5.2, offsetZ: -0.6 }, showcase: ['crows'] },
@@ -66,7 +66,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // (r16) Co-op on one beat: the host hoeing + three farmhands (hoe contact, mid-pour, catching a crop).
   // (r17: pulled back + recentred so all four farmers and their tiles sit inside the frame.)
   'farm-coop-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.6, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 42, distance: 12.5, offsetX: -0.8, offsetZ: 0.9 }, showcase: ['tools', 'crew'] },
-  'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -30, pitch: 33, distance: 9.4, offsetX: -0.6, offsetZ: -0.95 }, showcase: ['tools', 'tool:wateringCan'] },
+  'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -36, pitch: 30, distance: 7.6, offsetX: -0.8, offsetZ: -0.5 }, showcase: ['tools', 'tool:wateringCan'] },
   // (r15: 3/4 to the lens, the farmer standing in the bed with the pulled hole in front of the boots.)
   'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'spring', weather: 'sun', camera: { yaw: 34, pitch: 40, distance: 8.2, offsetX: -0.2, offsetZ: -0.9 }, showcase: ['tools', 'tool:harvest'] },
   'farm-slam': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -48, pitch: 32, distance: 9.6, offsetX: -0.7, offsetZ: -1.6 }, showcase: ['tools', 'tool:charge'] },
@@ -196,6 +196,8 @@ export const DEMOS: Record<string, DemoDef> = {
   // cicada chorus (swells in within ~3 s). Menu duck: `?demo=audio&ui=inventory` (score −3 dB + low-pass behind the page).
   'audio-brook': { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: FOREST_FALLS_CAM },
   'audio-noon': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 12.5, season: 'summer', weather: 'sun', camera: HOME_CAM },
+  // Material foley + villager voices in turn (systems/audio.ts demoFoley; &only=axe,hoe · &voices=0).
+  'audio-foley': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 10, season: 'spring', weather: 'sun', camera: HOME_CAM },
   // Audio pod: the event score in the square — `&event=<npc>-<2|4>` plays that heart event's cue, `&cue=event-tender|playful|wistful|mystery|sly|dawn` one directly.
   // Audio pod: mine / combat sound on the main graph — `&floor=<n>` picks the floor (biome band: 1-9 earth, 10-19 ice, 20+ lava), `&fight=1` stages the auto-fight (sword, per-kind blows, kills, hurt).
   'audio-mine': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 17, offsetZ: -0.7 }, showcase: [] },
@@ -213,7 +215,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Morning egg round: the farmer lifts a gold-star egg overhead from the nesting boxes (&nest=0..5).
   'coop-eggs': { map: 'coop', x: 3.35, z: 0.55, facing: 'left', time: 7.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals', 'eggs'] },
   'barn-interior': { map: 'barn', x: 6.5, z: 5.5, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 46, distance: 16.2, offsetX: 0.0, offsetZ: -1.6 }, showcase: ['animals'] },
-  'animals-pasture': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 18.5, offsetX: 3.0, offsetZ: -2.6 }, showcase: ['animals'] },
+  'animals-pasture': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 15.6, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 3.3, offsetZ: -3.5 }, showcase: ['animals'] },
   // Perf: the pasture with three co-op farmhands on the farm (DESIGN pillar 13/14: 4 players + a full herd).
   'animals-coop': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 18.5, offsetX: 3.0, offsetZ: -2.6 }, showcase: ['animals', 'coop'] },
   // Petting close-up: crouch + reach, big heart pop with mini hearts, the animal's name + heart meter.

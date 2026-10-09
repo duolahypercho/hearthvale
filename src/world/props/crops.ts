@@ -1499,8 +1499,22 @@ function buildWithered(r: Rng, trellised: boolean, kind: WitherKind = 'leafy', v
   const stem0 = C(0x3e352b);
   const stem1 = C(0x7a6c58);
   // (r16) Paler ashen-tan leaf tips so the husks separate from the brown soil at gameplay zoom.
-  const leaf0 = C(0x564c3e);
-  const leaf1 = C(0xa09276);
+  // (r22) Each family dies in its own cast of dead colour (r9 critic: mass death read as repetitive
+  // grey shapes): tomato olive-khaki, pepper dark umber, gourds yellow-straw, berries mauve-grey,
+  // corn bleached straw, sunflower burnt sienna; the rest keep the ashen tan.
+  const WITHER_TINT: Partial<Record<WitherAccent, [number, number]>> = {
+    tomato: [0x58533a, 0x9c9868],
+    pepper: [0x4a3a2c, 0x8a6e52],
+    melon: [0x5e5636, 0xb0a46c],
+    pumpkin: [0x5c4630, 0xae8858],
+    berry: [0x4e4448, 0x968690],
+    corn: [0x6a5e40, 0xc8b484],
+    sunflower: [0x4a3424, 0x8e6a48],
+    kale: [0x4a4c40, 0x8e927c],
+  };
+  const tint = WITHER_TINT[accent];
+  const leaf0 = C(tint?.[0] ?? 0x564c3e);
+  const leaf1 = C(tint?.[1] ?? 0xa09276);
   // Dead leaves: petal-marked (no fall hue shift, no painted veins) so they stay grey-brown; rolled
   // up along the midrib and curled back at the tip (a crumpled husk, never a flat paper square).
   const curled = (len: number, w: number, lift = 0.05, bend = 0.4): THREE.BufferGeometry => asPetal(leafGeo(len, w * 0.8, { shape: 'oval', lift, bend, fold: 0.8, curl: 1.4 + r.next() * 0.8, ruffle: 0.45, cup: 0.7, c0: leaf0, c1: leaf1, segs: 5 }));
@@ -2605,8 +2619,10 @@ export class CropVisuals {
   addGiant(kind: GiantKind, x: number, y: number, z: number, seed: number): CropHandle {
     const set = this.special(`giant:${kind}`, () => buildGiant(kind, new Rng(`giant:${kind}`)), false, true);
     // (r19) A touch smaller (r9 critic: the giants overwhelmed the neighbouring beds).
-    const s = 0.9 + ((seed >> 4) % 6) / 100;
-    return this.place(set, new THREE.Vector3(x, y, z), (((seed % 100) / 100) - 0.5) * 0.8, new THREE.Vector3(s, s, s));
+    // (r22) Smaller again and settled under its own weight (wider, lower: r9 critic "inflated rather
+    // than massively heavy" — the beds beside it no longer read as dwarfed).
+    const s = 0.84 + ((seed >> 4) % 6) / 100;
+    return this.place(set, new THREE.Vector3(x, y, z), (((seed % 100) / 100) - 0.5) * 0.8, new THREE.Vector3(s * 1.04, s * 0.9, s * 1.04));
   }
 
   /** Squash / stretch / lean an instance about its base (animation). */

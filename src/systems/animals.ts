@@ -270,7 +270,9 @@ export class AnimalSystem implements System, AnimalsApi {
     game.events.on('sleep:wake', () => {
       this.sleepBusy = false;
       this.flushMorning();
+      this.mark('wake');
     });
+    game.events.on('sleep:summary', () => this.mark('summary'));
     game.events.on('sleep:start', () => (this.sleepBusy = true));
     // Scything meadow weeds gathers hay once there's a building to store it for.
     game.events.on('tool:impact', ({ tool, hit }) => {
@@ -1200,9 +1202,12 @@ export class AnimalSystem implements System, AnimalsApi {
         for (const e of this.st.eggs) {
           const n = pen.nests[e.nest];
           if (!n) continue;
-          const m = new THREE.Mesh(eggGeo(), eggMat(e.item));
-          m.position.set(n.x + ((e.nest * 37) % 5) * 0.03 - 0.06, n.y + 0.15, n.z + 0.1);
-          m.rotation.set(0.9, e.nest, 0.3);
+          const m = new THREE.Mesh(eggGeo(e.item), eggMat(e.item));
+          // (r18: laid on its side in the straw, long axis across the lens, so the ovoid profile reads
+          // from the high camera; sunk a little into the nest)
+          m.position.set(n.x + ((e.nest * 37) % 5) * 0.03 - 0.06, n.y + 0.11, n.z + 0.1);
+          m.rotation.set(0, 0.3 + ((e.nest * 13) % 5) * 0.15, Math.PI / 2 - 0.12, 'YXZ');
+          m.scale.setScalar(1.12);
           m.castShadow = true;
           this.props.add(m);
           this.eggMeshes.push(m);
@@ -1380,6 +1385,7 @@ export class AnimalSystem implements System, AnimalsApi {
 
   private petActor(l: Live, quiet = false): void {
     const a = l.actor;
+    if (!quiet) this.mark('pet');
     const pp = this.game.player.position;
     const near = Math.hypot(a.pos.x - pp.x, a.pos.z - pp.z) < 2.2;
     // Milk / wool: needs the right tool in the backpack (a milk pail / shears from the carpenter).
@@ -1663,6 +1669,7 @@ export class AnimalSystem implements System, AnimalsApi {
       return true;
     }
     this.dispatch({ kind: 'feed', home: pen.kind, hay: placed });
+    this.mark('hay');
     this.game.services.audio?.play('place');
     this.toast(`Filled the trough with <b>${placed}</b> hay`, 'hay', 'info');
     return true;
@@ -1750,6 +1757,8 @@ export class AnimalSystem implements System, AnimalsApi {
       this.group.remove(a.root);
       const i = this.live.indexOf(l);
       if (i >= 0) this.live.splice(i, 1);
+      this.mark('door');
+      if (this.marks.has('rain') && !this.live.some((v) => v.rec)) this.mark('in');
     };
     const r = a.gait.radius * a.scale;
     const mz = SITES.pasture.z0 + 0.75 + r;
@@ -1807,6 +1816,7 @@ export class AnimalSystem implements System, AnimalsApi {
         const pen = this.pen();
         if (pen && this.st.hay[pen.kind][l.slot]) {
           if (this.authority && !l.rec.fed) this.touch();
+          this.mark('eat');
           if (this.authority) l.rec.fed = true;
           const m = this.hayMeshes[l.slot];
           if (m) m.scale.copy((m.userData.base as THREE.Vector3 | undefined) ?? m.scale.set(1, 1, 1)).multiplyScalar(0.55);
@@ -2160,7 +2170,8 @@ export class AnimalSystem implements System, AnimalsApi {
   private liftEgg(e: { nest: number; item: string; q: number }, pen: PenAnchors): void {
     const n = pen.nests[e.nest];
     if (!n) return;
-    const m = new THREE.Mesh(eggGeo(), eggMat(e.item));
+    this.mark('egg');
+    const m = new THREE.Mesh(eggGeo(e.item), eggMat(e.item));
     m.scale.setScalar(1.25);
     m.position.set(n.x, n.y + 0.14, n.z + 0.08);
     m.userData.noAO = true;
@@ -2765,7 +2776,16 @@ export class AnimalSystem implements System, AnimalsApi {
    *   animals-overnight  order a coop on the carpenter's board at dusk, sleep (fade, day-end card),
    *                      wake and step out: the coop stands on the farm
    */
-  private act: { ops: ActOp[]; i: number; t: number; walkT: number; keys: Set<string>; waiting: boolean; started: boolean } | null = null;
+  private act: { ops: ActOp[]; i: number; t: number; walkT: number; keys: Set<string>; waiting: boolean; started: boolean; release: { code: string; t: number }[] } | null = null;
+  /** r18: milestones the action demos reached (sim time of the first hit, + counts) — the frame
+   *  sequence capture steps the sim until each one instead of sampling wall-clock intervals. */
+  private marks = new Map<string, number>();
+  private mark(k: string): void {
+    if (!this.act) return;
+    this.marks.set(`${k}#`, (this.marks.get(`${k}#`) ?? 0) + 1);
+    if (!this.marks.has(k)) this.marks.set(k, this.game.time);
+  }
+  private seq: { name: string; k: number } | null = null;
 
   private stageAct(name: string, params: URLSearchParams): void {
     const g = this.game;
@@ -2832,6 +2852,16 @@ export class AnimalSystem implements System, AnimalsApi {
       run(() => {
         g.calendar.setWeather('rain');
         g.applyWeather('rain', false);
+        this.mark('rain');
+      });
+      // r18: follow the herd in — the last frame is the barn, dry, the rain on the windows.
+      ops.push({ kind: 'until', test: () => this.marks.has('in') });
+      wait(0.9);
+      run(async () => {
+        await g.teleport('barn', 6.5, 6.6);
+        g.player.setFacing('up');
+        this.lens({ pitch: 46, distance: 16.2, offsetZ: -1.6 });
+        this.mark('inside');
       });
     } else if (name === 'animals-overnight') {
       // Dusk on the farm, the coop plot still empty (the buildings system staged barn-only).
@@ -2845,8 +2875,19 @@ export class AnimalSystem implements System, AnimalsApi {
       run(() => {
         const err = g.services.buildings?.order('coop');
         g.events.emit('ui:toast', { text: err ?? 'The carpenter will raise your <b>coop</b> overnight', icon: 'wood', kind: err ? 'bad' : 'good' });
+        this.mark('order');
       });
       wait(2.6);
+      // r18: bedtime in the farmhouse bed (the quilt, the dim, the fade, the card) — r17 went to sleep on
+      // the farm and the sheet skipped the bed entirely.
+      run(async () => {
+        await g.teleport('house', 9.6, 2.9);
+        g.player.setFacing('right');
+        this.lens({ pitch: 50, distance: 16.8, offsetZ: -0.35 });
+        this.mark('bedside');
+      });
+      ops.push({ kind: 'until', test: () => this.marks.has('bedside') });
+      wait(0.8);
       run(() => {
         this.sleepBusy = true;
         return g.services.sleep?.goToBed();
@@ -2854,16 +2895,25 @@ export class AnimalSystem implements System, AnimalsApi {
       ops.push({ kind: 'until', test: () => !this.sleeping() });
       wait(2.2);
       press('Enter');
-      wait(0.5);
-      run(() => g.teleport('farm', 38.2, 36.2));
-      run(() => g.player.setFacing('up'));
+      wait(0.9);
+      run(async () => {
+        await g.teleport('farm', 38.2, 36.2);
+        g.player.setFacing('up');
+        this.lens({ pitch: 46, distance: 17, offsetX: 1.2, offsetZ: -2.2, yaw: -8 });
+        this.mark('out');
+      });
     } else {
       // animals-live: nothing scripted — the herd's own brains.
       this.syncDoors();
       this.respawn();
       this.touch();
     }
-    this.act = { ops, i: 0, t: 0, walkT: 0, keys: new Set(), waiting: false, started: false };
+    this.act = { ops, i: 0, t: 0, walkT: 0, keys: new Set(), waiting: false, started: false, release: [] };
+    this.marks.clear();
+    this.seq = null;
+    // shot.mjs --frames N: one frame per milestone (see seqFrame); the hook returns a promise (the
+    // harness awaits page.evaluate), typed as the sync hook's string.
+    g.seqHook = ((i: number, n: number) => this.seqFrame(name, i, n)) as unknown as (i: number, n: number) => string;
     if (params.get('act') === '0') return;
     // Run once the page is warm: the scripted beats start ~0.4 s after ready().
     const act = this.act;
@@ -2876,6 +2926,16 @@ export class AnimalSystem implements System, AnimalsApi {
   }
 
   private sleepBusy = false;
+
+  /** Point the camera rig (staged action demos moving between maps). */
+  private lens(o: { yaw?: number; pitch: number; distance: number; offsetX?: number; offsetZ?: number }): void {
+    const rig = this.game.rc.rig;
+    rig.yaw = o.yaw ?? 0;
+    rig.pitch = o.pitch;
+    rig.distance = o.distance;
+    rig.lookOffset.set(o.offsetX ?? 0, 0, o.offsetZ ?? 0);
+    this.game.followPlayer(true);
+  }
 
   /** True while the sleep system's bedtime runs (sleep:start → sleep:wake). */
   private sleeping(): boolean {
@@ -2891,12 +2951,122 @@ export class AnimalSystem implements System, AnimalsApi {
 
   private tap(code: string): void {
     this.key(code, true);
-    window.setTimeout(() => this.key(code, false), 80);
+    // (r18: released after 80 ms of SIM time — a wall-clock timer never fired while the sequence capture
+    // stepped the sim by hand, and the key stayed down)
+    if (this.act) this.act.release.push({ code, t: 0.08 });
+    else window.setTimeout(() => this.key(code, false), 80);
+  }
+
+  /**
+   * r18: milestone sequence capture (`shot.mjs --frames N` on animals-chores / -rain / -overnight /
+   * -live). The rAF loop is held; frame i maps to beat round(i·(B−1)/(N−1)) and the sim is stepped (1/60 s
+   * steps, yielding to the page so fades / timers / map loads run) until that beat's milestone fires,
+   * then for its settle time. Every frame is a moment that matters — the egg in the air, hay in the
+   * trough, the pat, the rain, the doorway, the quilt, the fade, the card, the wake, the new coop — and
+   * every beat is bounded (sim + wall clock), so the whole sheet always finishes.
+   */
+  private async seqFrame(name: string, i: number, n: number): Promise<string> {
+    const g = this.game;
+    const beats = this.beats(name);
+    if (i === 0 || !this.seq || this.seq.name !== name) {
+      g.holdLoop = true;
+      this.seq = { name, k: -1 };
+      if (this.act && !this.act.started) {
+        this.act.started = true;
+        g.setPaused(false);
+      }
+    }
+    const seq = this.seq;
+    const want = n > 1 ? Math.round((i * (beats.length - 1)) / (n - 1)) : 0;
+    const frame = (): Promise<void> => new Promise((r) => window.setTimeout(r, 12));
+    const t0 = g.time;
+    let label = '';
+    if (want <= seq.k) {
+      // More frames than beats: the in-between frames show the beat half a second on.
+      for (let s = 0; s < 30; s++) {
+        g.step(1 / 60);
+        if (s % 3 === 2) await frame();
+      }
+      label = `${beats[seq.k]!.label} +`;
+    }
+    for (let k = seq.k + 1; k <= want; k++) {
+      const b = beats[k]!;
+      const wall = performance.now();
+      let steps = 0;
+      while (!b.test() && steps < (b.max ?? 20) * 60 && performance.now() - wall < 25000) {
+        g.step(1 / 60);
+        if (++steps % 3 === 0) await frame();
+      }
+      const ok = b.test();
+      for (let s = 0; s < (b.settle ?? 0.3) * 60; s++) {
+        g.step(1 / 60);
+        if (s % 3 === 2) await frame();
+      }
+      if (b.realMs) await new Promise((r) => window.setTimeout(r, b.realMs));
+      g.step(1 / 60);
+      label = `${b.label}${ok ? '' : ' (timed out)'}`;
+      seq.k = k;
+    }
+    return `${label} @+${(g.time - t0).toFixed(2)}s`;
+  }
+
+  /** The milestone beats of each action demo (see seqFrame). */
+  private beats(name: string): { label: string; test: () => boolean; settle?: number; max?: number; realMs?: number }[] {
+    const m = (k: string, n = 1): (() => boolean) => () => (this.marks.get(`${k}#`) ?? 0) >= n;
+    const sleep = (): string => this.game.services.sleep?.phase ?? 'awake';
+    const outside = (): number => this.live.filter((l) => l.rec).length;
+    const yes = (): boolean => true;
+    if (name === 'animals-chores') {
+      return [
+        { label: 'coop morning: eggs waiting, empty trough', test: yes, settle: 0.4 },
+        { label: 'walk to the nest boxes', test: () => this.act!.i >= 3, settle: 0.1 },
+        { label: 'egg lift (brown, silver star)', test: m('egg'), settle: 0.55 },
+        { label: 'second egg (gold star)', test: m('egg', 2), settle: 0.55 },
+        { label: 'hay in hand at the trough', test: () => this.act!.i >= 10, settle: 0.2 },
+        { label: 'trough filled (+ a pat for the hen at it)', test: m('hay'), settle: 0.4 },
+        { label: 'flock comes to eat', test: m('eat'), settle: 1.2 },
+        // (the trough click pats the hen standing at it too: the closing pat is the script's last op)
+        { label: 'pat (heart pop)', test: () => this.act!.i >= this.act!.ops.length && m('pet', 2)(), settle: 0.22, max: 10 },
+        { label: 'content flock', test: yes, settle: 1.8 },
+      ];
+    }
+    if (name === 'animals-rain') {
+      return [
+        { label: 'herd out on a fine morning', test: yes, settle: 0.3 },
+        { label: 'first raindrops', test: m('rain'), settle: 0.5 },
+        { label: 'the herd turns for home', test: m('rain'), settle: 2.2 },
+        { label: 'trotting through the rain', test: m('rain'), settle: 2.0 },
+        { label: 'first one in at the doorway', test: m('door'), settle: 0.15, max: 30 },
+        { label: 'last ones filing in', test: () => outside() <= 2, settle: 0.2, max: 30 },
+        { label: 'pasture empty, rain on the pond', test: m('in'), settle: 0.6, max: 30 },
+        { label: 'dry in the barn', test: m('inside'), settle: 1.2, max: 30 },
+      ];
+    }
+    if (name === 'animals-overnight') {
+      return [
+        { label: 'dusk: the empty coop plot', test: yes, settle: 0.3 },
+        { label: 'coop ordered (staked site)', test: m('order'), settle: 1.0 },
+        { label: 'bedside in the farmhouse', test: m('bedside'), settle: 0.3, max: 30 },
+        { label: 'quilt tuck', test: () => sleep() === 'tucked', settle: 0.7, max: 30 },
+        { label: 'lamps dim, Zzz', test: () => sleep() === 'tucked', settle: 1.0, max: 30 },
+        { label: 'fade to night', test: () => sleep() === 'fading', settle: 0.02, realMs: 140, max: 30 },
+        { label: 'day-end summary', test: m('summary'), settle: 0.9, max: 30 },
+        { label: 'wake beside the bed', test: m('wake'), settle: 0.6, max: 30 },
+        { label: 'morning: the new coop stands', test: m('out'), settle: 1.0, max: 30 },
+      ];
+    }
+    // animals-live: the herd's own brains, 2.5 s apart.
+    return Array.from({ length: 10 }, (_, k) => ({ label: `herd t=${(k * 2.5).toFixed(1)}s`, test: yes, settle: k ? 2.5 : 0.3 }));
   }
 
   /** Advance the action script (unpaused frames only). */
   private tickAct(dt: number): void {
     const a = this.act;
+    if (a?.release.length) {
+      for (const r of a.release) r.t -= dt;
+      for (const r of a.release.filter((q) => q.t <= 0)) this.key(r.code, false);
+      a.release = a.release.filter((q) => q.t > 0);
+    }
     // (wall-clock once started: the day-end card pauses the sim and the script must still close it)
     if (!a || !a.started || a.i >= a.ops.length) return;
     const op = a.ops[a.i]!;
@@ -3144,31 +3314,78 @@ function hayGeo(): THREE.BufferGeometry {
   return _hay;
 }
 
-let _egg: THREE.BufferGeometry | null = null;
-function eggGeo(): THREE.BufferGeometry {
-  if (!_egg) {
+/** r18: species-distinct ovoids — a hen's egg (blunt base, tapered tip, 1.33:1), a duck egg longer and
+ *  more even (1.42:1) and a size up. (The critic: "nest eggs read as white spheres".) */
+const _eggs = new Map<string, THREE.BufferGeometry>();
+function eggGeo(item = 'egg'): THREE.BufferGeometry {
+  const duck = item === 'duckEgg';
+  const key = duck ? 'duck' : 'hen';
+  let g = _eggs.get(key);
+  if (!g) {
     const pts: THREE.Vector2[] = [];
-    for (let i = 0; i <= 12; i++) {
-      const a = (i / 12) * Math.PI;
-      const r = Math.sin(a) * 0.063 * (1 - 0.18 * Math.cos(a));
-      pts.push(new THREE.Vector2(r, -Math.cos(a) * 0.084));
+    const R = duck ? 0.06 : 0.058;
+    const H = duck ? 0.086 : 0.078;
+    const taper = duck ? 0.12 : 0.24;
+    for (let i = 0; i <= 16; i++) {
+      const a = (i / 16) * Math.PI;
+      // (bottom = blunt end, top = the tapered tip; the widest girth sits below the middle)
+      const r = Math.sin(a) * R * (1 + taper * 0.5 * Math.cos(a)) * (1 - taper * 0.35 * Math.max(0, -Math.cos(a)));
+      pts.push(new THREE.Vector2(r, -Math.cos(a) * H));
     }
-    _egg = new THREE.LatheGeometry(pts, 14);
+    g = new THREE.LatheGeometry(pts, 18);
+    _eggs.set(key, g);
   }
-  return _egg;
+  return g;
+}
+
+/** Shell grain: fine speckles (heavy on brown eggs, a faint bloom on duck eggs, barely on white ones). */
+function eggSpeckles(item: string): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 64;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, 128, 64);
+  const n = item === 'brownEgg' ? 220 : item === 'duckEgg' ? 70 : 40;
+  let s = item.length * 977;
+  const rnd = (): number => ((s = (s * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < n; i++) {
+    const x = rnd() * 128;
+    const y = 4 + rnd() * 56;
+    const r = item === 'brownEgg' ? 0.5 + rnd() * 1.3 : 0.5 + rnd() * 0.9;
+    const a = item === 'brownEgg' ? 0.18 + rnd() * 0.3 : 0.06 + rnd() * 0.1;
+    g.fillStyle = item === 'brownEgg' ? `rgba(110,52,24,${a})` : `rgba(120,110,90,${a})`;
+    g.beginPath();
+    g.ellipse(x, y, r * 1.3, r, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+  // a soft darker girdle at the blunt end (shell density), lighter at the tip
+  const gr = g.createLinearGradient(0, 0, 0, 64);
+  gr.addColorStop(0, 'rgba(255,255,255,0.0)');
+  gr.addColorStop(0.75, 'rgba(0,0,0,0.0)');
+  gr.addColorStop(1, 'rgba(60,40,20,0.10)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 128, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  return t;
 }
 
 const eggMats = new Map<string, THREE.MeshStandardMaterial>();
 function eggMat(item: string): THREE.MeshStandardMaterial {
   let m = eggMats.get(item);
   if (!m) {
-    const col = item === 'brownEgg' ? 0xd99a62 : item === 'duckEgg' ? 0xd4ecdf : item === 'duckFeather' ? 0x3a8a5a : 0xfbf5ea;
+    // (r18: cream, not paper white — a white egg in the sun shaft clipped to a flat disc; satin shell,
+    // speckled grain, a gentler rim so the round shading shows the ovoid)
+    const col = item === 'brownEgg' ? 0xc4844e : item === 'duckEgg' ? 0xbfd8cb : item === 'duckFeather' ? 0x3a8a5a : 0xe4d6bd;
+    const egg = item === 'egg' || item === 'brownEgg' || item === 'duckEgg';
+    m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.55, map: egg ? eggSpeckles(item) : null, emissive: new THREE.Color(col).multiplyScalar(0.03) });
     // A soft self-lit rim (fresnel) so eggs read in the shadowed nest boxes from the high camera.
-    m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.38, emissive: new THREE.Color(col).multiplyScalar(0.12) });
     m.onBeforeCompile = (sh) => {
       sh.fragmentShader = sh.fragmentShader.replace(
         '#include <emissivemap_fragment>',
-        '#include <emissivemap_fragment>\n  float rimK = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0), 2.2);\n  totalEmissiveRadiance += diffuseColor.rgb * rimK * 0.55;',
+        '#include <emissivemap_fragment>\n  float rimK = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0), 2.6);\n  totalEmissiveRadiance += diffuseColor.rgb * rimK * 0.16;',
       );
     };
     eggMats.set(item, m);

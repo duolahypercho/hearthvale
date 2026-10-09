@@ -86,7 +86,9 @@ export class RainBuilder {
     const dist = r.range(s.dist[0], s.dist[1]);
     // Far drops are quieter (inverse distance, not to zero) and darker (air + foliage absorb the top).
     const atten = 1 / (1 + 2.2 * dist);
-    const amp = s.amp * dropSize(r) * atten * r.range(0.7, 1.15);
+    // (Round 17: amplitude grows with the drop's size to the 0.6 — a fat drop is louder, not a spike:
+    // the near layer's biggest drops peaked at -4 dBFS under a -25 LUFS bed, a 25 dB crest.)
+    const amp = s.amp * Math.pow(dropSize(r), 0.6) * atten * r.range(0.7, 1.15);
     // Per-drop one-pole low-pass: ~12 kHz at the feet, ~4 kHz across the field.
     const lpHz = 12000 * Math.pow(0.33, dist);
     const lpA = 1 - Math.exp((-2 * Math.PI * lpHz) / sr);

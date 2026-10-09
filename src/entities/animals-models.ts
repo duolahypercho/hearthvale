@@ -69,7 +69,10 @@ function eyes(r: RigBuilder, x: number, y: number, z: number, size: number, ry =
     const piv = o.pitch ? new THREE.Matrix4().makeTranslation(s * x, y, z).multiply(new THREE.Matrix4().makeRotationX(-o.pitch)).multiply(new THREE.Matrix4().makeTranslation(-s * x, -y, -z)) : null;
     const P = (m: THREE.Matrix4): THREE.Matrix4 => (piv ? m.premultiply(piv) : m);
     const rot = mat(s * x, y, z, 0, s * ry, 0);
-    if (o.rim != null) r.part('eyes', ellipsoid(size * 1.28, size * 1.34, size * 0.6, 12, 10), P(mat(s * x, y, z - size * 0.12, 0, s * ry, 0)), o.rim, { flat: true });
+    // (r18: one eye recipe for the whole herd — a thin warm rim, the same lens + two catchlights, sized
+    // ~0.17-0.18 of the head radius and tipped up to the lens; the cow's wide white rim read as a cartoon
+    // calf beside the pig's bare dots)
+    if (o.rim != null) r.part('eyes', ellipsoid(size * 1.17, size * 1.22, size * 0.6, 12, 10), P(mat(s * x, y, z - size * 0.12, 0, s * ry, 0)), o.rim, { flat: true });
     if (o.iris != null) {
       r.part('eyes', ellipsoid(size, size * 1.05, size * 0.66, 14, 10), P(rot), o.iris, { flat: true });
       // Horizontal bar pupil, sitting just proud of the iris.
@@ -536,7 +539,7 @@ function cow(variant: number): AnimalModel {
   for (let i = 0; i < 3; i++) r.part('head', ellipsoid(0.05, 0.04, 0.05, 8, 6), mat(-0.04 + i * 0.04, 1.3, 0.6 + (i % 2) * 0.03), jersey ? 0x9a6238 : base);
   // (r9: bigger eyes up on the brow, tilted to face up-and-forward: from the 42-50° gameplay pitch the
   // old ones sat under the brow line and the face read as an eyeless lump)
-  eyes(r, 0.13, 1.145, 0.79, 0.058, 0.36, { rim: 0xf6efe4, pitch: 0.42 });
+  eyes(r, 0.13, 1.145, 0.79, 0.053, 0.36, { rim: 0xf6efe4, pitch: 0.42 });
   cheeks(r, 0.2, 0.98, 0.74, 0.036, 0xf2b0a6);
   r.lift(LIFT, ['legFL', 'legFR', 'legBL', 'legBR']);
   // Chibi: a shorter barrel and a bigger head read as "cow" (not "capsule") from the high camera.
@@ -556,7 +559,7 @@ function goat(variant: number): AnimalModel {
   const base = togg ? 0x8e5c38 : 0xeee8dc;
   const cream = 0xf4e8d4;
   const socks = togg ? band(cream, 0.26) : undefined;
-  const d: QuadDims = { bodyY: 0.64, bodyR: 0.21, bodyLen: 0.34, hipX: 0.12, frontZ: 0.2, backZ: -0.2, legR: 0.042, hoof: 0.07 };
+  const d: QuadDims = { bodyY: 0.64, bodyR: 0.21, bodyLen: 0.34, hipX: 0.12, frontZ: 0.2, backZ: -0.2, legR: 0.05, hoof: 0.07 };
   r.bone('body', 'root', [0, d.bodyY, 0]);
   r.bone('head', 'body', [0, 0.86, 0.34]);
   r.bone('eyes', 'head', [0, 1.06, 0.5]);
@@ -643,9 +646,10 @@ function goat(variant: number): AnimalModel {
     r.part(ear, ellipsoid(0.135, 0.034, 0.06), mat(s * 0.19, 0.97, 0.4, 0, s * 0.3, s * -0.95), togg ? 0x6a4228 : base);
     r.part(ear, ellipsoid(0.095, 0.016, 0.04), mat(s * 0.196, 0.974, 0.42, 0, s * 0.3, s * -0.95), togg ? cream : 0xe0b0a8, { flat: true });
   }
-  eyes(r, 0.105, 1.06, 0.52, 0.042, 0.55, { rim: togg ? 0xf4e8d4 : 0xe8dcc8 });
+  eyes(r, 0.105, 1.06, 0.52, 0.045, 0.47, { rim: togg ? 0xf4e8d4 : 0xe8dcc8, pitch: 0.3 });
   cheeks(r, 0.12, 0.97, 0.53, 0.03);
-  const [reach, top] = chibiGait(r, 0.84, 1.16, 0.925, 0.72, 1.3, 0.44);
+  // (r18: the herd's one proportion set — goat and pig heads up to the cow's chibi scale)
+  const [reach, top] = chibiGait(r, 0.84, 1.22, 0.925, 0.72, 1.3, 0.44);
   const crown = crownAt(r, 1.18, 0.42);
   const { mesh, bones } = r.build(animalMaterial(), 'goat');
   return { mesh, bones, species: 'goat', gait: { biped: false, speed: 0.65, freq: 2.1, legAmp: 0.42, bob: 0.025, eatPitch: 0.9, radius: 0.25, len: 0.2 * 0.84, reach, top, sleepDrop: 0.3, fold: 0.3, crown, headR: 0.21 } };
@@ -709,7 +713,7 @@ function sheep(variant: number): AnimalModel {
     // Ear tuft: a little curl of fleece where the ear pokes out of the wool
     r.part(ear, new THREE.IcosahedronGeometry(0.05, 1), mat(s * 0.15, 0.85, 0.44), wool, { coat: 2 });
   }
-  eyes(r, 0.095, 0.81, 0.6, 0.043, 0.48, { rim: blackFace ? 0xf6f0e6 : 0x6a5248 });
+  eyes(r, 0.095, 0.81, 0.6, 0.045, 0.45, { rim: blackFace ? 0xf6f0e6 : 0xf3e6d6, pitch: 0.25 });
   cheeks(r, 0.12, 0.735, 0.575, 0.03, 0xf08a86);
   const { mesh, bones } = r.build(animalMaterial(), 'sheep');
   return { mesh, bones, species: 'sheep', gait: { biped: false, speed: 0.5, freq: 2.0, legAmp: 0.4, bob: 0.02, eatPitch: 0.95, radius: 0.3, len: 0.18, reach: 0.64, top: 1.13, sleepDrop: 0.24, fold: 0.3, crown: [0.98, 0.45], headR: 0.18 } };
@@ -808,9 +812,9 @@ function pig(variant: number): AnimalModel {
     const mi = m.clone().multiply(new THREE.Matrix4().makeTranslation(0.02, -0.012, 0));
     r.part(ear, inner, mi, 0xffc6bc, { flat: true });
   }
-  eyes(r, 0.1, 0.65, 0.575, 0.037, 0.42);
+  eyes(r, 0.1, 0.655, 0.57, 0.045, 0.42, { rim: spotted ? 0xf6e2d6 : 0xfbe6dc, pitch: 0.3 });
   cheeks(r, 0.145, 0.57, 0.55, 0.036, 0xff8a8a);
-  const [reach, top] = chibiGait(r, 0.86, 1.14, 0.53, 0.66, 1.0, 0.42);
+  const [reach, top] = chibiGait(r, 0.86, 1.22, 0.53, 0.66, 1.0, 0.42);
   const crown = crownAt(r, 0.78, 0.4);
   const { mesh, bones } = r.build(animalMaterial(), 'pig');
   return { mesh, bones, species: 'pig', gait: { biped: false, speed: 0.5, freq: 2.5, legAmp: 0.45, bob: 0.02, eatPitch: 0.7, radius: 0.3, len: 0.2 * 0.86, reach, top, sleepDrop: 0.2, fold: 0.35, crown, headR: 0.26 } };

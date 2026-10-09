@@ -49,7 +49,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { execSync } from 'node:child_process';
 import { plotRender } from './audio-plot.mjs';
-import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate, openingSpread, OPENING_SECONDS, kPower, bassHoles, bandRatios, eventDensity, ambienceFlags, inferKind, KIND_PROFILES } from './audio-analysis.mjs';
+import { writeWav, readWav, analyze, flags, row, HEADER, fmt, db, kCoeffs, biquad, analyzeGameplay, printGameplay, calibrate, openingSpread, OPENING_SECONDS, kPower, bassHoles, bandRatios, eventDensity, ambienceFlags, inferKind, KIND_PROFILES, formAnalysis } from './audio-analysis.mjs';
 
 /**
  * The house curve (round 12): every song's opening lands within ±2 dB of it per band (the spectral
@@ -77,6 +77,13 @@ try {
 } catch {
   /* statfs unavailable: skip the check */
 }
+
+/**
+ * Whole-song renders in a default run (round 17): one song per family, chosen for the longest forms
+ * (B / C strains, bridges, reprises) — the parts a 30 s opening never reaches. Seamless loops
+ * (title, festivals) are judged at their loop seam.
+ */
+const FULL_DEFAULT = ['spring', 'summer', 'fall', 'winter-2', 'town', 'beach', 'night-spring', 'mine-2', 'festival-harvest', 'title'];
 
 function parseArgs(argv) {
   const o = { seconds: 30, seed: 1, only: null, amb: true, sfx: true, mix: true, analyze: null, describe: null, compose: false, verbose: false, plots: true, stems: false, themes: true, trans: true, gameplay: true, gameplayOnly: false, sfxList: null, calibrate: false, liveBudget: true };
@@ -113,6 +120,14 @@ function parseArgs(argv) {
       o.trans = false;
       o.gameplay = false;
     }
+    else if (a === '--full') {
+      // Whole songs (round 17): `--full` = the representative set (FULL_DEFAULT), `--full all` = every
+      // song, `--full spring,town` = these. Alone it renders only these; a default run includes the set.
+      const v = argv[i + 1] && !argv[i + 1].startsWith('--') ? next() : 'default';
+      o.full = v === 'default' ? FULL_DEFAULT : v === 'all' ? 'all' : v.split(',');
+      o.fullOnly = true;
+    }
+    else if (a === '--no-full') o.noFull = true;
     else if (a === '--no-live-budget') o.liveBudget = false;
     else if (a === '--analyze') o.analyze = next();
     else if (a === '--kind') o.kind = next();
@@ -124,6 +139,7 @@ function parseArgs(argv) {
   return o;
 }
 const args = parseArgs(process.argv.slice(2));
+if (args.fullOnly) Object.assign(args, { themes: false, amb: false, sfx: false, mix: false, trans: false, gameplay: false });
 
 // ─────────────────────────────────────────────────────────── composition critic
 
@@ -251,7 +267,8 @@ async function main() {
     await closeAll();
     return;
   }
-  const themes = (await sess.page.evaluate(() => window.__audioOffline.listThemes())).filter((t) => !args.only || args.only.includes(t));
+  const allThemes = await sess.page.evaluate(() => window.__audioOffline.listThemes());
+  const themes = allThemes.filter((t) => !args.only || args.only.includes(t));
   if (args.calibrate) {
     await calibrate(themes, call, { root, seconds: process.argv.includes('--seconds') ? args.seconds : OPENING_SECONDS + 2, seed: args.seed, sr: 44100 });
     await closeAll();
@@ -316,6 +333,8 @@ async function main() {
   if (!args.gameplayOnly) {
     if (args.themes) for (const t of themes) jobs.push({ kind: 'theme', name: `theme-${t}`, fn: 'renderTheme', a: [t, args.seconds, 44100, args.seed, false] });
     if (args.mix && args.themes) for (const t of themes) jobs.push({ kind: 'mix', name: `mix-${t}`, fn: 'renderTheme', a: [t, args.seconds, 44100, args.seed, true] });
+    const fullIds = args.noFull ? [] : args.full === 'all' ? allThemes : args.full ?? (args.only ? [] : args.themes && args.mix && args.amb && args.sfx && args.trans && args.gameplay ? FULL_DEFAULT : []);
+    for (const t of fullIds.filter((x) => allThemes.includes(x))) jobs.push({ kind: 'full', name: `full-${t}`, theme: t });
     for (const p of ambs) jobs.push({ kind: 'amb', name: `amb-${p}`, fn: 'renderAmbience', a: [p, args.seconds, 44100] });
     if (args.sfx && !args.only) jobs.push({ kind: 'sfx', name: 'sfx-reel', fn: 'renderSfxReel', a: [44100, args.sfxList] });
     // The live state machine offline: a same-place mood drift (phrase-quantised) and two changes of place.
@@ -362,7 +381,28 @@ async function main() {
       const t0 = Date.now();
       try {
         sinceRelaunch++;
-        if (job.kind === 'gameplay') {
+        if (job.kind === 'full') {
+          // A whole song: one pass of its form + the ring-out (or 4 s into the next pass of a loop).
+          const info = await sess.page.evaluate(([id, seed]) => window.__audioOffline.songInfo(id, seed), [job.theme, args.seed]);
+          const secs = Math.min(260, info.duration + (info.looping ? 4 : 7));
+          const res = await call('renderTheme', [job.theme, secs, 44100, args.seed, false]);
+          res.name = job.name;
+          const inter = decode(res);
+          writeWav(resolve(outDir, `${job.name}.wav`), inter, res.sampleRate);
+          const a = analyze(inter, res.sampleRate);
+          const piece = await sess.page.evaluate(([id, seed, s]) => window.__audioOffline.pieceData(id, seed, s), [job.theme, args.seed, secs]);
+          const form = formAnalysis(inter, res.sampleRate, piece, info.duration, info.looping, res.stats);
+          a.form = form;
+          a.songSeconds = info.duration;
+          if (args.plots) plotRender(resolve(outDir, `${job.name}.png`), inter, res.sampleRate, { title: `${job.name} (whole song, ${info.form})`, sub: `LUFS ${fmt(a.lufsIntegrated)}  dBTP ${fmt(a.truePeakDb)}  LRA ${fmt(a.lra)}  ${form.sections.map((x) => x.label).join(' ')}`, piece });
+          // Whole-song loudness is judged by the section rules, not the opening's (a quiet bridge is form).
+          const fl = [...flags(a, 'reel', job.name), ...form.flags];
+          console.log(row(job.name, a, 'reel') + `  (${((Date.now() - t0) / 1000).toFixed(1)}s, ${info.duration.toFixed(0)} s song${info.looping ? ', loops' : ''})`);
+          console.log(`  form ${info.form}: ${form.sections.map((x) => `${x.label}@${x.t0.toFixed(0)}s ${fmt(x.lufs)} LUFS ${fmt(x.centroidHz, 0)} Hz ${x.maxNotes}n`).join(' | ')}`);
+          console.log(`  seams: ${form.seams.map((x) => `${x.label} ${x.quiet}s`).join(', ') || '-'} · ending ${JSON.stringify(form.ending)} · distinct melody bars ${(form.novelty * 100).toFixed(0)} % of ${form.melodyBars} · voices peak ${res.stats?.peakVoices ?? '?'} dropped ${res.stats?.dropped ?? '?'}`);
+          if (form.flags.length) console.log(`  ${form.flags.join('  ')}`);
+          report.renders.push({ name: job.name, kind: 'full', file: `${outRel}/${job.name}.wav`, ...a, flags: fl });
+        } else if (job.kind === 'gameplay') {
           const full = await call('renderGameplay', ['full']);
           const sfx = await call('renderGameplay', ['sfx']);
           const bed = await call('renderGameplay', ['bed']);
@@ -463,7 +503,7 @@ async function main() {
     if (!o.ok) report.renders.push({ name: 'opening-spread', kind: 'check', flags: ['OPENING-SPREAD'] });
   }
   writeReport();
-  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC|DULL|THIN|DEAD-AIR|SLOW-HANDOFF|SFX-MASKED|OPENING-SPREAD|AMB-BURIED/.test(f)));
+  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC|DULL|THIN|DEAD-AIR|SLOW-HANDOFF|SFX-MASKED|OPENING-SPREAD|AMB-BURIED|FORM-/.test(f)));
   console.log(`\nwrote ${report.renders.length} WAVs + report.json to ${outRel}/`);
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
   if (report.failedJobs.length) console.log(`FAILED JOBS: ${report.failedJobs.map((j) => j.name).join(' ')}`);

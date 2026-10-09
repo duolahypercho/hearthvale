@@ -192,18 +192,26 @@ export abstract class InteriorMap implements GameMap {
     this.shaftMat = new THREE.ShaderMaterial({
       uniforms: { uMap: { value: shaftGradient().map }, uColor: { value: new THREE.Color() }, uTime: { value: 0 } },
       vertexShader: /* glsl */ `
-        attribute float aK;
-        varying vec2 vUv; varying vec3 vW; varying vec3 vN; varying float vK;
-        void main() { vUv = uv; vK = aK; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }`,
+        attribute float aK; attribute vec2 aWin;
+        varying vec2 vUv; varying vec3 vW; varying vec3 vN; varying float vK; varying vec2 vWin; varying float vDepth;
+        void main() { vUv = uv; vK = aK; vWin = aWin; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); vec4 mv = viewMatrix * w; vDepth = -mv.z; gl_Position = projectionMatrix * mv; }`,
       fragmentShader: /* glsl */ `
         uniform sampler2D uMap; uniform vec3 uColor; uniform float uTime;
-        varying vec2 vUv; varying vec3 vW; varying vec3 vN; varying float vK;
+        varying vec2 vUv; varying vec3 vW; varying vec3 vN; varying float vK; varying vec2 vWin; varying float vDepth;
         void main() {
           float a = texture2D(uMap, vUv).r * vK;
           float n = 0.8 + 0.2 * sin(vW.x * 3.1 + vW.y * 2.3 + uTime * 0.6) * sin(vW.z * 2.7 - uTime * 0.4);
           // Faces seen edge-on fade out: the beam's silhouette is soft, never a hard-edged slab.
           float facing = abs(dot(normalize(vN), normalize(cameraPosition - vW)));
-          gl_FragColor = vec4(uColor * a * n * smoothstep(0.04, 0.5, facing), 1.0);
+          // r18: the window's own framing carried down the beam (the cross of the glazing bars casts two
+          // darker lanes, so a shaft reads as light through panes, not a flat translucent slab) …
+          float bars = smoothstep(0.02, 0.075, abs(vWin.x - 0.5)) * smoothstep(0.025, 0.085, abs(vWin.y - 0.5));
+          // … and it thins out with depth along the view (the far faces of the prism, behind the beam's
+          // near face, add less: the volume has a front and a back instead of a doubled slab).
+          float thin = mix(1.0, 0.55, smoothstep(0.0, 1.0, (vDepth - 9.0) / 8.0));
+          // low-frequency breakup along the beam (the air is never evenly lit)
+          float breakup = 0.72 + 0.28 * sin(vUv.y * 7.0 + vW.x * 1.7 - uTime * 0.25) * sin(vUv.x * 5.0 + vW.z * 1.3);
+          gl_FragColor = vec4(uColor * a * n * mix(0.3, 1.0, bars) * thin * breakup * smoothstep(0.08, 0.6, facing), 1.0);
         }`,
       transparent: true,
       depthWrite: false,
@@ -229,14 +237,15 @@ export abstract class InteriorMap implements GameMap {
     });
 
     // Dust motes (filled in finalize once shafts exist).
-    const N = 180;
+    // (r18: more, slightly bigger motes — the sparkle in the beam carries the light now)
+    const N = 240;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
     this.dustSeeds = new Float32Array(N * 4);
     for (let i = 0; i < N * 4; i++) this.dustSeeds[i] = Math.random();
     this.dust = new THREE.Points(
       g,
-      new THREE.PointsMaterial({ size: 0.035, map: textures.softDot().map, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xfff0d0, opacity: 0.8, fog: false }),
+      new THREE.PointsMaterial({ size: 0.042, map: textures.softDot().map, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xfff0d0, opacity: 0.8, fog: false }),
     );
     this.dust.frustumCulled = false;
     this.dust.userData.noAO = true;
@@ -696,7 +705,7 @@ export abstract class InteriorMap implements GameMap {
     mesh.renderOrder = 2;
     mesh.name = 'sun-pool';
     this.root.add(mesh);
-    this.updaters.push((_dt, _t, L) => m.color.copy(L.sunColor).multiplyScalar(this.sunPoolK * L.day));
+    this.updaters.push((_dt, _t, L) => m.color.copy(L.sunColor).multiplyScalar(this.sunPoolK * 1.3 * L.day));
   }
 
   /** Call once after furnishing: merges statics, builds light shafts + dust for the windows. */
@@ -714,8 +723,9 @@ export abstract class InteriorMap implements GameMap {
     const L = this.light.sunDir.clone().negate(); // travel direction
     const T = 0.22;
     for (const h of this.spec.windows) {
-      const u0 = h.at - h.w / 2 + 0.04;
-      const u1 = h.at + h.w / 2 - 0.04;
+      // (r18: narrower — the beam enters through the glass, not the whole opening incl. the frame)
+      const u0 = h.at - h.w / 2 + Math.max(0.04, h.w * 0.11);
+      const u1 = h.at + h.w / 2 - Math.max(0.04, h.w * 0.11);
       const corners: THREE.Vector3[] = [];
       for (const [u, y] of [[u0, h.y0], [u1, h.y0], [u1, h.y1], [u0, h.y1]] as const) {
         if (h.wall === 'back') corners.push(new THREE.Vector3(u, y, 0));
@@ -734,8 +744,13 @@ export abstract class InteriorMap implements GameMap {
       const pos: number[] = [];
       const uv: number[] = [];
       const kk: number[] = [];
+      const win: number[] = [];
+      const WIN = [[0, 0], [1, 0], [1, 1], [0, 1]] as const;
       // 4 side faces of the prism window-quad → floor-quad (v: 1 at window, 0 at floor).
       for (let i = 0; i < 4; i++) {
+        const wa = WIN[i]!;
+        const wb = WIN[(i + 1) % 4]!;
+        for (const w of [wa, wb, wb, wa, wb, wa]) win.push(w[0], w[1]);
         const a = corners[i]!;
         const b = corners[(i + 1) % 4]!;
         const fa = floor[i]!;
@@ -752,6 +767,7 @@ export abstract class InteriorMap implements GameMap {
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       g.setAttribute('aK', new THREE.Float32BufferAttribute(kk, 1));
+      g.setAttribute('aWin', new THREE.Float32BufferAttribute(win, 2));
       g.computeVertexNormals();
       const mesh = new THREE.Mesh(g, this.shaftMat);
       mesh.renderOrder = 5;
@@ -852,7 +868,8 @@ export abstract class InteriorMap implements GameMap {
     for (const e of interiorEmissive) e.material.emissiveIntensity = THREE.MathUtils.lerp(e.day, e.night, THREE.MathUtils.clamp(lampK, 0, 1));
     // Shafts: warm by day, faint blue by moonlight.
     const shaft = this.shaftMat.uniforms;
-    (shaft.uColor!.value as THREE.Color).copy(L.sunColor).multiplyScalar(0.11 * L.day * this.dayScale * this.shaftK * (1 + this.coolK * 0.7) + this.moonShaft * L.night);
+    // (r18: 0.11 → 0.085 — the brightness moves into the dust motes and the bounced floor pool)
+    (shaft.uColor!.value as THREE.Color).copy(L.sunColor).multiplyScalar(0.085 * L.day * this.dayScale * this.shaftK * (1 + this.coolK * 0.7) + this.moonShaft * L.night);
     shaft.uTime!.value = t;
     // Window views: bright painted day, deep blue at night.
     const vu = this.viewMat.uniforms;
@@ -867,7 +884,7 @@ export abstract class InteriorMap implements GameMap {
     const pos = this.dust.geometry.attributes.position as THREE.BufferAttribute;
     const nb = this.dustBeams.length;
     const mat = this.dust.material as THREE.PointsMaterial;
-    mat.opacity = 0.15 + 0.75 * L.day;
+    mat.opacity = Math.min(1, 0.15 + 0.85 * L.day);
     mat.color.copy(L.sunColor);
     this.dust.visible = nb > 0;
     if (!nb) return;

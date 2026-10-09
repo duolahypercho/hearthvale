@@ -1010,6 +1010,27 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   leaves); the giant melon's stem is a short dark green-brown stub with a button end (no pale curl).
   *Staging* — `farm-water` lens pulled back to 9.4 m (hat + can + target tile in frame through the whole pour);
   `farm-sprinkler` puts the farmer beside the bed in profile watching the head (no head looming at the lens).
+- **r22 polish**: *Hoe* — an overhead heave instead of a twist toward the lens: deep crouch (chin up, face
+  clear of the hat), then the body arches back tall in a wide split stance with both fists climbing past the hat on
+  the camera side (cartoon arm reach 1.34) and the shaft laid back ~75° with the blade high behind; the downswing
+  jack-knifes the body and whips the blade out in front (never across the face), the recoil rips the blade out low
+  by the shins with the body springing up past rest; head pitch stays chin-up through the lunge. `farm-tools` is
+  lensed 3/4 front-profile (yaw −38°, 8.2 m) so the arc reads. *Pour* — the can rises to chin height and tips ~45–54°
+  with the shoulder rolled hard into it; the stream throws ~0.75 m from the rose (flight 0.33–0.40 s, lands in the
+  far half of the tile), fuller 2.6 cm core rope; `farm-water` lens 7.6 m, 3/4 front. *Harvest* — the whole reward
+  beat is one sequence (`farm-pop --frames 8`: reach · crouch · yank stretch · catch squash · present + star ·
+  to backpack · icon arcs to toolbar · lands +1 with the tier burst): toolbar flights launched during a capture
+  are paused and scrubbed on the sequence clock (`seqFlights`); the pickup toast is hidden until the icon lands
+  (reward after cause); produce with no toolbar slot arcs into the bar's last slot (the bar itself is never
+  bumped — its bounce replaced its centring transform). *Sprinklers* — each jet is a fan, not a wire: ~1/3 of the
+  beads shed into a widening cone (angle jitter ×3.5, per-bead arc height ±15 %), packet spacing jittered per
+  drop, bigger + broader landing crowns, the glass column / veil halved. *Field* — a bare furrow lane in the
+  summer SE bed between blueberries and staked tomatoes. *Giants* — ~6 % smaller again and settled (x/z 1.04,
+  y 0.9). *Crows* — `farm-crows&raid=beats` stages beats: a late-comer swooping in, the near raiders startled up off
+  their plants while two keep tearing (wall-clock timed, so the default still stays the all-pecking raid). *Death* — each family withers in its own dead
+  colour (tomato olive-khaki, pepper umber, gourds straw, berries mauve-grey, corn bleached straw, sunflower
+  sienna). *Perf* — out-of-season husks are hidden (they were a moving shadow caster every frame), clod / leaf
+  particle pools draw only up to their last live body.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,

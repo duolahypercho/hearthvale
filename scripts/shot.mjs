@@ -168,8 +168,11 @@ async function main() {
     for (const e of consoleErrors) console.error(`[console.error] ${e}`);
     for (const e of pageErrors) console.error(`[pageerror] ${e}`);
     if (pageErrors.length) exitCode = exitCode || 1;
-    if (browser) await browser.close().catch(() => {});
-    await server.close().catch(() => {});
+    // (animals r18: a teardown that never settles — a page still stepping a sequence, a dev-server socket
+    // held open — must not hang the run until the outer timeout: each close gets 8 s, then we exit anyway)
+    const bounded = (p) => Promise.race([p.catch(() => {}), new Promise((r) => setTimeout(r, 8000).unref())]);
+    if (browser) await bounded(browser.close());
+    await bounded(server.close());
     try {
       rmSync(cacheDir, { recursive: true, force: true });
     } catch {

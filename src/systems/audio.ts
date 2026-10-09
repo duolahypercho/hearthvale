@@ -108,6 +108,12 @@ export interface AudioState {
    * visible), master restores after a hidden-tab fade.
    */
   sched: { lookahead: number; late: number; skipped: number; errors: number; recoveries: number; resumes: number; restores: number };
+  /**
+   * Round 17 (co-op perf): where the audio stack's main-thread time goes, ms per second of frames
+   * over the last ~5 s — the local feet, the director's decisions, scheduling (music / ambience /
+   * SFX ticks), the remote farmers' voices and the off-frame work (worker deliveries, watchdog).
+   */
+  cost: Record<string, number>;
 }
 
 export interface AudioApi {
@@ -223,6 +229,13 @@ export class AudioSystem implements System {
   private waterT = 0;
   private lastSfx = new Map<string, number>();
   private demoSfx: { name: string; next: number } | null = null;
+  /**
+   * `?demo=audio-foley` (round 17): the material impacts and the villagers' voices in turn — hoe on
+   * soil, axe in a trunk, pick on stone, the stone breaking, a blade on a slime / shell / wing /
+   * ember-hide / spirit, a parry — then each villager says a line (`&voices=0` skips them, `&only=axe`
+   * repeats one). What the blind test (scripts/audio-recognize.mjs) measures, to hear in the game.
+   */
+  private demoFoley: { items: string[]; i: number; next: number } | null = null;
   /** Placement applied to SFX while an event at a world position is being voiced (see placed()). */
   private place: { gain: number; pan: number } | null = null;
   /** `?demo=audio&coop=1`: a phantom co-op partner circles the player so positional audio can be judged. */
@@ -272,6 +285,12 @@ export class AudioSystem implements System {
     else if (params.get('demo') === 'audio-night') this.forced = 'night-summer';
     const sfx = params.get('sfx');
     if (sfx) this.demoSfx = { name: sfx, next: 0 };
+    if (params.get('demo') === 'audio-foley') {
+      const only = params.get('only');
+      const hits = ['hoe', 'axe', 'pickaxe', 'rockbreak', 'hit:slime', 'hit:crab', 'hit:bat', 'hit:imp', 'hit:wisp', 'parry'];
+      const voices = params.get('voices') === '0' ? [] : ['marigold', 'bram', 'wren', 'odessa', 'linus', 'june', 'tobias', 'kit'].map((v) => `voice:${v}`);
+      this.demoFoley = { items: only ? only.split(',') : [...hits, ...voices], i: 0, next: 1.5 };
+    }
     const coopDemo = params.get('demo') === 'audio-coop4' ? 3 : (params.get('coop') === '1' && params.get('demo') === 'audio') || params.get('demo') === 'audio-coop' ? Math.max(1, Math.min(3, Number(params.get('partners') ?? 1) || 1)) : 0;
     if (coopDemo) {
       this.demoCoop = { a: 0, stride: 0, next: 2, k: 0, t: 0, farmer: null, id: 0, rx: 7, rz: 4, speed: 0.22 };
@@ -350,6 +369,7 @@ export class AudioSystem implements System {
         else this.tryResume();
       },
       state: () => ({
+        cost: Object.fromEntries(Object.entries(this.sec).map(([k, v]) => [k, Math.round((v * 1000 * 100) / Math.max(1, this.secSpan)) / 100])),
         running: !!this.ctx && this.ctx.state === 'running',
         theme: this.engine?.music.playing ?? null,
         wanted: this.resolved(this.wanted()),
@@ -982,6 +1002,18 @@ export class AudioSystem implements System {
    */
   private slowDt = 0;
 
+  /** Section timings for state().cost (accumulated ms, and the frame time they were spread over). */
+  private sec: Record<string, number> = { feet: 0, decide: 0, schedule: 0, remote: 0, offFrame: 0, other: 0 };
+  private secSpan = 0;
+  private timed<T>(k: string, fn: () => T): T {
+    const t0 = performance.now();
+    try {
+      return fn();
+    } finally {
+      this.sec[k] = (this.sec[k] ?? 0) + performance.now() - t0;
+    }
+  }
+
   update(dt: number, game: Game): void {
     const t0 = performance.now();
     try {
@@ -990,6 +1022,13 @@ export class AudioSystem implements System {
       const off = drainOffFrame();
       this.frameMs.push(dt * 1000);
       this.costMs.push(performance.now() - t0 + off);
+      this.sec.offFrame! += off;
+      this.secSpan += dt * 1000;
+      // A rolling window: halve the account every ~5 s so the numbers follow the present.
+      if (this.secSpan > 5000) {
+        for (const k of Object.keys(this.sec)) this.sec[k]! *= 0.5;
+        this.secSpan *= 0.5;
+      }
       this.offMs.push(off);
       if (this.frameMs.length > 300) {
         this.frameMs.shift();
@@ -1011,7 +1050,7 @@ export class AudioSystem implements System {
   }
 
   private updateInner(dt: number, game: Game): void {
-    this.footsteps(dt, game);
+    this.timed('feet', () => this.footsteps(dt, game));
     // The phantom farmhand walks (and is seen) whether or not the sound has started yet.
     if (this.demoCoop) {
       const audible = !!this.ctx && this.ctx.state === 'running';
@@ -1054,7 +1093,7 @@ export class AudioSystem implements System {
     this.env = this.envState(slowDt, game);
 
     // Music: selection, level and tone.
-    this.decide(game);
+    this.timed('decide', () => this.decide(game));
     const panel = game.hud.openPanelName ?? '';
     const paused = panel === 'pause' || panel.startsWith('settings');
     // Menus are their own space: the score steps back behind the page (−3 dB, ~2.6 kHz low-pass) so
@@ -1100,7 +1139,7 @@ export class AudioSystem implements System {
       e.graph.setMusicMuffle(muffle, ctx.currentTime, snap ? MENU_TAU : 0.4);
     }
     if (this.hiddenFade && !document.hidden) this.onRunning();
-    this.tickAudio(false);
+    this.timed('schedule', () => this.tickAudio(false));
     const playing = e.music.playing;
     if (playing !== this.lastTheme) {
       this.lastTheme = playing;
@@ -1122,7 +1161,23 @@ export class AudioSystem implements System {
       this.demoSfx.next = ctx.currentTime + 2.5;
       this.sfx(this.demoSfx.name);
     }
-    this.remoteVoices(slowDt);
+    const fo = this.demoFoley;
+    if (fo && ctx.currentTime >= fo.next) {
+      const item = fo.items[fo.i++ % fo.items.length]!;
+      if (item.startsWith('voice:')) {
+        const lines = ['Well hello there, neighbour! Lovely morning, isn\'t it?', 'The bakery opens at nine, same as always.', 'Did you hear the bells last night?', 'Careful on the bridge, the planks are wet.'];
+        const words = lines[fo.i % lines.length]!.split(' ');
+        let at = ctx.currentTime + 0.05;
+        words.forEach((w, k) => {
+          at += e.sfx.murmur(voiceFor(item.slice(6)), w, { at, gain: 0.85 }, { index: k, last: k === words.length - 1 }) * 0.9 + 0.04;
+        });
+        fo.next = at + 1.2;
+      } else {
+        this.sfx(item);
+        fo.next = ctx.currentTime + (item === 'rockbreak' || item === 'parry' ? 2.4 : 1.7);
+      }
+    }
+    this.timed('remote', () => this.remoteVoices(slowDt));
   }
 
   /**

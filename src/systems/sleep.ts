@@ -27,7 +27,11 @@ export interface SleepApi {
   goToBed(): Promise<void>;
   /** The "Go to bed for the night?" prompt (resolves true on yes). */
   ask(): Promise<boolean>;
+  /** r18: where the bedtime is (milestone captures): 'awake' | 'tucking' | 'tucked' | 'fading' | 'night' | 'waking'. */
+  readonly phase: SleepPhase;
 }
+
+export type SleepPhase = 'awake' | 'tucking' | 'tucked' | 'fading' | 'night' | 'waking';
 
 /** The herd's night, as the end-of-day card shows it (from `animals:summary`). */
 export interface SleepAnimals {
@@ -110,6 +114,7 @@ export class SleepSystem implements System, SleepApi {
   private shipped = 0;
   private animals: SleepAnimals | undefined;
   private busy = false;
+  phase: SleepPhase = 'awake';
   private asking = false;
   private carryHome = false;
   /** Lying in the farmhouse bed (root transform held here after the player's own update). */
@@ -294,6 +299,7 @@ export class SleepSystem implements System, SleepApi {
     this.busy = true;
     const g = this.game;
     g.player.controllable = false;
+    this.phase = 'tucking';
     if (this.bed()) {
       if (!this.lying) {
         await g.hud.fade(true);
@@ -301,6 +307,7 @@ export class SleepSystem implements System, SleepApi {
         await wait(120);
         await g.hud.fade(false);
       }
+      this.phase = 'tucked';
       // Lamps and fire ease down, a few sleepy Zzz, then the night.
       this.dimTarget = 1;
       this.zzz = true;
@@ -308,16 +315,20 @@ export class SleepSystem implements System, SleepApi {
       g.services.audio?.play('sleep');
       await wait(1500);
     }
+    this.phase = 'fading';
     await g.hud.fade(true);
     await wait(300);
     this.zzz = false;
+    this.phase = 'night';
     this.sleep();
     if (this.lying) this.lieDown(false);
     this.dimTarget = 0;
     const house = this.house();
     if (house) house.dim = 0;
+    this.phase = 'waking';
     await this.wakeAtHome(false);
     this.busy = false;
+    this.phase = 'awake';
   }
 
   /** Lie the farmer on the quilt, head on the pillow (or get up again). */

@@ -713,3 +713,121 @@ export const KIND_PROFILES = {
   reel: 'SFX reel / transition: clip, true peak, HARSH > 25 %, HISSY > 18 %; no loudness or silence rules',
   sfx: 'single SFX: clip, true peak, HARSH > 25 %, HISSY > 18 %; no loudness or silence rules',
 };
+
+/**
+ * Long-form check (round 17, critic r6: "the rendered verification covers only the opening 30 s of
+ * pieces lasting 67-176 s — symbolic checks cannot expose late-form orchestration build-up, voice
+ * saturation, repetition fatigue or bridge-to-reprise problems"). Judges a WHOLE song render (one
+ * pass of its form + the tail) section by section: `piece` is offline.pieceData for the same seed
+ * and length, `songEnd` the composed duration, `looping` true for seamless loops (title / festival),
+ * `stats` the render's voice statistics (peak / dropped / stolen).
+ *
+ * Per section (consecutive bars with one label, e.g. intro A B A C A): integrated loudness,
+ * centroid, the 2-5 kHz share, how many notes sound at once (symbolic, max over 50 ms steps) and
+ * which tracks play. Flags:
+ *   FORM-SWELL     a later section > 4.5 LU over the first full section (the orchestration piling up)
+ *   FORM-SAG       a full section > 7 LU under the loudest (a bridge that falls out of the mix)
+ *   FORM-GLARE     a section's centroid > 1.45x the first section's, or > 25 % in 2-5 kHz
+ *   FORM-CROWD     > 14 notes sounding at once anywhere (voice saturation; mud before the limiter)
+ *   FORM-DROPPED   the polyphony budget dropped or stole voices during the song
+ *   FORM-SEAM      a section boundary with a near-silent stretch > 1.2 s (a bridge-to-reprise hole)
+ *   FORM-CUT       (non-looping) the music still above -42 dBFS in the last 300 ms of the tail
+ *   FORM-LOOP-GAP  (looping) more than 0.8 s under -45 dBFS around the loop seam
+ *   FORM-REPEAT    fewer than 35 % of the song's melody bars are distinct (repetition fatigue)
+ */
+export function formAnalysis(inter, sr, piece, songEnd, looping, stats) {
+  const n = inter.length / 2;
+  const dur = n / sr;
+  const bars = piece.bars.filter((b) => b.t < songEnd - 0.05);
+  const segs = [];
+  for (let k = 0; k < bars.length; k++) {
+    const b = bars[k];
+    const lab = b.section || '?';
+    const end = k + 1 < bars.length ? bars[k + 1].t : songEnd;
+    const last = segs[segs.length - 1];
+    if (last && last.label === lab) {
+      last.t1 = end;
+      last.bars++;
+    } else segs.push({ label: lab, t0: b.t, t1: end, bars: 1 });
+  }
+  const slice = (t0, t1) => inter.subarray(Math.max(0, Math.floor(t0 * sr)) * 2, Math.min(n, Math.floor(t1 * sr)) * 2);
+  const ev = piece.events;
+  for (const s of segs) {
+    const a = analyze(slice(s.t0, s.t1), sr);
+    s.lufs = a.lufsIntegrated;
+    s.centroidHz = a.centroidHz;
+    s.presence = a.bands.presence;
+    s.peakDb = a.peakDb;
+    let most = 0;
+    for (let x = s.t0; x < s.t1; x += 0.05) {
+      let c = 0;
+      for (const e of ev) if (e.t <= x && e.t + Math.max(0.12, e.dur) > x && e.track !== 'perc') c++;
+      most = Math.max(most, c);
+    }
+    s.maxNotes = most;
+    s.tracks = [...new Set(ev.filter((e) => e.t >= s.t0 && e.t < s.t1).map((e) => e.track))].sort();
+    s.seconds = s.t1 - s.t0;
+  }
+  const flagsOut = [];
+  const full = segs.filter((s) => s.seconds >= 6 && s.label !== 'intro' && s.label !== 'outro' && Number.isFinite(s.lufs));
+  const first = full[0];
+  if (first) {
+    for (const s of full.slice(1)) {
+      if (s.lufs - first.lufs > 4.5) flagsOut.push(`FORM-SWELL(${s.label}@${s.t0.toFixed(0)}s +${(s.lufs - first.lufs).toFixed(1)} LU)`);
+      if (s.centroidHz > first.centroidHz * 1.45) flagsOut.push(`FORM-GLARE(${s.label}@${s.t0.toFixed(0)}s ${s.centroidHz.toFixed(0)} Hz)`);
+    }
+    const top = Math.max(...full.map((s) => s.lufs));
+    for (const s of full) if (top - s.lufs > 7) flagsOut.push(`FORM-SAG(${s.label}@${s.t0.toFixed(0)}s -${(top - s.lufs).toFixed(1)} LU)`);
+  }
+  for (const s of full) if (s.presence > 0.25) flagsOut.push(`FORM-GLARE(${s.label}@${s.t0.toFixed(0)}s ${(s.presence * 100).toFixed(0)} % 2-5k)`);
+  const crowd = Math.max(0, ...segs.map((s) => s.maxNotes));
+  if (crowd > 14) flagsOut.push(`FORM-CROWD(${crowd} notes at once)`);
+  if (stats && (stats.dropped > 0 || stats.stolen > 0)) flagsOut.push(`FORM-DROPPED(${stats.dropped} dropped, ${stats.stolen} stolen)`);
+  // Level in 50 ms windows (dBFS RMS) for the seam / ending checks.
+  const W = Math.floor(sr * 0.05);
+  const lvAt = (t) => {
+    const s0 = Math.floor(t * sr);
+    let e = 0;
+    for (let i = s0; i < s0 + W && i < n; i++) e += inter[i * 2] ** 2 + inter[i * 2 + 1] ** 2;
+    return db(e / (2 * W) + 1e-20);
+  };
+  const quietRun = (t0, t1, thr) => {
+    let run = 0, best = 0;
+    for (let t = Math.max(0, t0); t < Math.min(dur - 0.05, t1); t += 0.05) {
+      if (lvAt(t) < thr) best = Math.max(best, (run += 0.05));
+      else run = 0;
+    }
+    return best;
+  };
+  const seams = [];
+  for (const s of segs.slice(1)) {
+    const q = quietRun(s.t0 - 1.5, s.t0 + 1, -48);
+    seams.push({ at: s.t0, label: s.label, quiet: Math.round(q * 100) / 100 });
+    if (q > 1.2) flagsOut.push(`FORM-SEAM(${s.label}@${s.t0.toFixed(0)}s ${q.toFixed(1)} s hole)`);
+  }
+  let ending;
+  if (looping) {
+    const q = quietRun(songEnd - 2, songEnd + 2, -45);
+    ending = { kind: 'loop', quietAroundSeam: Math.round(q * 100) / 100 };
+    if (q > 0.8) flagsOut.push(`FORM-LOOP-GAP(${q.toFixed(1)} s)`);
+  } else {
+    const tailDb = lvAt(Math.max(0, dur - 0.35));
+    const lastNoteDb = lvAt(Math.max(0, songEnd - 1));
+    ending = { kind: 'end', lastBarDb: Math.round(lastNoteDb * 10) / 10, tailDb: Math.round(tailDb * 10) / 10, tailSeconds: Math.round((dur - songEnd) * 10) / 10 };
+    if (tailDb > -42) flagsOut.push(`FORM-CUT(${tailDb.toFixed(0)} dBFS at the end of a ${(dur - songEnd).toFixed(1)} s tail)`);
+  }
+  // Repetition: distinct melody bars (pitches relative to the bar's first note + onsets in 1/16 of the bar).
+  const mel = ev.filter((e) => e.track === 'melody' && e.t < songEnd);
+  const keys = new Set();
+  let melBars = 0;
+  for (let k = 0; k < bars.length; k++) {
+    const t0 = bars[k].t, t1 = k + 1 < bars.length ? bars[k + 1].t : songEnd;
+    const ns = mel.filter((e) => e.t >= t0 - 0.01 && e.t < t1 - 0.01);
+    if (!ns.length) continue;
+    melBars++;
+    keys.add(ns.map((e) => `${e.midi}:${Math.round(((e.t - t0) / (t1 - t0)) * 16)}`).join(','));
+  }
+  const novelty = melBars ? keys.size / melBars : 1;
+  if (melBars >= 8 && novelty < 0.35) flagsOut.push(`FORM-REPEAT(${(novelty * 100).toFixed(0)} % distinct melody bars)`);
+  return { sections: segs, seams, ending, novelty, melodyBars: melBars, maxNotes: crowd, flags: flagsOut };
+}

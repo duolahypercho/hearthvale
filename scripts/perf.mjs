@@ -14,7 +14,8 @@
  *   npm run perf -- --profile 15                   # + top-15 self-time JS functions per demo (CDP sampling profiler)
  *   npm run perf -- --ready-budget 200000         # ms allowed for page load + __game.ready() (default 150000)
  *   npm run perf -- --resume                       # skip demos already in shots/perf/partial.json (after a killed run)
- *   npm run perf -- --no-prime                     # skip the unrecorded priming load of the first demo (cold-GPU tax)
+ *   npm run perf -- --no-prime                     # skip the unrecorded priming load of the first demo (cold-GPU tax;
+ *                                                  # when primed, that demo is recorded last)
  *
  * Per demo: fresh page on `?demo=<name>&quality=<q>`, await __game.ready(), warm up `--warmup` ms,
  * then record `--record` ms of requestAnimationFrame deltas plus:
@@ -616,7 +617,11 @@ async function main() {
       Object.assign(args, keep);
       console.log(`[perf] primed on ${demos[0]} (unrecorded)`);
     }
-    for (const [i, name] of demos.entries()) {
+    // g14: the primed demo is recorded LAST. Recorded straight after its own 4 s priming load it still
+    // scored 35-60 fps in survey after survey (90+ on recheck): the priming load is too short to bring
+    // the GPU clocks / pipeline caches to steady state. Reports keep the requested order.
+    const order = args.prime !== 'false' && demos.length > 1 ? [...demos.slice(1), demos[0]] : demos;
+    for (const [i, name] of order.entries()) {
       if (done.has(name)) { results.push(done.get(name)); continue; }
       let res;
       for (let attempt = 0; ; attempt++) {
@@ -641,6 +646,7 @@ async function main() {
       if (res.error) console.log(`[perf] ${i + 1}/${demos.length} ${name}: ERROR ${res.error}`);
       else console.log(`[perf] ${i + 1}/${demos.length} ${name}: ${res.avgFps} fps  p95 ${res.p95Ms}  p99 ${res.p99Ms} ms  gpu ${res.gpuAvgMs ?? '-'} ms  cpu ${res.cpuAvgMs} ms (on-cpu ${Math.round(res.onCpuRatio * 100)}%)  alloc ${res.allocMBs} MB/s  ${res.drawCalls} dc (peak ${res.drawCallsPeak})  ${(res.triangles / 1e6).toFixed(2)}M tris`);
     }
+    results.sort((x, y) => demos.indexOf(x.demo) - demos.indexOf(y.demo));
     const envEnd = envLoad();
 
     // Compare with history.

@@ -285,6 +285,7 @@ class Bodies {
     this.mesh.setColorAt(i, _c.copy(c).multiplyScalar(rnd(0.85, 1.12)));
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     this.live++;
+    this.mesh.count = Math.max(this.mesh.count, i + 1);
     this.mesh.visible = true;
   }
 
@@ -300,6 +301,7 @@ class Bodies {
   update(dt: number, t: number): void {
     if (!this.mesh.visible) return;
     let any = 0;
+    let hi = 0;
     for (let i = 0; i < this.n; i++) {
       const b = this.bodies[i]!;
       if (!b.active) continue;
@@ -310,6 +312,7 @@ class Bodies {
         continue;
       }
       any++;
+      hi = i + 1;
       if (!b.rest) {
         const k = Math.exp(-b.drag * dt);
         b.v.x *= k;
@@ -350,6 +353,8 @@ class Bodies {
     }
     this.mesh.instanceMatrix.needsUpdate = true;
     this.live = any;
+    // (r22, pillar 14) Draw only up to the last live body (not the whole pool, in every pass).
+    this.mesh.count = Math.max(1, hi);
     if (!any) this.mesh.visible = false;
   }
 }
@@ -721,7 +726,8 @@ const JETS: { r0: number; r1: number; spread: number; lag: number; a: number; n:
   // (r18) A readable core: the r16 threads vanished at the 9–13 m tool lenses (r8 critic: "a single
   // thin pale rope"). The core rope is ~2 cm and denser, the side jets ~1.5 cm; beads also scale
   // with camera distance (like the sprinkler beads) so the pour never thins below ~3 px.
-  { r0: 0.021, r1: 0.017, spread: 0, lag: 0, a: 0.8, n: 22, jit: 0.01 },
+  // (r22) A fuller core rope (the arc must read at the gameplay lens, r9 critic).
+  { r0: 0.026, r1: 0.02, spread: 0, lag: 0, a: 0.84, n: 26, jit: 0.01 },
   { r0: 0.015, r1: 0.015, spread: 0.06, lag: 0.015, a: 0.82, n: 16, jit: 0.016, off: 0.04 },
   { r0: 0.015, r1: 0.015, spread: -0.06, lag: 0.025, a: 0.82, n: 16, jit: 0.016, off: -0.04 },
   // Outer holes: fine drops that fan apart and break up first.
@@ -1030,7 +1036,8 @@ interface Ring {
 
 // ───────────────────────────────────────────── sprinkler jets
 
-const ARC_BEADS = 72;
+// (r22) 96 beads a jet: the fan (rope + shed cone) needs the extra drops to read as a throw of water.
+const ARC_BEADS = 96;
 /** (r17) Soft translucent ribbon segments per jet (drawn by the same instance, after the beads). */
 const ARC_RIB = 18;
 const ARC_VS = /* glsl */ `
@@ -1075,7 +1082,8 @@ void main() {
     // disconnected stipple, no arc read), strongest off the nozzle, travelling pulses so it never
     // reads as a solid wire.
     float pulse = 0.6 + 0.4 * sin(sr * 38.0 - uTime * 22.0 + ph * 6.0);
-    vA = aA.x * smoothstep(0.0, 0.05, sr) * (0.2 * (1.0 - smoothstep(0.1, 0.3, sr)) + 0.11 * pulse * (1.0 - smoothstep(0.3, 0.78, sr)));
+    // (r22) Softer still (no glassy wire): a column off the nozzle, a whisper of veil beyond it.
+    vA = aA.x * smoothstep(0.0, 0.05, sr) * (0.16 * (1.0 - smoothstep(0.08, 0.28, sr)) + 0.06 * pulse * (1.0 - smoothstep(0.25, 0.7, sr)));
     #ifdef USE_FOG
     vFogDepth = -mvr.z;
     #endif
@@ -1090,8 +1098,10 @@ void main() {
   // Over half the beads ride the jet's main rope (a coherent arc of water out to the rim);
   // the rest shed off it and rain onto the inner tiles.
   // (r17) Most beads string along the rope (a coherent arc), few shed off it.
-  bool rope = h2 < 0.8;
-  float rj = rope ? mix(0.95, 1.02, h4) : mix(0.35, 0.95, h2);
+  // (r22) A jet is a fan of spray around its rope, not a wire (r9 critic: "thin segmented ice"): ~2/3
+  // of the beads ride the rope, the rest shed into a widening cone that rains onto the inner tiles.
+  bool rope = h2 < 0.66;
+  float rj = rope ? mix(0.93, 1.04, h4) : mix(0.3, 0.98, (h2 - 0.66) / 0.34);
   float T = aP.y * mix(0.62, 1.0, rj);
   // (r19) Rope beads leave in pulses (a sprinkler's water hammer): packets of 6 tightly spaced
   // drops with clear gaps between packets — a beaded trajectory, never a solid segmented rod.
@@ -1099,25 +1109,27 @@ void main() {
   // at hero distance the throw reads as dashes of beads with real gaps — the r19 scattered packet
   // phases overlapped into a continuous white rod.
   float pk = floor(i / 6.0);
-  float ph1 = rope ? fract(pk / 12.0 + mod(i, 6.0) * 0.0058 + h1 * 0.003 + floor(h4 * 2.0) * 0.5) : h1;
+  // (r22) Packets loosen as they fly (spacing jittered per drop), so the gaps read as water
+  // breaking up rather than a dashed line.
+  float ph1 = rope ? fract(pk / 16.0 + mod(i, 6.0) * 0.0058 * (0.6 + 0.8 * h3) + h1 * 0.006 + floor(h4 * 2.0) * 0.5) : h1;
   // Flight fraction: beads flow out of the nozzle continuously. The last 12 % of a bead's life is
   // its landing: it sits where it struck and blooms into a flat crown splash on the soil.
   float sl = fract(uTime / T + ph1);
   float s = min(sl / 0.88, 1.0);
   float land = clamp((sl - 0.88) / 0.12, 0.0, 1.0);
   // The head turned while this bead flew: it left when the jet pointed lag·s radians further back.
-  float ang = aO.w - aA.y * s * (T / aP.y) + (h3 - 0.5) * (rope ? 0.014 : 0.22) * (0.3 + s);
+  float ang = aO.w - aA.y * s * (T / aP.y) + (h3 - 0.5) * (rope ? 0.05 : 0.34) * (0.2 + s);
   vec3 dir = vec3(cos(ang), 0.0, sin(ang));
   float R = aP.x * rj;
   float g = 4.9 * T * T;
-  vec3 p = aO.xyz + dir * R * s + vec3(0.0, aP.z * s + g * s * (1.0 - s), 0.0);
+  vec3 p = aO.xyz + dir * R * s + vec3(0.0, aP.z * s + g * s * (1.0 - s) * mix(0.82, 1.12, h1), 0.0);
   vec3 tan = normalize(dir * R + vec3(0.0, aP.z + g * (1.0 - 2.0 * s), 0.0));
   vec3 toCam = normalize(cameraPosition - p);
   vec3 side = cross(tan, toCam);
   side = length(side) > 1e-5 ? normalize(side) : vec3(1.0, 0.0, 0.0);
   // Tight glassy beads off the nozzle that thin and stretch into velocity-aligned streaks as they
   // fall (motion blur); shed drops stay fine.
-  float r = (rope ? mix(0.017, 0.01, s * s) : mix(0.008, 0.014, h3)) * mix(0.75, 1.2, h4);
+  float r = (rope ? mix(0.021, 0.013, s * s) : mix(0.009, 0.016, h3)) * mix(0.75, 1.3, h4);
   // (r15) Seen from a hero-field distance (15–20 m) the beads thicken so the jets never thin into
   // hairlines; up close they keep their real size.
   r *= clamp(length(cameraPosition - p) / 9.0, 1.0, 1.6);
@@ -1128,7 +1140,8 @@ void main() {
     // Crown splash: a flat ring on the soil, expanding as it fades (only every other bead, so
     // the landing zone sparkles rather than carpets).
     // (r19) Every rope bead crowns where it lands (the landing ring reads as a wet footprint).
-    float cr = r * (1.4 + 6.5 * land) * (rope || h4 < 0.5 ? 1.0 : 0.0);
+    // (r22) Broader, lower crowns (a readable landing footprint around the throw's rim).
+    float cr = r * (1.6 + 8.5 * land) * (rope || h4 < 0.5 ? 1.0 : 0.0);
     p += vec3(1.0, 0.0, 0.0) * position.y * cr + vec3(0.0, 0.0, 1.0) * position.z * cr + vec3(0.0, 0.012, 0.0);
   } else {
     p += side * position.y * r + tan * position.z * r * stretch;
@@ -1168,7 +1181,7 @@ void main() {
     float body = 1.0 - smoothstep(0.55, 1.0, d);
     float rim = smoothstep(0.35, 0.8, d) * body;
     float hl = 1.0 - smoothstep(0.0, 0.38, length(vUv - vec2(-0.25, 0.35)));
-    a = (body * 0.3 + rim * 0.42 + hl * 0.36) * vA;
+    a = (body * 0.42 + rim * 0.46 + hl * 0.4) * vA;
     c = mix(uBody, uCore, clamp(hl * 0.7 + rim * 0.25, 0.0, 1.0));
   }
   if (a < 0.02) discard;

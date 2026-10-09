@@ -712,6 +712,8 @@ ${CAVE_GLSL}`,
         ${NOISE_GLSL}
         void main(){
           float mk = texture2D(uMask, vW.xz / uSize).r;
+          // (a = 0 at mk <= 0.25 and the blend is additive, so skip the noise there — same pixels; pillar 14)
+          if (mk <= 0.25) discard;
           vec2 p = vW.xz * vec2(1.6, 0.7) + vec2(hvNoise(vW.xz * 1.3 + uTime * 0.6) * 0.8, uTime * 0.9);
           float s = pow(hvNoise(p), 3.0) * 1.6;
           float a = smoothstep(0.25, 0.8, mk) * s * 0.07;

@@ -6,6 +6,7 @@
  */
 import type { AudioGraph } from './graph';
 import { Rand, clamp, hashString, mtof } from './dsp';
+import { ImpactBank, type Material } from './impacts';
 import { INSTRUMENTS, noiseHit, noteKeys, type InstrumentName } from './instruments';
 
 export type Surface = 'grass' | 'dirt' | 'wood' | 'stone' | 'sand' | 'snow' | 'tilled' | 'water';
@@ -38,6 +39,23 @@ export interface Voice {
   /** 0..1 consonant articulation: a 1.5–2.5 kHz click at each syllable onset and a lifted upper
    * formant, so low, dark voices read over a score whose energy sits in the low-mids. */
   presence?: number;
+  /**
+   * Round 17 voice character (critic r6 + the blind test: bram / tobias and odessa / june / linus were
+   * told apart only 1-2 times in 6). A listener knows a speaker by register, but also by voice
+   * quality, speech rhythm and intonation habits:
+   *   tilt     upper-formant level, dB (+ pressed / bright, − round / warm)
+   *   vib      vibrato [rate Hz, depth in % of f0] (an old man's tremor, a lilt, a flat monotone)
+   *   clip     syllable length factor (< 1 clipped, > 1 drawn out)
+   *   nasal    0..1: a nasal murmur near 270 Hz and a notch near 950 Hz (scaled by the tract)
+   *   creak    0..1: the line's last word drops into vocal fry (slow irregular pulses)
+   *   upturn   semitones each word's last syllable lifts (a bright, eager talker; − a falling one)
+   */
+  tilt?: number;
+  vib?: [number, number];
+  clip?: number;
+  nasal?: number;
+  creak?: number;
+  upturn?: number;
 }
 
 /**
@@ -46,22 +64,27 @@ export interface Voice {
  */
 export const VOICES: Record<string, Voice> = {
   /** Shopkeeper: bright, brisk, friendly. */
-  marigold: { base: 290, wave: 'sawtooth', formant: 1.12, spread: 4, rate: 1.1, breath: 0.1, level: 1.1 },
+  // (Round 17: every voice given a character beyond its register — see the Voice fields — and the
+  // registers pulled apart: bram 118 → 100 Hz, tobias 128 → 142 Hz with a tremor, linus 150 → 162,
+  // odessa 190 → 172, june 245 → 228.)
+  marigold: { base: 290, wave: 'sawtooth', formant: 1.12, spread: 5, rate: 1.15, breath: 0.08, level: 0.98, tilt: 4, vib: [7, 0.8], clip: 0.85, upturn: 1.5 },
   /** Baker: big, slow, warm baritone. */
-  bram: { base: 118, wave: 'sawtooth', formant: 0.84, spread: 3, rate: 0.8, breath: 0.05, presence: 1, level: 1.08 },
+  bram: { base: 100, wave: 'sawtooth', formant: 0.8, spread: 3, rate: 0.8, breath: 0.03, presence: 1, level: 1.15, tilt: 0, vib: [4.6, 0.6], clip: 1.15 },
   /** Painter: airy, flighty, wide melodic range. */
-  wren: { base: 330, wave: 'triangle', formant: 1.2, spread: 7, rate: 1.25, breath: 0.25, level: 0.77 },
+  // (Round 17: a sawtooth source with a soft tilt — the triangle left her 0.3 % in 2-4 kHz, inaudible
+  // over a score; the air is her breath.)
+  wren: { base: 330, wave: 'sawtooth', formant: 1.2, spread: 7, rate: 1.25, breath: 0.3, level: 0.83, tilt: -3, vib: [6, 1.2], upturn: 1 },
   /** Blacksmith: low, clipped, few inflections. */
-  odessa: { base: 190, wave: 'sawtooth', formant: 0.95, spread: 2, rate: 0.95, breath: 0.08, presence: 0.6, level: 1.08 },
+  odessa: { base: 172, wave: 'sawtooth', formant: 0.93, spread: 1, rate: 1.05, breath: 0.03, presence: 0.9, level: 1.52, tilt: 5, vib: [0, 0], clip: 0.62, upturn: -1.5 },
   /** Doctor: measured, mid, precise. */
-  linus: { base: 150, wave: 'sawtooth', formant: 0.92, spread: 3, rate: 0.9, breath: 0.12, presence: 0.8 },
+  linus: { base: 162, wave: 'sawtooth', formant: 0.97, spread: 2, rate: 0.85, breath: 0.06, presence: 1, level: 0.8, tilt: 1, vib: [5.5, 0.4], clip: 1, nasal: 0.85 },
   /** Innkeeper: warm alto, lilting. */
-  june: { base: 245, wave: 'sawtooth', formant: 1.05, spread: 5, rate: 1, breath: 0.15, level: 1.12 },
+  june: { base: 228, wave: 'sawtooth', formant: 1.03, spread: 7, rate: 0.95, breath: 0.22, level: 1.12, tilt: -1, vib: [5.6, 1.8], clip: 1.2, upturn: 2.5 },
   /** Old lamplighter: low, breathy, slow (a reedy sawtooth source: a triangle's 235 Hz centroid vanished under the score's low-mids). */
-  tobias: { base: 128, wave: 'sawtooth', formant: 0.88, spread: 4, rate: 0.72, breath: 0.35, presence: 1, level: 1.04 },
+  tobias: { base: 142, wave: 'sawtooth', formant: 0.9, spread: 4, rate: 0.68, breath: 0.45, presence: 1, level: 0.92, tilt: -1, vib: [4.2, 3.2], clip: 1.3, creak: 1, upturn: -1 },
   /** Kid: high, quick, bouncy. */
-  kit: { base: 400, wave: 'square', formant: 1.35, spread: 6, rate: 1.4, breath: 0.05, level: 0.7 },
-  player: { base: 220, wave: 'triangle', formant: 1.05, spread: 4, rate: 1, breath: 0.1, presence: 0.4, level: 0.87 },
+  kit: { base: 400, wave: 'square', formant: 1.35, spread: 6, rate: 1.4, breath: 0.05, level: 0.7, vib: [7.5, 1], clip: 0.8, upturn: 2 },
+  player: { base: 220, wave: 'triangle', formant: 1.05, spread: 4, rate: 1, breath: 0.1, presence: 0.4, level: 0.8 },
 };
 
 export function voiceFor(id: string): Voice {
@@ -114,11 +137,11 @@ const TRIM: Record<string, number> = {
   // (harvest, round 12: +6.6 dB — the gameplay render had the pop only +0.8 over the louder melody bus)
   harvest: 1.32, coin: 0.6, craft: 0.6, 'gift:love': 0.4, 'gift:like': 0.6, heart: 0.6, catch: 0.42, 'catch:perfect': 0.42,
   lantern: 0.48, hall: 0.34, treefall: 1.7, purchase: 0.75, ship: 0.8, bite: 0.6, bundle: 0.75, sleep: 0.8, morning: 0.8,
-  swing: 5.9, 'axe:miss': 6, warp: 3, eat: 3, plant: 8, sword: 4.7, scythe: 16, weed: 5,
+  swing: 5.9, 'axe:miss': 6, warp: 3, eat: 3, plant: 8, sword: 4.2, scythe: 16, weed: 5,
   // Round 9 hierarchy: a splash / plop is a water event, louder than a footstep (splash ≈ -20 LUFS
   // momentary on the reel), the door ≈ -24, thunder a +10 dB event over the storm bed.
   splash: 3.3, plop: 1.8, door: 2.7, thunder: 1.6, 'hoe:dull': 1.7,
-  giant: 0.45, reel: 1.4, crow: 1.2,
+  giant: 0.45, reel: 1.4, crow: 1.2, place: 1.3,
   // Round 4 hierarchy (in-game probe: watering and walking were lost under birdsong while menus
   // were louder than tools). Gameplay verbs peak around -18…-22 dBFS in game, UI -24…-28, ambience
   // events at or below -30: watering +14.6 dB (plus a soil-splash transient), scythe +9.4 dB, menu
@@ -138,17 +161,19 @@ const TRIM: Record<string, number> = {
   // (Round 9: +6 dB — the live probe had it 2 dB over the ambience floor.)
   'ui:slot': 5.6,
   // In-game probe (--live): the hardest hits sat 8–11 dB over the score's RMS — pull them in a little.
-  rockbreak: 2.7, hoe: 6.4,
+  rockbreak: 2.7, hoe: 6,
   // Round 2 (gameplay render, SFX bus +8 dB): the tools join the hoe as verbs (≈ -17…-20 LUFS
   // momentary on the reel), rewards / stingers pulled ~2 dB under them so they stay under median + 9.
-  axe: 2.2, pickaxe: 2.6, 'sword:hit': 5.2, hurt: 2, 'ui:tick': 5.2,
+  // (Round 17: the modal re-voice — axe +4 dB, pickaxe +3 dB to their old loudness; the hit's peaks
+  // tamed, its level kept.)
+  axe: 3.5, pickaxe: 3.4, 'sword:hit': 4.6, hurt: 2, 'ui:tick': 5.2,
   // Round 12: combat lands harder than tilling (the reel had sword -23.7 / slime:hit -23.3 LUFS
   // momentary against the hoe's -14.4): the swing +2.9 dB (3.6 → 5), the hit +3.7 dB (it must clear the
   // swing by 2 LU on the reel), the blows built on a contact
   // layer and levelled with the payoffs (a kill outranks a hit, a crit rings over a plain one).
   // (--live peaks, round 12: slime -12.1, crab -15.3, bat -16.1 vs the hoe -13.8 → crab / bat / wisp up.)
-  'hit:slime': 2.6, 'hit:crab': 3.9, 'hit:bat': 3.9, 'hit:wisp': 3.1, 'hit:imp': 3, 'hit:flesh': 2.6, parry: 2.2,
-  'monster:pop': 2.4, 'mine:pick': 2.6, 'mine:break': 2.6, gem: 0.6, 'mine:reveal': 0.6, sizzle: 2.4, fireball: 2.6, lift: 1.4, passout: 0.7,
+  'hit:slime': 2.6, 'hit:crab': 3.9, 'hit:bat': 4.6, 'hit:wisp': 3.1, 'hit:imp': 4.2, 'hit:flesh': 2.6, parry: 2.2,
+  'monster:pop': 2.4, 'mine:pick': 3.4, 'mine:break': 2.6, gem: 0.6, 'mine:reveal': 0.6, sizzle: 2.4, fireball: 2.6, lift: 1.4, passout: 0.7,
   'slime:hit': 1.8, 'slime:die': 1.8, slime: 1.8,
   // Round 3 additions, levelled from the reel (median momentary max ≈ -21 LUFS): level-up / chest sit
   // with the rewards (~-15), emotes and chat around the small foley (~-20 … -26).
@@ -187,8 +212,13 @@ export class Sfx {
    * renders identically whatever the music and ambience are doing (the gameplay check subtracts). */
   private grng: Rand;
 
+  /** Baked modal impact bodies per material (src/audio/impacts.ts), shared by every Sfx on the context. */
+  private bank: ImpactBank;
+
   constructor(private g: AudioGraph, seed = 99) {
     const ctx = g.ctx;
+    this.bank = ImpactBank.for(ctx);
+    if (g.offline) this.bank.step(Infinity);
     this.rng = new Rand(seed);
     this.grng = new Rand(seed * 7 + 1);
     this.out = ctx.createGain();
@@ -264,6 +294,25 @@ export class Sfx {
     n.connect(a).connect(d);
     osc.start(t);
     osc.stop(t + atk + o.tau * 7);
+  }
+
+  /**
+   * The struck body (round 17): a baked modal impact of `mat` (src/audio/impacts.ts) — its modes,
+   * damping, contact and texture are what say wood / stone / soil / shell. One buffer source; the
+   * per-repeat pitch variation (`pv`) is its playback rate, `rate` shifts it further (a bigger rock,
+   * a smaller crab). Silent until the bank has baked that material (the first second of a session).
+   */
+  private modal(d: AudioNode, t: number, mat: Material, amp: number, rate = 1): void {
+    const buf = this.bank.get(mat, this.rng);
+    if (!buf) return;
+    const ctx = this.g.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate * this.pv;
+    const a = ctx.createGain();
+    a.gain.value = amp;
+    src.connect(a).connect(d);
+    src.start(t);
   }
 
   private noise(d: AudioNode, t: number, o: Parameters<typeof noiseHit>[3]): void {
@@ -380,8 +429,10 @@ export class Sfx {
         break;
       case 'stone':
         // Hard click of a sole on cobbles, a little scuff.
-        this.noise(d, t, { f: 2700 * k, q: 3, amp: 0.2, tau: 0.01 });
-        this.noise(d, t + 0.003, { f: 4300 * k, q: 4, amp: 0.07, tau: 0.007 });
+        // (Round 17: the click -3 dB and the cobble's ring 2 ms behind it — the stone step alone pressed
+        // into the master limiter.)
+        this.noise(d, t, { f: 2700 * k, q: 3, amp: 0.14, tau: 0.01 });
+        this.noise(d, t + 0.005, { f: 4300 * k, q: 4, amp: 0.06, tau: 0.007 });
         this.noise(d, t, { type: 'lowpass', f: 520, amp: 0.16, tau: 0.02, buf: this.g.pink });
         this.noise(d, t + 0.03, { f: 1600 * k, q: 1, amp: 0.035, attack: 0.01, tau: 0.03, buf: this.g.pink });
         this.tone(d, t, { f0: 140 * k, amp: 0.05, tau: 0.02 });
@@ -502,11 +553,14 @@ export class Sfx {
       case 'hoe':
         // Blade bites the soil: a short earthy chuff (400–900 Hz), a small low body, the crunch of
         // grit on steel (1.5–5 kHz grains + click), then clods pattering back down.
-        this.tone(d, t, { f0: 170, f1: 100, glide: 0.05, amp: 0.12, tau: 0.03 });
-        this.noise(d, t + 0.003, { f: 900, q: 0.7, amp: 0.3, attack: 0.003, tau: 0.045, buf: this.g.pink });
-        this.noise(d, t, { f: 2400, q: 0.9, amp: 0.13, attack: 0.001, tau: 0.012 });
-        // (grains spread over 70 ms and a soft click: the crunch carries energy, not a spike)
-        this.crunch(d, t + 0.002, 0.25, { n: 10, span: 0.07, lo: 1300, hi: 4000, click: 0.25, clickF: 1150 + r.next() * 500 });
+        // (Round 17: the body is the soil's own — a long, soft push into a lossy mass, no ringing
+        // modes, a crumbling grit; the steel blade only ticks. Was a 170 Hz sine thump shared with
+        // every other impact.)
+        this.modal(d, t, 'soil', 0.06);
+        this.noise(d, t + 0.003, { f: 900, q: 0.7, amp: 0.26, attack: 0.004, tau: 0.045, buf: this.g.pink });
+        this.noise(d, t, { f: 2400, q: 0.9, amp: 0.06, attack: 0.002, tau: 0.012 });
+        // (grains spread over 80 ms and no click: the crunch carries energy, not a spike)
+        this.crunch(d, t + 0.004, 0.18, { n: 12, span: 0.09, lo: 1100, hi: 3600, click: 0 });
         // The clod breaks: a longer gritty soil hiss (~250 ms) and the crumbs raining back down.
         this.noise(d, t + 0.01, { f: 1500, q: 0.55, amp: 0.26, attack: 0.012, tau: 0.13, buf: this.g.pink });
         this.noise(d, t + 0.02, { f: 3200, q: 0.8, amp: 0.06, attack: 0.02, tau: 0.1 });
@@ -537,13 +591,13 @@ export class Sfx {
       }
       case 'axe':
         // Steel into green wood: a knock with the trunk's mid modes, a splintering crunch, chips.
-        this.tone(d, t, { f0: 230, f1: 150, glide: 0.05, amp: 0.12, tau: 0.03 });
-        this.noise(d, t, { f: 1250, q: 1.6, amp: 0.34, tau: 0.025 });
-        this.noise(d, t, { f: 2800, q: 1, amp: 0.26, attack: 0.001, tau: 0.012 });
-        this.tone(d, t, { f0: 420, amp: 0.1, tau: 0.06 });
-        this.tone(d, t, { f0: 910, amp: 0.07, tau: 0.04 });
-        this.tone(d, t, { f0: 1630, amp: 0.035, tau: 0.025 });
-        this.crunch(d, t + 0.001, 0.32, { n: 6, span: 0.045, lo: 1800, hi: 4800, click: 1, clickF: 1500 });
+        // (Round 17: the trunk rings on its own log modes — 170-250 Hz with inharmonic overtones that
+        // die high-first — the fibres crackle as they part and the axe head ticks: a baked modal
+        // body (impacts.ts) instead of four fixed sines and the shared click.)
+        this.modal(d, t, 'wood', 0.17);
+        this.noise(d, t, { f: 1250, q: 1.6, amp: 0.22, tau: 0.022 });
+        this.noise(d, t, { f: 2800, q: 1, amp: 0.14, attack: 0.001, tau: 0.01 });
+        this.crunch(d, t + 0.004, 0.2, { n: 6, span: 0.05, lo: 1500, hi: 4200, click: 0 });
         this.crumbs(d, t + 0.02, 5, 0.06);
         break;
       case 'axe:miss':
@@ -586,21 +640,26 @@ export class Sfx {
         break;
       case 'pickaxe':
         // Steel on stone: a bright ring, a chip-crunch and a small knock.
-        this.tone(d, t, { f0: 2150, amp: 0.07, tau: 0.04 });
-        this.tone(d, t, { f0: 3380, amp: 0.035, tau: 0.025 });
-        this.noise(d, t, { f: 2900, q: 1.5, amp: 0.2, tau: 0.018 });
-        this.tone(d, t, { f0: 180, f1: 140, glide: 0.03, amp: 0.18, tau: 0.03 });
-        this.crunch(d, t + 0.002, 0.14, { n: 4, span: 0.03, lo: 2000, hi: 5000, click: 0.6, clickF: 1700 });
-        this.crumbs(d, t + 0.03, 3, 0.04, 0.12);
+        // (Round 17: a hard, 0.3 ms contact into a small cracked stone — dense high modes that barely
+        // ring, chips, and the pick's steel tip singing over it (impacts.ts 'stone'); a low knock of
+        // the rock's mass under it.)
+        this.modal(d, t, 'stone', 0.2);
+        this.noise(d, t, { f: 2900, q: 1.5, amp: 0.1, tau: 0.014 });
+        this.noise(d, t, { type: 'lowpass', f: 420, amp: 0.12, attack: 0.001, tau: 0.022, buf: this.g.brown });
+        this.tone(d, t + 0.003, { f0: 150, f1: 110, glide: 0.03, amp: 0.07, attack: 0.003, tau: 0.04 });
+        this.crumbs(d, t + 0.03, 4, 0.05, 0.14);
         break;
       case 'rockbreak':
         // The stone splits: a cracking volley (mid body + 1.5–5 kHz grit), a short 150 Hz thump
         // (not a sub boom), then the rubble rattling down.
         for (let i = 0; i < 6; i++) this.noise(d, t + i * 0.018 + r.next() * 0.01, { f: 900 + r.next() * 2300, q: 1.2, amp: 0.3 * (1 - i * 0.12), tau: 0.02, buf: i % 2 ? this.g.pink : undefined });
-        this.tone(d, t, { f0: 170, f1: 100, glide: 0.08, amp: 0.14, tau: 0.05 });
+        // (Round 17: the stone's own modes, a size bigger than a pick's chip, then again as the halves part.)
+        this.modal(d, t, 'stone', 0.13, 0.62);
+        this.modal(d, t + 0.05, 'stone', 0.08, 0.48);
+        this.tone(d, t, { f0: 170, f1: 100, glide: 0.08, amp: 0.1, tau: 0.05 });
         this.noise(d, t, { f: 600, q: 1, amp: 0.16, tau: 0.04, buf: this.g.pink });
-        this.noise(d, t, { f: 2600, q: 0.8, amp: 0.3, attack: 0.001, tau: 0.018 });
-        this.crunch(d, t, 0.36, { n: 8, span: 0.06, click: 1, clickF: 1400 });
+        this.noise(d, t + 0.004, { f: 2600, q: 0.8, amp: 0.2, attack: 0.002, tau: 0.02 });
+        this.crunch(d, t + 0.002, 0.3, { n: 8, span: 0.06, click: 0.35, clickF: 1400 });
         this.crunch(d, t + 0.07, 0.2, { n: 6, span: 0.1, lo: 1800, hi: 5000, click: 0 });
         this.crumbs(d, t + 0.1, 14, 0.1, 0.45);
         // Round 5 payoff: the halves fall apart — a fuller 120-300 Hz knock of the chunks landing,
@@ -642,14 +701,18 @@ export class Sfx {
       case 'sword:hit':
         // A connecting blow: a bright contact transient, a slap with a 300 Hz body that drops in pitch
         // (the "thwack" tail), a contact crunch and a blade tick.
-        this.noise(d, t, { type: 'highpass', f: 2500, amp: 0.12, attack: 0.0005, tau: 0.004 });
-        this.tone(d, t, { f0: 300, f1: 150, glide: 0.05, amp: 0.14, tau: 0.035 });
-        this.tone(d, t + 0.004, { type: 'triangle', f0: 640, f1: 170, glide: 0.11, amp: 0.1, tau: 0.06, lp: 1600 });
-        this.noise(d, t + 0.01, { f: 900, f1: 380, q: 1.4, amp: 0.12, attack: 0.004, tau: 0.06, buf: this.g.pink });
-        this.noise(d, t, { f: 1500, q: 1.2, amp: 0.34, tau: 0.025 });
-        this.noise(d, t, { f: 3200, q: 1, amp: 0.2, attack: 0.001, tau: 0.01 });
-        this.crunch(d, t, 0.3, { n: 6, span: 0.04, click: 1, clickF: 1800 });
-        this.tone(d, t + 0.002, { f0: 3100, amp: 0.025, tau: 0.03 });
+        // (Round 17: it pressed 10 dB into the master limiter — five layers all spiking on the same
+        // sample. The contact, the slap and the body now land 1-6 ms apart, the clicks are halved and
+        // the weight comes from a struck hide (impacts.ts 'flesh'): as loud, ~9 dB less peak.)
+        this.noise(d, t, { type: 'highpass', f: 2500, amp: 0.06, attack: 0.0005, tau: 0.004 });
+        this.tone(d, t + 0.003, { f0: 300, f1: 150, glide: 0.05, amp: 0.08, attack: 0.006, tau: 0.04 });
+        this.tone(d, t + 0.007, { type: 'triangle', f0: 640, f1: 170, glide: 0.11, amp: 0.07, tau: 0.06, lp: 1600 });
+        this.modal(d, t + 0.002, 'flesh', 0.05);
+        this.noise(d, t + 0.01, { f: 900, f1: 380, q: 1.4, amp: 0.2, attack: 0.006, tau: 0.07, buf: this.g.pink });
+        this.noise(d, t + 0.001, { f: 1500, q: 1.2, amp: 0.14, attack: 0.002, tau: 0.035 });
+        this.noise(d, t + 0.004, { f: 3200, q: 1, amp: 0.07, attack: 0.001, tau: 0.01 });
+        this.crunch(d, t + 0.002, 0.15, { n: 6, span: 0.05, click: 0.3, clickF: 1800 });
+        this.tone(d, t + 0.005, { f0: 3100, amp: 0.02, tau: 0.03 });
         break;
       case 'slime': {
         this.tone(d, t, { f0: 170, f1: 340, glide: 0.1, amp: 0.26, tau: 0.05, lp: 900 });
@@ -685,12 +748,15 @@ export class Sfx {
         const crit = lv % 2 === 1;
         const killed = lv >= 2;
         const kind = name.slice(4);
-        this.voice('sword:hit', this.sub(d, 0.8), t, o);
-        // Body thump under every blow (120-200 Hz, short: weight, not boom).
-        this.tone(d, t, { f0: 190, f1: 105, glide: 0.06, amp: 0.16, tau: 0.045 });
+        // (Round 17: the blade's contact is lighter (0.8 → 0.5) and each creature answers with its own
+        // struck body — gel, shell, wing, embers, hide (impacts.ts) — so a blind listener can tell a
+        // crab from a slime by the hit alone; the shared 190 Hz sine thump is gone.)
+        this.voice('sword:hit', this.sub(d, 0.5), t, o);
+        const body: Record<string, Material> = { slime: 'slime', crab: 'chitin', bat: 'membrane', imp: 'ember', flesh: 'flesh' };
+        if (body[kind]) this.modal(d, t + 0.002, body[kind]!, kind === 'crab' || kind === 'bat' ? 0.09 : 0.12);
         if (kind === 'slime' || kind === 'flesh') {
           // Wet squelch: a falling formant pluck + band-passed goo noise.
-          this.tone(d, t + 0.005, { f0: 430, f1: 180, glide: 0.1, amp: 0.3, tau: 0.055, lp: 1300 });
+          this.tone(d, t + 0.009, { f0: 430, f1: 180, glide: 0.1, amp: 0.22, attack: 0.005, tau: 0.06, lp: 1300 });
           this.noise(d, t + 0.004, { f: 950, f1: 380, q: 2.4, amp: 0.24, tau: 0.045, buf: this.g.pink });
           this.noise(d, t + 0.04, { f: 1700, f1: 900, q: 4, amp: 0.08, attack: 0.006, tau: 0.03, buf: this.g.pink });
           if (killed) {
@@ -702,12 +768,12 @@ export class Sfx {
           }
         } else if (kind === 'crab') {
           // Shell clank: three inharmonic plate partials over a hollow knock, a chitin crunch.
-          const f = 1080 * (0.95 + r.next() * 0.1);
-          this.tone(d, t, { f0: f, amp: 0.09, tau: 0.07 });
-          this.tone(d, t, { f0: f * 1.71, amp: 0.06, tau: 0.05 });
-          this.tone(d, t, { f0: f * 2.63, amp: 0.035, tau: 0.035 });
-          this.tone(d, t, { type: 'triangle', f0: 380, f1: 300, glide: 0.04, amp: 0.16, tau: 0.04, lp: 1400 });
-          this.crunch(d, t + 0.003, 0.22, { n: 6, span: 0.035, lo: 2000, hi: 5200, click: 0.9, clickF: 2100 });
+          // (Round 17: the plate partials are the chitin body's modes above; a hollow knock and a dry
+          // rattle — and the claws clack shut a beat later, which no other creature does.)
+          this.tone(d, t, { type: 'triangle', f0: 380, f1: 300, glide: 0.04, amp: 0.12, tau: 0.04, lp: 1400 });
+          this.modal(d, t + 0.055 + r.next() * 0.02, 'chitin', 0.05, 1.45);
+          this.modal(d, t + 0.1 + r.next() * 0.03, 'chitin', 0.035, 1.6);
+          this.crunch(d, t + 0.003, 0.16, { n: 6, span: 0.035, lo: 2000, hi: 5200, click: 0 });
           if (killed) {
             // The shell cracks open and the pieces skitter.
             this.crunch(d, t + 0.07, 0.26, { n: 10, span: 0.08, lo: 1400, hi: 4800, click: 1, clickF: 1300 });
@@ -716,9 +782,12 @@ export class Sfx {
           }
         } else if (kind === 'bat') {
           // A squeaky chirp-screech (2.2–3.6 kHz, two quick syllables) and a flurry of wing beats.
+          // (Round 17: the squeak −3 dB and a wing-beat thump under it — without the old shared body
+          // thump the blow read 63 % in 2-4 kHz, a HARSH squeal.)
+          this.tone(d, t + 0.004, { f0: 170, f1: 110, glide: 0.05, amp: 0.1, tau: 0.04 });
           for (let i = 0; i < 2; i++) {
             const f0 = 3500 - i * 380 + r.next() * 200;
-            this.tone(d, t + 0.02 + i * 0.07, { type: 'triangle', f0, f1: f0 * 0.66, glide: 0.06, amp: 0.07, attack: 0.004, tau: 0.03, lp: 5200 });
+            this.tone(d, t + 0.02 + i * 0.07, { type: 'triangle', f0, f1: f0 * 0.66, glide: 0.06, amp: 0.05, attack: 0.004, tau: 0.03, lp: 5200 });
           }
           for (let i = 0; i < 4; i++) this.noise(d, t + 0.06 + i * 0.045, { f: 700 + r.next() * 400, q: 1.2, amp: 0.1 * (1 - i * 0.18), attack: 0.006, tau: 0.018, buf: this.g.pink });
           if (killed) {
@@ -746,9 +815,8 @@ export class Sfx {
           }
         }
         if (crit) {
-          // A critical: the blade rings out (a bright steel partial pair) and the crunch doubles.
-          this.tone(d, t + 0.002, { f0: 2620, amp: 0.05, tau: 0.16 });
-          this.tone(d, t + 0.002, { f0: 3930, amp: 0.025, tau: 0.1 });
+          // A critical: the blade rings out (a steel plate's modes, impacts.ts) and the crunch doubles.
+          this.modal(d, t + 0.002, 'steel', 0.06, 1.9);
           this.crunch(d, t + 0.006, 0.22, { n: 6, span: 0.03, click: 0.6 });
         }
         this.g.duckMusic(t, killed ? 0.7 : 0.85, killed ? 0.35 : 0.15, 0.3);
@@ -757,11 +825,10 @@ export class Sfx {
       case 'parry':
         // Fireball knocked off the blade: a short steel clang + an ember spray.
         // (A body knock under the steel so it isn't all 2-4 kHz.)
-        this.tone(d, t, { f0: 420, f1: 300, glide: 0.04, amp: 0.16, tau: 0.04 });
-        this.tone(d, t, { f0: 1240, amp: 0.07, tau: 0.09 });
-        this.tone(d, t, { f0: 1840, amp: 0.04, tau: 0.07 });
-        this.tone(d, t, { f0: 2950, amp: 0.015, tau: 0.05 });
-        this.crunch(d, t, 0.12, { n: 4, span: 0.03, click: 0.8, clickF: 1400 });
+        // (Round 17: a real steel clang — a plate's inharmonic modes ringing ~0.6 s (impacts.ts 'steel').)
+        this.tone(d, t, { f0: 420, f1: 300, glide: 0.04, amp: 0.12, tau: 0.04 });
+        this.modal(d, t, 'steel', 0.22);
+        this.crunch(d, t, 0.08, { n: 4, span: 0.03, click: 0 });
         for (let i = 0; i < 4; i++) this.noise(d, t + 0.03 + r.next() * 0.2, { f: 2200 + r.next() * 1500, q: 2.5, amp: 0.025, attack: 0.001, tau: 0.008 });
         break;
       case 'monster:pop':
@@ -1327,17 +1394,20 @@ export class Sfx {
     const n = syl.length;
     const question = w.endsWith('?');
     const excl = w.endsWith('!');
-    const sylDur = (0.075 + ((h >> 3) % 20) / 1000) / voice.rate;
+    const sylDur = ((0.075 + ((h >> 3) % 20) / 1000) / voice.rate) * (voice.clip ?? 1);
+    // A clipped talker leaves a gap between syllables; a drawn-out one slurs them together.
+    const gap = 0.012 + Math.max(0, 1 - (voice.clip ?? 1)) * 0.07;
     let tt = 0;
     for (let i = 0; i < n; i++) {
       const s = syl[i]!;
       const vIdx = VOWEL_OF[s.nuc[0]!] ?? (h >>> (i * 3)) % 5;
       // Word contour: gentle arch, final syllable falls unless it's a question.
-      const arch = i === 0 ? 0 : i === n - 1 ? (question ? 4 : -2) : 1;
+      const arch = i === 0 ? 0 : i === n - 1 ? (question ? 4 : -2 + (voice.upturn ?? 0)) : 1;
       // A one-syllable question still lifts on its only syllable.
       const semis = (((h >>> (i * 4 + 5)) % (voice.spread * 2 + 1)) - voice.spread) * 0.6 + arch + decl + (question && n === 1 ? 2 : 0);
       const d = sylDur * (i === n - 1 ? 1.25 : 1);
-      tt += this.syllable(voice, b, tt, vIdx, semis, question && i === n - 1 ? 1 : 0, d, excl && i === 0 ? 1.25 : 1, s.onset, i === n - 1 ? coda : '') + 0.012;
+      const fry = !!line?.last && i === n - 1 && !question && (voice.creak ?? 0) > 0;
+      tt += this.syllable(voice, b, tt, vIdx, semis, question && i === n - 1 ? 1 : 0, d * (fry ? 1.35 : 1), excl && i === 0 ? 1.25 : 1, s.onset, i === n - 1 ? coda : '', fry) + gap;
     }
     return tt;
   }
@@ -1346,7 +1416,7 @@ export class Sfx {
    * One syllable: [onset consonant] + voiced vowel + [coda]. Returns its length (s) including the
    * onset's voice-onset gap. Consonants are cheap noise bursts (one source + filter + gain each).
    */
-  private syllable(voice: Voice, b: { d: AudioNode; t: number }, dt: number, vowel: number, semis: number, rise: number, dur: number, accent: number, onset = '', coda = ''): number {
+  private syllable(voice: Voice, b: { d: AudioNode; t: number }, dt: number, vowel: number, semis: number, rise: number, dur: number, accent: number, onset = '', coda = '', fry = false): number {
     const ctx = this.g.ctx;
     const t0 = b.t + dt;
     // Round 12: every voice +3 dB (the villagers measured -27.5 LUFS, 5-10 LU under the UI, and
@@ -1420,12 +1490,17 @@ export class Sfx {
     const src = ctx.createOscillator();
     src.type = voice.wave;
     src.frequency.setValueAtTime(f * 0.97, t);
-    src.frequency.linearRampToValueAtTime(f * (rise ? 1.18 : 1.01), t + dur);
-    // Tiny vibrato-ish jitter so it doesn't sound like a test tone.
+    if (fry) {
+      // Vocal fry: the pitch sinks and the pulses slow and stutter into the end of the line.
+      src.frequency.linearRampToValueAtTime(f * 0.92, t + dur * 0.45);
+      src.frequency.linearRampToValueAtTime(f * 0.62, t + dur);
+    } else src.frequency.linearRampToValueAtTime(f * (rise ? 1.18 : 1.01), t + dur);
+    // The voice's own vibrato (round 17: a tremor, a lilt, or none at all), else a tiny jitter.
+    const [vr, vd] = voice.vib ?? [6.5, 1.2];
     const jit = ctx.createOscillator();
-    jit.frequency.value = 6.5;
+    jit.frequency.value = vr || 6.5;
     const jg = ctx.createGain();
-    jg.gain.value = f * 0.012;
+    jg.gain.value = f * (vr ? vd : 0.25) * 0.01;
     jit.connect(jg).connect(src.frequency);
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, t);
@@ -1435,8 +1510,13 @@ export class Sfx {
     const sum = ctx.createGain();
     sum.gain.value = voice.wave === 'square' ? 0.55 : voice.wave === 'sawtooth' ? 0.7 : 1.6;
     // F1-F3 + F4 (the 3-3.5 kHz "speaker's formant" that makes a voice cut through a band).
+    // (Round 17: the upper formants +3 dB for everyone — the reel's voices still centred at 380-670 Hz
+    // — and tilted per voice: a pressed smith, a bright shopkeeper, a round baker, a warm innkeeper.)
     const F4 = 3300;
-    ([[F1, 6, 1], [F2, 9, 0.55 * (1 + pr * 0.6)], [F3, 11, 0.3 * (1 + pr * 1.2)], [F4, 8, 0.2 * (0.5 + pr)]] as const).forEach(([ff, q, amp], k) => {
+    const tl = voice.tilt ?? 0;
+    const t2 = Math.pow(10, tl / 40) * 1.18;
+    const t3 = Math.pow(10, tl / 20) * 1.41;
+    ([[F1, 6, 1], [F2, 9, 0.55 * (1 + pr * 0.6) * t2], [F3, 11, 0.3 * (1 + pr * 1.2) * t3], [F4, 8, 0.2 * (0.5 + pr) * t3]] as const).forEach(([ff, q, amp], k) => {
       const bp = ctx.createBiquadFilter();
       bp.type = 'bandpass';
       const target = Math.min(ff * fs, 6000);
@@ -1447,7 +1527,41 @@ export class Sfx {
       a.gain.value = amp * 2.2;
       src.connect(bp).connect(a).connect(sum);
     });
-    sum.connect(env).connect(b.d);
+    let tract: AudioNode = sum;
+    const nasal = voice.nasal ?? 0;
+    if (nasal > 0) {
+      // Nasality: the nasal cavity's murmur (a resonance ~270 Hz) and its anti-resonance (~950 Hz).
+      const nm = ctx.createBiquadFilter();
+      nm.type = 'bandpass';
+      nm.frequency.value = 270 * fs;
+      nm.Q.value = 3;
+      const ng = ctx.createGain();
+      ng.gain.value = 1.4 * nasal;
+      src.connect(nm).connect(ng).connect(sum);
+      const notch = ctx.createBiquadFilter();
+      notch.type = 'peaking';
+      notch.frequency.value = 950 * fs;
+      notch.Q.value = 2.2;
+      notch.gain.value = -9 * nasal;
+      tract = sum.connect(notch);
+    }
+    if (fry) {
+      // The fry's slow, uneven pulses: the voice gated at ~40 Hz, the gate deepening to the end.
+      const am = ctx.createOscillator();
+      am.type = 'square';
+      am.frequency.setValueAtTime(48, t);
+      am.frequency.linearRampToValueAtTime(31, t + dur);
+      const ad = ctx.createGain();
+      ad.gain.setValueAtTime(0, t);
+      ad.gain.linearRampToValueAtTime(0.6, t + dur);
+      const fg = ctx.createGain();
+      fg.gain.value = 0.8;
+      am.connect(ad).connect(fg.gain);
+      tract = tract.connect(fg);
+      am.start(t);
+      am.stop(t + dur + 0.02);
+    }
+    tract.connect(env).connect(b.d);
     // The glottal onset: a 2-4 kHz tick where the vowel starts (the articulation that carries a line
     // over the score, round 12) — softer after a fricative / nasal that already marked the syllable.
     const soft = key === 's' || key === 'sh' || key === 'm' || key === 'n' || key === 'z';
@@ -1476,8 +1590,9 @@ export class Sfx {
     return vot + dur + tail;
   }
 
-  /** Continuous effects (fishing reel ratchet). */
+  /** Continuous effects (fishing reel ratchet); bakes the impact bank one variant per tick (~1 ms). */
   tick(now: number): void {
+    if (!this.bank.ready) this.bank.step(1);
     if (!this.reeling) return;
     if (this.nextReel < now) this.nextReel = now;
     while (this.nextReel < now + 0.1) {

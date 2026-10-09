@@ -85,7 +85,7 @@ const MIX_ENV: Record<string, EnvState> = {
 };
 
 /** Render-wide options (set by the harness): `liveBudget` applies the game's 72-voice polyphony budget. */
-const renderOpts = { liveBudget: false };
+const renderOpts = { liveBudget: false, bypassLimiter: false };
 export function setRenderOptions(o: Partial<typeof renderOpts>): typeof renderOpts {
   Object.assign(renderOpts, o);
   return { ...renderOpts };
@@ -95,7 +95,7 @@ export function setRenderOptions(o: Partial<typeof renderOpts>): typeof renderOp
 async function offlineGraph(seconds: number, sr: number): Promise<{ ctx: OfflineAudioContext; g: AudioGraph }> {
   const ctx = new OfflineAudioContext(2, Math.ceil(sr * seconds), sr);
   const ok = await loadDucker(ctx);
-  const g = new AudioGraph(ctx, 1234, undefined, { worklet: ok, liveBudget: renderOpts.liveBudget });
+  const g = new AudioGraph(ctx, 1234, undefined, { worklet: ok, liveBudget: renderOpts.liveBudget, bypassLimiter: renderOpts.bypassLimiter });
   if (!ok) g.attachSidechain(false);
   return { ctx, g };
 }
@@ -208,6 +208,56 @@ export async function renderSfxReel(sr = 44100, only: string[] | null = null): P
     }
   });
   return { name: 'sfx-reel', sampleRate: sr, data: encode(buf), frames: buf.length, markers };
+}
+
+/**
+ * Blind-recognition takes (round 17, critic r6: "add blind recognition tests for villagers, surfaces
+ * and tools without visual context"): every named effect `takes` times, each from a fresh Sfx with
+ * its own seed (so the per-repeat pitch / level variation and the random grains differ), 1.6 s apart
+ * (3.4 s for long payoffs); `voice:<id>` speaks a different line per take. The analyser
+ * (scripts/audio-recognize.mjs) classifies each take by its nearest class without being told which
+ * it is: a design is recognisable when its own takes resemble each other more than any other's.
+ */
+export async function renderSfxTakes(names: string[], takes = 5, sr = 44100): Promise<Rendered> {
+  const LINES = [
+    'Well hello there, neighbour! Lovely morning, isn\'t it?',
+    'The bakery opens at nine, same as always.',
+    'Did you hear the bells last night? Strange business.',
+    'Careful on the bridge, the planks are wet.',
+    'I saved you some apples from the orchard!',
+    'Hmm. Come back when the lanterns are lit.',
+    'Your turnips are coming along nicely, you know.',
+  ];
+  const markers: { name: string; t: number; take: number }[] = [];
+  let t = 0.3;
+  const long = /^(treefall|rockbreak|water|lift|passout|mine:break|catch|cast|thunder|sleep|hall|lantern)$/;
+  for (let k = 0; k < takes; k++) {
+    for (const n of names) {
+      markers.push({ name: n, t, take: k });
+      t += n.startsWith('voice:') ? 3.4 : long.test(n) ? 3.4 : 1.6;
+    }
+  }
+  const seconds = t + 1;
+  const buf = await render(seconds, sr, (g) => {
+    for (const m of markers) {
+      // A fresh effect generator per take (seeded by take and name), as a new swing in a new place would be.
+      const sfx = new Sfx(g, 1000 + m.take * 7919 + (m.name.length * 131) % 997);
+      sfx.key = 62;
+      if (m.name.startsWith('voice:')) {
+        const voice = VOICES[m.name.slice(6)]!;
+        const line = LINES[(m.take + m.name.length) % LINES.length]!;
+        let tt = m.t;
+        const words = line.split(' ');
+        words.forEach((w, i) => {
+          sfx.murmur(voice, w, { at: tt }, { index: i, last: i === words.length - 1 });
+          tt += Math.max(0.2, (w.length + 1) / 28);
+        });
+      } else {
+        sfx.play(m.name, { at: m.t });
+      }
+    }
+  });
+  return { name: 'sfx-takes', sampleRate: sr, data: encode(buf), frames: buf.length, markers };
 }
 
 /**
@@ -471,6 +521,13 @@ export function describePiece(id: string, seed = 1): { theme: string; bars: numb
   const names = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
   const mel = p.events.filter((e) => e.track === 'melody').slice(0, 48).map((e) => `${names[e.midi % 12]}${Math.floor(e.midi / 12) - 1}@${e.t.toFixed(2)}`);
   return { theme: id, bars: p.bars, duration: p.duration, melody: mel };
+}
+
+/** A song's composed length, form and whether it loops seamlessly (whole-song renders, round 17). */
+export function songInfo(id: string, seed = 1): { duration: number; looping: boolean; form: string } {
+  const th = THEMES[id]!;
+  const p = new Composer(th, seed).compose();
+  return { duration: p.duration, looping: th.rest[1] === 0, form: th.form.join('-') };
 }
 
 /** Composed events + bar grid for piano-roll plots. */

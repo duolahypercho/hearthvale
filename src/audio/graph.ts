@@ -74,6 +74,9 @@ export interface GraphOptions {
   liveBudget?: boolean;
   /** Offline: register-before-build flag — the ducker worklet module is loaded on this context. */
   worklet?: boolean;
+  /** Offline measurement only (round 17): skip the master limiter + soft clip, so the analyser sees
+   * each design's own transient peak instead of the ceiling it is pressed against. */
+  bypassLimiter?: boolean;
 }
 
 /** Default side lift for the score (L += w·S, R −= w·S above 300 Hz). 0 = as arranged, < 0 narrows. */
@@ -197,7 +200,9 @@ export class AudioGraph {
     clip.oversample = '2x';
     // DC / subsonic cleanup (FM voices with 1:1 ratios produce a DC sideband).
     const hpf = bq('highpass', 24, 0.6);
-    this.mix.connect(hpf).connect(limiter).connect(clip).connect(this.out).connect(dest ?? ctx.destination);
+    // (Bypassed, the master volume is skipped too: the render shows the level going INTO the limiter.)
+    if (opts.bypassLimiter && this.offline) this.mix.connect(hpf).connect(dest ?? ctx.destination);
+    else this.mix.connect(hpf).connect(limiter).connect(clip).connect(this.out).connect(dest ?? ctx.destination);
 
     this.musicBus = g(0.34);
     this.duck = g(1);

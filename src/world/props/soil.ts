@@ -853,6 +853,12 @@ export class SoilBeds {
 
   /** Rebuild dirty chunks, animate heaves + wetness floods / drying. Call every frame. */
   tick(dt: number): void {
+    // (r22, pillar 14) Husks only exist in winter (scaled to nothing otherwise): outside winter the
+    // batch is hidden, so it stops drawing (and stops being a moving shadow caster every frame).
+    if (huskMat) {
+      const on = globalUniforms.uSeasonW.value.w > 0.45;
+      for (const m of this.pool.meshesFor(huskMat)) if (m.visible !== on) m.visible = on;
+    }
     if (this.dirty.size) {
       for (const ci of this.dirty) this.rebuild(ci);
       this.dirty.clear();

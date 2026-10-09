@@ -57,30 +57,31 @@ const TRACKS: Record<ActionKind, Key[]> = {
   // torso twisted and leaning back, so the tool head clears the hat silhouette at the top.
   chop: [
     { t: 0 },
-    // (r19) Gather: a real crouch — knees give, hips sit back, both hands low on the handle with the
-    // blade skimming the ground in front of the boots (no blade near the face).
-    { t: 0.1, ease: 'out', aR: [-0.48, -0.1], aL: [-0.42, 0.12], torso: [0.24, 0.14, 0.04], head: -0.16, sy: 0.84, hips: [0.15, 0.12], stance: 0.3, tool: [Math.PI / 2 + 0.12, 0, 0] },
-    // Rising coil: hips and shoulders wind away from the tile and the body leans back; the hoe comes
-    // up across the chest onto the wind-up shoulder like a bat — the free arm crosses the chest to
-    // the handle (both hands on it, below the chin).
-    // (r20) Hands stay at shoulder height and the shaft is LAID BACK over the shoulder (~45° from
-    // vertical, blade behind the shoulder), the torso turned well away from the tile so the lens sees
-    // the loaded handle in profile — the r19 top held the hoe upright beside the hat like a flag.
-    { t: 0.17, ease: 'out', aR: [-1.45, -0.32], aL: [-1.35, -0.5], torso: [-0.12, -0.26, -0.08], head: 0.0, sy: 1.03, hips: [-0.05, -0.14], stance: 0.3, grip: 0.0, reach: 1.06, toolT: [-0.6, 0, 0.45] },
-    // Top: fully coiled, rear foot planted, both fists at the chest, the shaft lying back across the
-    // shoulder at ~45° with the blade cocked up behind it, clear of the hat.
-    { t: 0.205, ease: 'out', aR: [-1.9, -0.4], aL: [-1.8, -0.6], torso: [-0.2, -0.35, -0.1], head: 0.04, sy: 1.07, hips: [-0.08, -0.2], stance: 0.32, grip: 0.0, reach: 1.08, toolT: [-0.9, 0, 0.55] },
-    // Downswing (two readable frames, ~70 ms): the hips fire first, the shoulders unwind, the hands
-    // drive forward and down past the chest while the blade whips over the top on the wind-up side.
-    { t: 0.24, ease: 'in', aR: [-1.55, -0.3], aL: [-1.42, -0.12], torso: [0.12, -0.34, -0.06], head: -0.16, sy: 0.96, hips: [0.04, -0.12], stance: 0.36, grip: 0.03, reach: 1.2, toolT: [0.15, 0, 0.42] },
-    { t: 0.258, ease: 'in', aR: [-1.05, -0.18], aL: [-0.92, -0.04], torso: [0.26, -0.14, -0.02], head: -0.28, sy: 0.88, hips: [0.06, -0.02], stance: 0.4, grip: 0.04, reach: 1.24, toolT: [1.05, 0, 0.16] },
+    // (r22) Gather: a deep crouch — knees give, hips sit back and coil a touch toward the tile, both
+    // hands low on the handle with the blade drawn back along the ground toward the boots.
+    { t: 0.1, ease: 'out', aR: [-0.5, -0.1], aL: [-0.44, 0.12], torso: [0.3, 0.2, 0.05], head: -0.26, sy: 0.8, bob: -0.03, hips: [0.2, 0.18], stance: 0.36, tool: [Math.PI / 2 + 0.2, 0, 0] },
+    // (r22) Rising (r9 critic: "wind-up lacks bodily commitment"): an overhead heave out of the
+    // crouch — the body arches back and stretches tall in a wide split stance (rear foot planted),
+    // both fists climb past the hat brim on the camera side and the shaft lays back over the
+    // shoulder, the blade cocked up behind and out (the face stays open below the arms). No chest
+    // twist toward the lens: the coil is a back arch, so the silhouette stays in profile.
+    { t: 0.17, ease: 'out', aR: [-2.6, -0.42], aL: [-2.48, -0.62], torso: [-0.24, -0.08, -0.12], head: -0.04, sy: 1.08, hips: [-0.12, -0.08], stance: 0.46, grip: 0.04, reach: 1.22, toolT: [-1.0, 0, 0.5] },
+    // Top: the held beat before the blow — arched back, fists high over the head, the hoe laid back
+    // ~75° with the blade high behind, chin up (exertion).
+    { t: 0.205, ease: 'out', aR: [-2.92, -0.46], aL: [-2.8, -0.66], torso: [-0.34, -0.1, -0.16], head: -0.06, sy: 1.13, hips: [-0.16, -0.1], stance: 0.52, grip: 0.08, reach: 1.34, toolT: [-1.38, 0, 0.55] },
+    // Downswing (two readable frames, ~70 ms): the hips fire first, the body jack-knifes forward, the
+    // arms whip down; the blade sweeps over OUT FRONT of the face (shaft ~50° forward, never across it).
+    { t: 0.24, ease: 'in', aR: [-2.05, -0.3], aL: [-1.95, -0.42], torso: [0.1, -0.06, -0.08], head: -0.2, sy: 1.02, hips: [0.06, -0.06], stance: 0.54, grip: 0.06, reach: 1.24, toolT: [0.85, 0, 0.35] },
+    { t: 0.258, ease: 'in', aR: [-1.25, -0.2], aL: [-1.12, -0.12], torso: [0.32, -0.04, -0.02], head: -0.36, sy: 0.86, hips: [0.12, -0.02], stance: 0.56, grip: 0.04, reach: 1.24, toolT: [1.45, 0, 0.14] },
     // Impact: the torso whips over, knees drop into a lunge, the body squashes hard; the blade bites
     // below the surface (blade-tip IK, see `aim`).
-    { t: 0.275, ease: 'in', aR: [-0.42, -0.05], aL: [-0.3, 0.05], torso: [0.32, -0.04, 0], head: -0.34, sy: 0.8, hips: [0.07, 0.06], stance: 0.44, tool: [Math.PI / 2 - 0.15, 0, 0] },
-    // Bite: held two frames in the ground, the body still sinking into it.
-    { t: 0.32, ease: 'linear', aR: [-0.38, -0.05], aL: [-0.27, 0.05], torso: [0.34, 0, 0], head: -0.35, sy: 0.8, hips: [0.08, 0.05], stance: 0.46, tool: [Math.PI / 2 - 0.12, 0, 0] },
-    // Recoil: the hoe is ripped back toward the boots and out, the body springs up past rest.
-    { t: 0.42, ease: 'out', aR: [-0.92, -0.08], aL: [-0.74, 0.06], torso: [0.06, 0.1, 0.02], head: -0.02, sy: 1.09, hips: [0.0, 0.04], stance: 0.18, tool: [Math.PI / 2 - 0.75, 0, 0] },
+    { t: 0.275, ease: 'in', aR: [-0.42, -0.05], aL: [-0.3, 0.05], torso: [0.38, -0.02, 0], head: -0.4, sy: 0.76, bob: -0.02, hips: [0.12, 0.08], stance: 0.56, tool: [Math.PI / 2 - 0.15, 0, 0] },
+    // Bite: held two frames in the ground, the body still sinking into it (exertion). (r22) The head
+    // stays tipped back against the body's lean (negative = chin up) so the face never hides under the hat.
+    { t: 0.32, ease: 'linear', aR: [-0.38, -0.05], aL: [-0.27, 0.05], torso: [0.4, 0.02, 0], head: -0.4, sy: 0.77, bob: -0.02, hips: [0.13, 0.08], stance: 0.56, tool: [Math.PI / 2 - 0.12, 0, 0] },
+    // Recoil: the hoe is ripped back toward the boots (blade LOW, in front of the shins — never up
+    // by the face), the body springs up past rest and rocks back.
+    { t: 0.42, ease: 'out', aR: [-0.62, -0.08], aL: [-0.5, 0.06], torso: [-0.06, 0.08, 0.02], head: 0.06, sy: 1.1, bob: 0.02, hips: [-0.04, 0.04], stance: 0.24, tool: [Math.PI / 2 - 0.3, 0, 0] },
     // (r20) Recovery to a blade-down rest: the hoe settles with its blade on the ground in front of
     // the boots (never a shaft carried across the hips).
     { t: 0.54, ease: 'inout', aR: [-0.5, -0.08], aL: [-0.36, 0.08], torso: [0.1, 0.04, 0], head: -0.06, sy: 0.99, hips: [0.02, 0.02], stance: 0.1, tool: [Math.PI / 2 + 0.05, 0, 0] },
@@ -112,13 +113,16 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // (r19) Anticipation: a dip — knees give, the can swings back a touch on its handle.
     { t: 0.12, ease: 'out', aR: [-0.55, -0.14], aL: [-0.42, 0.5], torso: [-0.07, 0, 0], head: -0.04, sy: 0.92, bob: -0.02, level: -0.14, reach: 1.15 },
     // The lift: a committed heave up past shoulder height, the free hand under the belly, body tall.
-    { t: 0.3, ease: 'back', aR: [-1.72, -0.14], aL: [-1.4, 0.62], torso: [-0.04, 0, 0.05], head: -0.06, sy: 1.07, level: 0.12, reach: 1.3 },
-    // The tip: the shoulder dips into it (torso roll toward the can), the rose levels out over the
-    // tile so the water leaves it forward and falls in a long arc (the face stays up, clear of the hat).
-    { t: 0.4, ease: 'inout', aR: [-1.66, -0.14], aL: [-1.36, 0.62], torso: [0.05, 0, 0.17], head: -0.04, sy: 1.0, level: 0.5, reach: 1.3, stance: 0.12 },
+    // (r22) Higher and held further out (r9 critic: "the can barely tips"): the can rides up to chin
+    // height so the water has a real drop to arc across.
+    { t: 0.3, ease: 'back', aR: [-1.92, -0.16], aL: [-1.55, 0.6], torso: [-0.08, 0, 0.06], head: 0.02, sy: 1.09, level: 0.14, reach: 1.36 },
+    // The tip: the shoulder rolls hard into it (torso roll toward the can, hips under it), the can
+    // pitched ~45° so the rose levels out over the tile and the water leaves it forward in a long arc
+    // (the face stays up, clear of the hat).
+    { t: 0.4, ease: 'inout', aR: [-1.82, -0.16], aL: [-1.46, 0.62], torso: [0.08, 0, 0.26], head: 0.0, sy: 1.0, level: 0.8, reach: 1.36, stance: 0.18, hips: [0.04, 0] },
     // Held tipped (pours ~0.6 s), tipping further as the can empties.
-    { t: 0.92, ease: 'linear', aR: [-1.62, -0.14], aL: [-1.32, 0.62], torso: [0.07, 0, 0.19], head: -0.02, sy: 0.99, level: 0.62, reach: 1.3, stance: 0.14 },
-    { t: 1.08, ease: 'inout', aR: [-0.95, -0.14], aL: [-0.6, 0.45], torso: [0.03, 0, 0.02], sy: 1.02, level: 0.05, reach: 1.2 },
+    { t: 0.92, ease: 'linear', aR: [-1.76, -0.16], aL: [-1.4, 0.62], torso: [0.1, 0, 0.29], head: 0.02, sy: 0.99, level: 0.94, reach: 1.36, stance: 0.2, hips: [0.05, 0] },
+    { t: 1.08, ease: 'inout', aR: [-0.95, -0.14], aL: [-0.6, 0.45], torso: [0.03, 0, 0.02], sy: 1.03, level: 0.05, reach: 1.2 },
     { t: 1.26, ease: 'inout' },
   ],
   refill: [

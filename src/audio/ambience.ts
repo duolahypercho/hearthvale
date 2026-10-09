@@ -425,6 +425,10 @@ export class Ambience {
     if (t !== null) this.chickadee(t, r.range(-0.7, 0.7));
     t = due('crow', 20, 55, outdoors && !raining && (s.season === 'fall' || s.season === 'winter') && s.night < 0.3 && !beach);
     if (t !== null) this.crow(t);
+    // Round 17: a snowy day moves — snow slumps off a laden branch (a soft whump and a powder hiss),
+    // more often in the gusts; the snow render was a steady hush (LRA 3.1 LU, 4 events a minute).
+    t = due('snowslide', 7 - 3 * this.gust, 20 - 8 * this.gust, outdoors && s.season === 'winter' && (s.weather === 'snow' || s.weather === 'wind') && !beach);
+    if (t !== null) this.snowSlide(t);
     t = due('gull', 5, 14, beach && !storm && s.night < 0.4);
     if (t !== null) this.gull(t);
     // Night.
@@ -593,7 +597,26 @@ export class Ambience {
     const r = this.rng;
     const species = r.weighted([['warbler', 3], ['robin', 4], ['finch', 3], ['thrush', 2.5], ['wren', 1.5], ['chickadee', s.season === 'spring' ? 1.5 : 0.8]] as const);
     if (species === 'chickadee') this.chickadee(t, 0);
-    else this.sing(species, t, (species === 'wren' ? 0.042 : species === 'thrush' ? 0.056 : 0.06) * (chorus > 0.9 ? 0.85 : 1));
+    // (Round 17: in the woods the birds are closer than across a field — +2.5 dB over the brook, whose
+    // babble had masked half of them: forest-stream fell to 6 audible events a minute.)
+    else this.sing(species, t, (species === 'wren' ? 0.042 : species === 'thrush' ? 0.056 : 0.06) * (chorus > 0.9 ? 0.85 : 1) * (s.map === 'forest' ? 1.33 : 1));
+  }
+
+  /**
+   * Snow sliding off a branch: the clump's soft landing (a 120-250 Hz whump through a thick blanket)
+   * after a short powder hiss as it lets go, then the fine powder sifting down (2-6 kHz, ~1 s); now
+   * and then the relieved branch springs back with a wooden tick.
+   */
+  private snowSlide(t: number): void {
+    const r = this.rng;
+    const near = r.range(0.35, 1);
+    const d = this.dest(r.range(-0.9, 0.9), 0.35 + 0.4 * (1 - near));
+    const fall = r.range(0.18, 0.45);
+    noiseHit(this.g, d, t, { f: r.range(2400, 3600), q: 0.8, amp: 0.012 * near, attack: 0.05, tau: fall * 0.4, buf: this.g.pink });
+    noiseHit(this.g, d, t + fall, { type: 'lowpass', f: r.range(180, 260), amp: 0.09 * near, attack: 0.012, tau: 0.07, buf: this.g.brown });
+    noiseHit(this.g, d, t + fall + 0.005, { f: r.range(500, 800), q: 0.9, amp: 0.025 * near, attack: 0.01, tau: 0.06, buf: this.g.pink });
+    noiseHit(this.g, d, t + fall + 0.03, { type: 'highpass', f: r.range(2200, 3200), amp: 0.014 * near, attack: 0.12, tau: r.range(0.3, 0.6), buf: this.g.pink });
+    if (r.chance(0.35)) noiseHit(this.g, d, t + 0.02, { f: r.range(900, 1400), q: 5, amp: 0.02 * near, attack: 0.0008, tau: 0.012 });
   }
 
   private chickadee(t: number, _pan: number): void {
