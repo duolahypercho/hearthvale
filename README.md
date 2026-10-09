@@ -193,7 +193,12 @@ quads that are inactive or faded out at the lens are clipped in the vertex shade
 scorch / ash fbms (three coarse octaves) and crazing mask are per vertex on the cave shell's 0.2 m grid; fields that place
 thin crack / joint lines stay per pixel (`world/mine/cave.ts` HV_CAVE_VN, `?cavevn=0` = old shader). The lava plane
 itself measures ~0 ms in matbench (mine-lava); the shell is the mine's main-pass cost. Ground light
-pools (`props/decals.ts`) are one merged mesh per map (town at night 8 draws -> 1). Measure shader changes with
+pools (`props/decals.ts`) are one merged mesh per map (town at night 8 draws -> 1). Ambient critters (perf g22,
+`systems/critters.ts`): every butterfly / songbird / cat / chicken part draws from two BatchedMeshes (shadow casters and
+the rest) fed each frame from the hidden rigs' world matrices, instead of one draw per part per pass (farm-morning
+236 -> 211 draws, farm-fall 229 -> 204, coop-farm peak 280 -> 256; abprof p20 frame -0.5 ms farm-morning, -0.4 farm-fall;
+abshot farm-morning mean diff 0.000/255;
+`?critterbatch=0` = one mesh per part). Measure shader changes with
 `scripts/matbench.mjs --names <tag>` (isolated, min / p20 of interleaved samples) and prove them with `scripts/abshot.mjs`:
 wall-clock `npm run perf` on this shared machine (load 100-400 on 18 cores) cannot resolve a 10 % change.
 Shadow proxies (perf r22): an `InstancedPart` with `shadowOnly: true` draws only in the sun's shadow pass (its colour
