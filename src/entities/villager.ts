@@ -1819,17 +1819,19 @@ export class Villager {
         // Hugging the skull (a low crown, not a helmet dome).
         dome.scale(1.0, 0.8, 1.03);
         rb.add(B.head, dome, T(), c);
-        const hem = torG(rr * Math.sin(polar) * 1.03, 0.016, 6, 32);
+        // (r14: a slim self-coloured hem and a finer print — the thick dark rim and big white dots read
+        // as a toadstool cap / a bowl, not a scarf)
+        const hem = torG(rr * Math.sin(polar) * 1.02, 0.01, 6, 32);
         hem.rotateX(Math.PI / 2);
         hem.translate(0, rr * Math.cos(polar) * 0.8, 0);
-        rb.add(B.head, hem, T(), shadeHex(c, 0.8));
-        const N = 26;
+        rb.add(B.head, hem, T(), shadeHex(c, 0.9));
+        const N = 40;
         const dots: THREE.BufferGeometry[] = [];
         for (let i = 0; i < N; i++) {
           const a = (i * 2.399963) % (Math.PI * 2);
           const th = Math.acos(1 - ((i + 0.5) / N) * (1 - Math.cos(polar - 0.12)));
           const q = new THREE.Vector3(Math.sin(a) * Math.sin(th) * rr * 1.03, Math.cos(th) * rr * 0.83, Math.cos(a) * Math.sin(th) * rr * 1.06);
-          const d = new THREE.CircleGeometry(0.027 + (i % 3) * 0.004, 10);
+          const d = new THREE.CircleGeometry(0.016 + (i % 3) * 0.003, 8);
           d.lookAt(new THREE.Vector3(q.x / 1.08, q.y, q.z / 1.08));
           q.multiplyScalar(1.006);
           d.translate(q.x, q.y, q.z);
@@ -1879,8 +1881,29 @@ export class Villager {
     this.heldIcon = null;
   }
 
-  holdProp(obj: THREE.Object3D, pose: 'lap' | 'chest' | 'cup'): void {
+  private heldObj: THREE.Object3D | null = null;
+  private heldPose: 'lap' | 'chest' | 'cup' | 'hand' | null = null;
+  private heldTop = 0;
+  private heldHand = new THREE.Vector3();
+  private holdBlend = 0;
+
+  holdProp(obj: THREE.Object3D, pose: 'lap' | 'chest' | 'cup' | 'hand'): void {
     const spine = this.bones[B.spine]!;
+    this.heldObj = obj;
+    this.heldPose = pose;
+    if (pose === 'hand') {
+      // Carried by its top (a lantern's ring) in the right hand: hung from the hand, kept plumb in update().
+      obj.scale.setScalar((1 / Math.max(0.5, this.scaleS)) * 1.0);
+      obj.rotation.set(1.15, 0, 0);
+      obj.position.set(0, 0, 0);
+      obj.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(obj);
+      this.heldTop = box.max.y / obj.scale.y;
+      const hand = this.propBones.get('mug')?.position;
+      this.heldHand.set(hand?.x ?? 0, (hand?.y ?? -0.3) + 0.01, (hand?.z ?? 0) + 0.035);
+      this.bones[B.foreR]!.add(obj);
+      return;
+    }
     spine.add(obj);
     if (pose === 'cup') {
       // held upright in both hands just under the chin
@@ -2206,6 +2229,49 @@ export class Villager {
       else {
         const w = Math.min(1, this.gestT / 0.22) * Math.min(1, (this.gestDur - this.gestT) / 0.4);
         this.applyGesture(this.gest, w * w * (3 - 2 * w), this.gestT);
+      }
+    }
+    // (after the gestures: a mood gesture moves the head and shoulders, not the hands holding the prop)
+    // r14 (critic: the heart-event lantern cage floated at Odessa's chest, her hands hanging at her
+    // sides): a held prop is cradled — both forearms come up under it, elbows in, the head dips to it.
+    {
+      if (this.heldObj && !this.heldObj.parent) {
+        this.heldObj = null;
+        this.heldPose = null;
+      }
+      const want = this.heldObj && this.heldPose !== 'lap' && this.sitBlend < 0.5 ? 1 : 0;
+      this.holdBlend += (want - this.holdBlend) * (dt === 0 ? 1 : 1 - Math.exp(-8 * dt));
+      const k = this.holdBlend;
+      if (k > 0.002) {
+        const lerp = THREE.MathUtils.lerp;
+        if (this.heldPose === 'hand' && this.heldObj) {
+          // A lantern held up by its ring (the high lens foreshortens a forward arm: the hand must
+          // rise to the shoulder for the lantern to hang at the chest), plumb; the left hand steadies it.
+          aR.rotation.x = lerp(aR.rotation.x, -1.35, k);
+          aR.rotation.z = lerp(aR.rotation.z, -0.38, k);
+          fR.rotation.x = lerp(fR.rotation.x, -0.85, k);
+          aL.rotation.x = lerp(aL.rotation.x, -0.55, k);
+          aL.rotation.z = lerp(aL.rotation.z, 0.5, k);
+          fL.rotation.x = lerp(fL.rotation.x, -1.0, k);
+          aL.rotation.y = 0;
+          aR.rotation.y = 0;
+          fL.rotation.z = 0;
+          fR.rotation.z = 0;
+          const rx = -(aR.rotation.x + fR.rotation.x);
+          const rz = -aR.rotation.z;
+          this.heldObj.rotation.set(rx + 1.15, 0, rz);
+          _holdV.set(0, -this.heldTop * this.heldObj.scale.y, 0).applyEuler(_holdE.set(rx, 0, rz));
+          this.heldObj.position.copy(this.heldHand).add(_holdV);
+        } else {
+          const cup = this.heldPose === 'cup';
+          aL.rotation.x = lerp(aL.rotation.x, cup ? -0.95 : -0.74, k);
+          aR.rotation.x = lerp(aR.rotation.x, cup ? -0.95 : -0.74, k);
+          aL.rotation.z = lerp(aL.rotation.z, 0.42, k);
+          aR.rotation.z = lerp(aR.rotation.z, -0.42, k);
+          fL.rotation.x = lerp(fL.rotation.x, cup ? -1.05 : -0.78, k);
+          fR.rotation.x = lerp(fR.rotation.x, cup ? -1.05 : -0.78, k);
+        }
+        head.rotation.x += 0.08 * k;
       }
     }
     // Chin up towards the high camera so faces read.
@@ -4458,6 +4524,9 @@ export function buildChair(color = 0x8a5a32): THREE.Mesh {
  * Odessa's grandfather's lantern cage (odessa-4): a hand-riveted iron birdcage-lantern with a brass
  * ring, a domed top and an empty, unlit glass chimney — held upright at her chest.
  */
+const _holdV = new THREE.Vector3();
+const _holdE = new THREE.Euler();
+
 export function buildLanternCage(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'npc-cage';

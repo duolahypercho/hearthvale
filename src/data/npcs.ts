@@ -233,7 +233,7 @@ export interface HeartEvent {
     /** A line containing this word frames the prop with the speaker. */
     word?: string;
     /** Held by a cast member ('lap' / 'chest'; `at` ignored). */
-    hold?: [NpcId, 'lap' | 'chest' | 'cup'];
+    hold?: [NpcId, 'lap' | 'chest' | 'cup' | 'hand'];
     /** Placed `near[1]` m in front of a cast member (`at` ignored): the anvil's sparks. */
     near?: [NpcId, number, number?];
   }[];
@@ -775,7 +775,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
         cast: { odessa: [[33.6, 14.6], 'left'], player: [[31.0, 16.2], 'up'] },
         camera: { x: 32.4, z: 13.8, yaw: 6, pitch: 36, distance: 15 },
         // (r8: the cage the scene is about is in her hands, not only on the insert card)
-        props: [{ kind: 'cage', at: [0, 0], hold: ['odessa', 'chest'], word: 'cage|rivet' }],
+        props: [{ kind: 'cage', at: [0, 0], hold: ['odessa', 'hand'], word: 'cage|rivet' }],
         insert: [{ kind: 'cage', word: 'cage|rivet|lantern', caption: 'Her grandfather’s lantern cage' }],
         script: [
           { say: 'odessa', text: 'Shh. Rivet check. My grandfather made this cage — every piece, by hand, the winter the old one rusted through.', mood: 'neutral' },
@@ -802,7 +802,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Dr. Linus Pell',
     role: 'Runs the Willowmere Clinic',
     birthday: { season: 'summer', day: 5 },
-    look: { fp: { w: 0.9, h: 1.09, jaw: 0.3, chin: 0.35, eye: 0.84, gap: 0.88, eyeY: 0.02, nose: 'long', mouth: 0.78, lines: 0.5, cheeks: 0.1, ears: 1.05 }, eyeShape: 'almond', brow: 0.8, browArch: 0.45, head: 0.78, skin: 0xf2d0b4, hair: 0x9a9690, hairStyle: 'slick', top: 0xd8e4ea, bottom: 0x4a5058, coat: 0xe6e8e2, bowtie: 0x2f8f8a, glasses: true, beard: 'mustache', scale: 1.1, build: 0.8, shoulders: 0.84, torso: 1.34, neck: 0.13, eyes: 0x4a6a8a, face: 'long', legs: 1.52, acc: ['stethoscope', 'docbag'], shoes: 0x2a2624, backdrop: 'clinic' },
+    look: { fp: { w: 0.92, h: 1.02, jaw: 0.3, chin: 0.3, eye: 1.0, gap: 0.88, eyeY: 0.02, nose: 'long', mouth: 0.78, lines: 0.5, cheeks: 0.1, ears: 1.05 }, eyeShape: 'almond', brow: 0.8, browArch: 0.45, head: 0.78, skin: 0xf2d0b4, hair: 0x9a9690, hairStyle: 'slick', top: 0xd8e4ea, bottom: 0x4a5058, coat: 0xe6e8e2, bowtie: 0x2f8f8a, glasses: true, beard: 'mustache', scale: 1.1, build: 0.8, shoulders: 0.84, torso: 1.34, neck: 0.13, eyes: 0x4a6a8a, face: 'long', legs: 1.52, acc: ['stethoscope', 'docbag'], shoes: 0x2a2624, backdrop: 'clinic' },
     walk: W(1.75, 0.5, 0.02, 0.02, -0.04, 0.2),
     home: 'clinic',
     portraitBg: [0xd4ece4, 0x8ec4b8],
@@ -1280,7 +1280,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     name: 'Rowan Birch',
     role: 'Carpenter, fixer, Kit’s long-suffering brother',
     birthday: { season: 'fall', day: 18 },
-    look: { fp: { w: 0.98, h: 1.1, jaw: 0.8, chin: 0.3, eye: 0.9, gap: 0.95, eyeY: 0.02, nose: 'long', mouth: 1.0, lines: 0.1, cheeks: 0.15, ears: 1.0, cleft: true }, eyeShape: 'sleepy', brow: 1.3, browArch: 0.0, skin: 0xe8b890, hair: 0x4a2e1c, hairStyle: 'short', top: 0x3f7a4a, bottom: 0x3a4658, hat: 'beanie', hatColor: 0xd8a03a, beard: 'stubble', scale: 1.12, build: 1.06, shoulders: 1.26, torso: 1.3, hands: 1.2, head: 0.8, eyes: 0x6a4a2a, face: 'long', legs: 1.36, acc: ['toolbelt', 'pencil'], shoes: 0x5a3a24, backdrop: 'workshop' },
+    look: { fp: { w: 1.0, h: 1.0, jaw: 0.8, chin: 0.15, eye: 1.1, gap: 0.97, eyeY: -0.02, nose: 'long', mouth: 1.2, lines: 0.1, cheeks: 0.3, ears: 1.0, cleft: true }, eyeShape: 'round', brow: 1.3, browArch: 0.0, skin: 0xe8b890, hair: 0x4a2e1c, hairStyle: 'short', top: 0x3f7a4a, bottom: 0x3a4658, hat: 'beanie', hatColor: 0xd8a03a, beard: 'stubble', scale: 1.12, build: 1.06, shoulders: 1.26, torso: 1.3, hands: 1.2, head: 0.8, eyes: 0x6a4a2a, face: 'long', legs: 1.36, acc: ['toolbelt', 'pencil'], shoes: 0x5a3a24, backdrop: 'workshop' },
     walk: W(1.55, 0.55, 0.035, 0.09, 0.03, 0.4),
     home: 'birch_house',
     portraitBg: [0xd8e8c0, 0x7aa86a],
@@ -1893,7 +1893,7 @@ const ARCS: Record<NpcId, { events: ArcEvent[]; keeps: Consequence[] }> = {
         title: 'Night Rounds',
         hours: [20, 25],
         stage: 'lantern',
-        props: [{ kind: 'cage', at: [0, 0], hold: ['odessa', 'chest'], word: 'cage' }],
+        props: [{ kind: 'cage', at: [0, 0], hold: ['odessa', 'hand'], word: 'cage' }],
         insert: [{ kind: 'invite', word: 'workshop|inspection', caption: 'Grandfather’s workshop — Sunday. Wear boots.' }],
         script: [
           { if: 'odessa.withyou', say: 'odessa', text: 'You came. Again. That’s forty-one nights. I’ve been counting on the cage, in chalk.', mood: 'blush' },

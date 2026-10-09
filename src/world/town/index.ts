@@ -29,6 +29,7 @@ import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
 import { buildNoticeOverlay } from './notices';
 import { buildChalkAFrame } from './aframe';
 import { buildTownHedge } from './hedge';
+import { CherryTrees } from './cherry';
 import { buildSnowmen, buildSweptPaths, buildWreathDressing, buildWinterWear, buildWinterShade } from './winter';
 import { findPath } from './pathfind';
 import { NPCS } from '../../data/npcs';
@@ -151,6 +152,8 @@ export class TownMap implements GameMap {
   readonly warps: MapWarp[] = TOWN_WARPS;
   readonly poi: Record<string, { x: number; y?: number; z: number; rot?: number }[]> = {};
   private trees: TreeField;
+  /** r14: hand-grown hero cherries (boughs, blossom clusters, petal drifts) for the town's blossom trees. */
+  private cherries!: CherryTrees;
   private nature: Nature;
   private rng: Rng;
   private noise: Noise2D;
@@ -207,6 +210,7 @@ export class TownMap implements GameMap {
 
     this.trees = new TreeField(this.rng.fork('trees'));
     this.nature = new Nature(this.rng.fork('nature'));
+    this.cherries = new CherryTrees(this.rng.fork('cherries'), (x, z) => this.terrain.heightAt(x, z));
     this.buildBuildings();
     this.buildNewBuildings();
     this.buildProps();
@@ -217,10 +221,11 @@ export class TownMap implements GameMap {
     this.placeNature();
     this.terrain.commitCover();
     this.trees.finalize();
+    this.cherries.finalize();
     this.nature.finalize();
     this.trees.group.userData.perfTag = 'trees';
     this.nature.group.userData.perfTag = 'nature';
-    this.root.add(this.trees.group, this.nature.group, this.pools.group);
+    this.root.add(this.trees.group, this.cherries.group, this.nature.group, this.pools.group);
     this.mergeDistricts();
     this.festival.name = 'festival';
     this.festival.visible = false;
@@ -952,6 +957,12 @@ export class TownMap implements GameMap {
     });
     for (const [sp, x, z, s] of [...moved, ...EXTRA_TREES]) {
       if (!clear(x, z) && !EXTRA_TREES.some((t) => t[1] === x && t[2] === z)) continue;
+      if (sp === 'blossom') {
+        const c = this.cherries.add(x, this.terrain.heightAt(x, z) - 0.05, z, s);
+        this.grid.setObject(Math.floor(x), Math.floor(z), { kind: 'tree', id: sp, solid: true, onRemove: () => this.cherries.remove(c) });
+        this.terrain.stampCover('ao', x, z, 1.1 * s, 0.7);
+        continue;
+      }
       const h = this.trees.add(sp, x, this.terrain.heightAt(x, z) - 0.05, z, s);
       this.grid.setObject(Math.floor(x), Math.floor(z), { kind: 'tree', id: sp, solid: true, onRemove: () => this.trees.remove(h) });
       this.terrain.stampCover('ao', x, z, 1.1 * s, 0.7);
@@ -1183,6 +1194,7 @@ export class TownMap implements GameMap {
     }
     if (this.winterShade) this.winterShade.visible = season === 'winter';
     this.trees.setSeason(season);
+    this.cherries.setSeason(season);
     this.nature.setSeason(season);
     this.ambience.setSeason(season);
     this.festoons?.setSeason(season);

@@ -204,13 +204,16 @@ const STAGES: Record<string, Mark[]> = {
     // Marigold and her bark faded to a ghost; Hazel's sun hat reads from behind)
     ['june', 51.0, 24.1, -82, 'chat', 'music'],
     ['hazel', 49.7, 23.9, 78, 'chat', undefined, { free: true }],
-    ['marigold', 55.2, 24.0, 150, 'idle', undefined, { free: true }],
+    // (r14: a step west — at 55.2, 24.0 the market's festoon pole stood across her)
+    ['marigold', 54.4, 23.5, 150, 'idle', undefined, { free: true }],
     ['rowan', 67.4, 26.3, 0, 'idle', undefined, { walk: [57.8, 26.4] }],
     ['wren', 59.6, 21.6, 133, 'paint'],
     // (r13: Kit tears down the lane towards the lens — running away he showed only the back of his head)
-    ['kit', 48.6, 27.0, 0, 'play', 'exclaim', { walk: [43.2, 31.2], run: true }],
+    // (r14: his run starts west of the laundry line — at 48.6, 27.0 the washing hung across his face)
+    ['kit', 46.0, 25.8, 0, 'play', 'exclaim', { walk: [40.8, 29.8], run: true }],
     ['linus', 46.6, 31.2, 0, 'idle', undefined, { walk: [38.6, 33.4] }],
-    ['odessa', 58.6, 29.6, 0, 'idle', undefined, { walk: [52.8, 26.0] }],
+    // (r14: she starts on the road, not behind the bridge's west abutment — only her bandana showed)
+    ['odessa', 53.0, 27.0, 0, 'idle', undefined, { walk: [51.8, 26.0] }],
     ['tobias', 37.8, 26.8, -35, 'idle', 'music'],
   ],
   // r12 (critic: "the forge, inn and clinic are off-frame in every establishing shot"): the east bank
@@ -317,7 +320,8 @@ const STAGES: Record<string, Mark[]> = {
     ['odessa', 54.3, 25.1, 70, 'chat', 'idea', { free: true }],
     ['rowan', 55.9, 25.4, -95, 'chat'],
     ['wren', 59.6, 21.6, 133, 'paint'],
-    ['linus', 50.2, 27.4, 0, 'idle', undefined, { walk: [40.4, 34.6] }],
+    // (r14: set off a step west — at 50.2, 27.4 the market's festoon pole stood across his face)
+    ['linus', 49.3, 26.2, 0, 'idle', undefined, { walk: [40.4, 34.6] }],
   ],
   // Winter afternoon on the square (the pre-r11 town-winter frame): fewer idlers (Hazel and June stay in
   // by the fire), Marigold sweeps snow off her step, Kit plays by the snowmen with Tobias keeping an eye
