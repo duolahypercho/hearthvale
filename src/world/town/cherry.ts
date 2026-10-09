@@ -98,19 +98,21 @@ vec4 hvFloret(vec3 P) {
         leaf = mix(leaf, leaf * vec3(1.1, 1.08, 0.86), top * 0.5);
         // Blossom: florets ~11 cm apart (two scales so the canopy never tiles), each a pale five-petal
         // disc with a magenta eye; deep rose shows in the gaps; cooler mauve under the clusters.
-        vec4 f = hvFloret(vHvWorldPos * 12.0);
-        vec4 g = hvFloret(vHvWorldPos * 6.2 + 17.0);
+        vec4 f = hvFloret(vHvWorldPos * 15.0);
+        vec4 g = hvFloret(vHvWorldPos * 26.0 + 17.0);
         float ang = atan(f.z - 0.5, f.w - 0.5);
         float petalR = 0.4 + 0.1 * cos(5.0 * (ang + f.y * 6.28));
         // a few cells are still buds (small, deep pink), the rest open florets
         float bud = step(0.82, f.y);
         float fl = (1.0 - smoothstep(petalR - 0.12, petalR + 0.02, f.x)) * (1.0 - bud * 0.6);
-        float big = 1.0 - smoothstep(0.3, 0.46, g.x);
+        // a finer second floret layer between the first (no large discs: at talk range they read as polka dots)
+        float big = 1.0 - smoothstep(0.24, 0.4, g.x);
+        float clumpT = smoothstep(0.25, 0.75, hvNoise(vHvWorldPos.xz * 3.4 + vHvWorldPos.y * 2.9));
         float eye = 1.0 - smoothstep(0.05, 0.1, f.x);
         float tone = hvNoise(vHvWorldPos.xz * 1.3 + vHvWorldPos.y * 0.9);
         vec3 deep = mix(vec3(0.84, 0.28, 0.42), vec3(0.95, 0.42, 0.52), tone);
         vec3 petal = mix(vec3(1.0, 0.72, 0.79), vec3(1.0, 0.88, 0.9), f.z);
-        float cover = max(fl, big * 0.55) * mix(0.55, 1.0, smoothstep(-0.4, 0.7, up));
+        float cover = max(fl, big * 0.45) * mix(0.55, 1.0, smoothstep(-0.4, 0.7, up)) * mix(0.7, 1.0, clumpT);
         vec3 bl = mix(deep, petal, cover);
         bl = mix(bl, vec3(0.86, 0.28, 0.4), eye * fl * 0.65);
         bl = mix(bl, bl * vec3(1.06, 1.02, 1.0), top * 0.4);
@@ -300,6 +302,17 @@ export interface CherryHandle {
   petals: number[];
 }
 
+/** A cherry petal: an oval with a notch at the outer tip (fan of 9 points), in the XY plane. */
+function petalGeometry(len: number, wid: number): THREE.BufferGeometry {
+  const sh = new THREE.Shape();
+  sh.moveTo(0, -len * 0.5);
+  sh.bezierCurveTo(wid * 0.9, -len * 0.3, wid * 0.75, len * 0.38, wid * 0.22, len * 0.5);
+  sh.lineTo(0, len * 0.4);
+  sh.lineTo(-wid * 0.22, len * 0.5);
+  sh.bezierCurveTo(-wid * 0.75, len * 0.38, -wid * 0.9, -len * 0.3, 0, -len * 0.5);
+  return new THREE.ShapeGeometry(sh, 3);
+}
+
 /** Falling petal flutter (vertex shader: each petal loops down out of its tree's crown). */
 function fallingPetalMaterial(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ color: 0xffd6e2, roughness: 0.7, side: THREE.DoubleSide, emissive: 0x4a1a28, emissiveIntensity: 0.25 });
@@ -324,6 +337,8 @@ function fallingPetalMaterial(): THREE.MeshStandardMaterial {
         transformed += vec3(sin(sw) * 0.35 + t * aFall.z, -t * aFall.y, cos(sw * 0.8) * 0.3 + t * aFall.z * 0.4);
       }`,
     );
+    // (a petal drifting right past the lens is a big pink card: none nearer than 6 m)
+    vs = after(vs, '#include <project_vertex>', 'if (-mvPosition.z < 6.0) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);');
     shader.vertexShader = vs;
   });
   return m;
@@ -343,7 +358,12 @@ export class CherryTrees {
   ) {
     this.group.name = 'cherries';
     this.group.userData.perfTag = 'trees';
-    this.group.add(this.pool.group);
+    // (under a 'trees' node: the talk / heart-event lens finds tree crowns there and hides any that
+    // loom between it and the pair, and tests sight lines against them)
+    const t = new THREE.Group();
+    t.name = 'trees';
+    t.add(this.pool.group);
+    this.group.add(t);
   }
 
   add(x: number, y: number, z: number, scale = 1): CherryHandle {
@@ -373,7 +393,8 @@ export class CherryTrees {
     const FALL = 26;
     const n = this.pending.length;
     if (!n) return;
-    const petal = new THREE.PlaneGeometry(0.11, 0.08);
+    // A petal, not a square of paper: a notched oval (heart-ish tip), lying flat.
+    const petal = petalGeometry(0.05, 0.034);
     petal.rotateX(-Math.PI / 2);
     const fallenMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
     fallenMat.name = 'cherryPetalFallen';
@@ -400,7 +421,7 @@ export class CherryTrees {
         M.compose(new THREE.Vector3(px, this.heightAt(px, pz) + 0.02 + r.next() * 0.012, pz), q, new THREE.Vector3(s, s, s));
         fallen.setMatrixAt(k, M);
         const w = r.next();
-        fallen.setColorAt(k, col.setRGB(1.0, 0.66 + w * 0.22, 0.76 + w * 0.14));
+        fallen.setColorAt(k, col.setRGB(0.98, 0.6 + w * 0.18, 0.7 + w * 0.12));
         k++;
       }
     }
@@ -410,7 +431,7 @@ export class CherryTrees {
     this.fallen = fallen;
     this.group.add(fallen);
 
-    const fg = new THREE.PlaneGeometry(0.07, 0.05);
+    const fg = petalGeometry(0.045, 0.03);
     const falling = new THREE.InstancedMesh(fg, fallingPetalMaterial(), n * FALL);
     const aFall = new Float32Array(n * FALL * 4);
     k = 0;
