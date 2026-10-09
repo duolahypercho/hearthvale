@@ -820,8 +820,11 @@ actors such as Pip the shop cat).
   clusters over a leader, bare twigs poking out. The blossom shader paints five-petal florets (3D
   cellular: pale petals, magenta eyes, buds, deep rose in the gaps, mauve under the clusters, sun-side
   glow); in spring a petal drift lies under each tree (downwind-skewed) and petals flutter down out of
-  the crown (vertex-animated, one instanced draw); summer green, fall amber, winter bare boughs. One
-  BatchPool (bark + bloom), ~40k triangles in town-day. *Held props*: a heart-event prop is held, not
+  the crown (vertex-animated; lying and falling petals share one instanced draw); summer green, fall
+  amber, winter bare boughs. One BatchPool (bark + bloom), ~40k triangles in town-day; the rim forest
+  no longer plants generic blob blossoms (their batch cost two draws in every town frame) — smoke's
+  town budget 298 calls. The cherries sit under a `trees` node, so the talk / heart-event lens culls a
+  crown looming between it and the pair. *Held props*: a heart-event prop is held, not
   pinned to the chest — a chest prop (letters, the map, the ledger) is cradled in both forearms
   (applied after the mood gestures), and Odessa's lantern cage hangs plumb by its ring from her raised
   right hand (`holdProp(…, 'hand')`). *Faces*: Rowan's face is shorter with round eyes and a wider smile

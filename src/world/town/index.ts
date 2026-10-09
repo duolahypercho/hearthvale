@@ -975,7 +975,10 @@ export class TownMap implements GameMap {
         if (d < 1.2 || this.exitMask(jx, jz) > 0.2 || r.next() < 0.2) continue;
         if (this.riverDist(jx, jz) < RIVER_BANK + 1.2) continue;
         if (this.terrain.slopeAt(jx, jz) < 0.75) continue;
-        const sp = r.next() < 0.35 ? 'pine' : r.next() < 0.5 ? 'oak' : r.next() < 0.75 ? 'maple' : 'blossom';
+        // (r14: no generic blossoms on the rim — the town's cherries are hand-grown (cherry.ts) and the
+        // rim's blob blossom batch cost two draws in every town frame)
+        // (same rng draws as before: the rim's layout is unchanged)
+        const sp = r.next() < 0.35 ? 'pine' : r.next() < 0.5 ? 'oak' : r.next() < 2 ? 'maple' : 'oak';
         this.trees.add(sp, jx, this.terrain.heightAt(jx, jz) - 0.08, jz, 0.85 + r.next() * 0.45, undefined, d > 3.5 ? 1 : 0);
       }
     }

@@ -9,7 +9,7 @@
  * clusters green, fall amber, winter leaves the bare boughs.
  *
  * Rendering: every tree is its own geometry in one BatchPool (bark + blossom = 2 draws, +2 shadow),
- * one instanced draw for the fallen petals and one for the falling ones (~45k triangles for 8 trees).
+ * one instanced draw for every petal, lying or falling (~45k triangles for 8 trees).
  */
 import * as THREE from 'three';
 import { Rng } from '../../core/rng';
@@ -313,20 +313,25 @@ function petalGeometry(len: number, wid: number): THREE.BufferGeometry {
   return new THREE.ShapeGeometry(sh, 3);
 }
 
-/** Falling petal flutter (vertex shader: each petal loops down out of its tree's crown). */
-function fallingPetalMaterial(): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({ color: 0xffd6e2, roughness: 0.7, side: THREE.DoubleSide, emissive: 0x4a1a28, emissiveIntensity: 0.25 });
-  m.name = 'cherryPetalFall';
-  patchMaterial(m, 'town-cherry-fall', (shader) => {
+/**
+ * Petal material: lit, double-sided, snow / wet aware. Instances with aFall.y > 0 loop down out of
+ * their tree's crown (phase, drop, drift, spin); aFall.y = 0 lie still in the drift.
+ */
+function petalMaterial(): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, side: THREE.DoubleSide, emissive: 0x3a1420, emissiveIntensity: 0.2 });
+  m.name = 'cherryPetal';
+  applyWorldFx(m, { snowUp: 0.3 });
+  patchMaterial(m, 'town-cherry-petal', (shader) => {
     shader.uniforms.uTime = globalUniforms.uTime;
     let vs = shader.vertexShader;
-    vs = before(vs, 'void main() {', 'uniform float uTime;\nattribute vec4 aFall;');
+    if (!vs.includes('uniform float uTime;')) vs = before(vs, 'void main() {', 'uniform float uTime;');
+    vs = before(vs, 'void main() {', 'attribute vec4 aFall;');
     vs = after(
       vs,
       '#include <begin_vertex>',
       /* glsl */ `
-      {
-        // aFall: x = phase, y = drop height, z = drift radius, w = spin rate.
+      if (aFall.y > 0.0) {
+        // aFall: x = phase, y = drop height, z = drift, w = spin rate.
         float t = fract(uTime * 0.055 * (0.8 + aFall.w * 0.4) + aFall.x);
         float ang = aFall.x * 37.0 + uTime * (1.6 + aFall.w * 2.2);
         float ca = cos(ang), sa = sin(ang);
@@ -337,8 +342,8 @@ function fallingPetalMaterial(): THREE.MeshStandardMaterial {
         transformed += vec3(sin(sw) * 0.35 + t * aFall.z, -t * aFall.y, cos(sw * 0.8) * 0.3 + t * aFall.z * 0.4);
       }`,
     );
-    // (a petal drifting right past the lens is a big pink card: none nearer than 6 m)
-    vs = after(vs, '#include <project_vertex>', 'if (-mvPosition.z < 6.0) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);');
+    // (a petal drifting right past the lens is a big pink card: none falling nearer than 6 m)
+    vs = after(vs, '#include <project_vertex>', 'if (aFall.y > 0.0 && -mvPosition.z < 6.0) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);');
     shader.vertexShader = vs;
   });
   return m;
@@ -347,8 +352,7 @@ function fallingPetalMaterial(): THREE.MeshStandardMaterial {
 export class CherryTrees {
   readonly group = new THREE.Group();
   private pool = new BatchPool('cherry');
-  private fallen: THREE.InstancedMesh | null = null;
-  private falling: THREE.InstancedMesh | null = null;
+  private petals: THREE.InstancedMesh | null = null;
   private pending: { x: number; y: number; z: number; s: number; crown: THREE.Vector3; spread: number; rot: number }[] = [];
   private count = 0;
 
@@ -393,16 +397,18 @@ export class CherryTrees {
     const FALL = 26;
     const n = this.pending.length;
     if (!n) return;
-    // A petal, not a square of paper: a notched oval (heart-ish tip), lying flat.
-    const petal = petalGeometry(0.05, 0.034);
-    petal.rotateX(-Math.PI / 2);
-    const fallenMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
-    fallenMat.name = 'cherryPetalFallen';
-    applyWorldFx(fallenMat, { snowUp: 0.3 });
-    const fallen = new THREE.InstancedMesh(petal, fallenMat, n * PER);
-    fallen.name = 'cherry:petals';
-    fallen.castShadow = false;
-    fallen.receiveShadow = true;
+    // One instanced draw for every petal (render budget): the drift lying under each tree (aFall.y = 0,
+    // static) and the ones fluttering down out of the crowns (vertex-animated). A petal, not a square of
+    // paper: a notched oval.
+    const petal = petalGeometry(0.1, 0.07);
+    const count = n * (PER + FALL);
+    const mesh = new THREE.InstancedMesh(petal, petalMaterial(), count);
+    mesh.name = 'cherry:petals';
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    // (the falling petals move in the vertex shader: no CPU bounds)
+    mesh.frustumCulled = false;
+    const aFall = new Float32Array(count * 4);
     const M = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const e = new THREE.Euler();
@@ -410,37 +416,27 @@ export class CherryTrees {
     let k = 0;
     for (const t of this.pending) {
       for (let i = 0; i < PER; i++) {
-        // Denser under the crown, thinning out downwind (+x) past its edge.
+        // Denser under the crown, thinning out downwind (+x) past its edge; lying flat.
         const a = r.next() * Math.PI * 2;
         const d = Math.sqrt(r.next()) * t.spread * (0.55 + 0.75 * r.next());
         const px = t.crown.x + Math.cos(a) * d + Math.max(0, Math.cos(a)) * d * 0.25;
         const pz = t.crown.z + Math.sin(a) * d;
-        e.set((r.next() - 0.5) * 0.4, r.next() * Math.PI * 2, (r.next() - 0.5) * 0.4);
+        e.set(-Math.PI / 2 + (r.next() - 0.5) * 0.4, r.next() * Math.PI * 2, 0, 'YXZ');
         q.setFromEuler(e);
         const s = 0.7 + r.next() * 0.7;
         M.compose(new THREE.Vector3(px, this.heightAt(px, pz) + 0.02 + r.next() * 0.012, pz), q, new THREE.Vector3(s, s, s));
-        fallen.setMatrixAt(k, M);
+        mesh.setMatrixAt(k, M);
         const w = r.next();
-        fallen.setColorAt(k, col.setRGB(0.98, 0.6 + w * 0.18, 0.7 + w * 0.12));
+        mesh.setColorAt(k, col.setRGB(0.98, 0.6 + w * 0.18, 0.7 + w * 0.12));
         k++;
       }
-    }
-    fallen.instanceMatrix.needsUpdate = true;
-    if (fallen.instanceColor) fallen.instanceColor.needsUpdate = true;
-    fallen.computeBoundingSphere();
-    this.fallen = fallen;
-    this.group.add(fallen);
-
-    const fg = petalGeometry(0.045, 0.03);
-    const falling = new THREE.InstancedMesh(fg, fallingPetalMaterial(), n * FALL);
-    const aFall = new Float32Array(n * FALL * 4);
-    k = 0;
-    for (const t of this.pending) {
       for (let i = 0; i < FALL; i++) {
         const a = r.next() * Math.PI * 2;
         const d = Math.sqrt(r.next()) * t.spread * 0.85;
         M.makeTranslation(t.crown.x + Math.cos(a) * d, t.crown.y + 0.2 + r.next() * 0.6, t.crown.z + Math.sin(a) * d);
-        falling.setMatrixAt(k, M);
+        mesh.setMatrixAt(k, M);
+        mesh.setColorAt(k, col.setRGB(1.0, 0.8, 0.86));
+        // (falling petals at 60 % of the drift's size)
         aFall[k * 4] = r.next();
         aFall[k * 4 + 1] = t.crown.y - t.y + 0.6;
         aFall[k * 4 + 2] = 0.6 + r.next() * 1.2;
@@ -448,13 +444,11 @@ export class CherryTrees {
         k++;
       }
     }
-    fg.setAttribute('aFall', new THREE.InstancedBufferAttribute(aFall, 4));
-    falling.instanceMatrix.needsUpdate = true;
-    falling.frustumCulled = false;
-    falling.castShadow = false;
-    falling.name = 'cherry:falling';
-    this.falling = falling;
-    this.group.add(falling);
+    petal.setAttribute('aFall', new THREE.InstancedBufferAttribute(aFall, 4));
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this.petals = mesh;
+    this.group.add(mesh);
   }
 
   setSeason(season: Season): void {
@@ -463,7 +457,6 @@ export class CherryTrees {
     uBloom.value = season === 'spring' ? 1 : 0;
     if (c !== null) bloom.color.setHex(c);
     for (const mesh of this.pool.meshesFor(bloom)) mesh.visible = c !== null;
-    if (this.fallen) this.fallen.visible = season === 'spring';
-    if (this.falling) this.falling.visible = season === 'spring';
+    if (this.petals) this.petals.visible = season === 'spring';
   }
 }
