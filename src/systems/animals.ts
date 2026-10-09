@@ -1987,12 +1987,19 @@ export class AnimalSystem implements System, AnimalsApi {
     // and close petting cameras keep the full models).
     const cam = game.rc.camera.position;
     const outdoors = this.mapId === 'farm';
+    const closeLens = game.rc.rig.distance < 14;
     for (const l of this.live) {
       l.actor.farmers = farmers;
       // (r22: big stock keeps the full sculpt out to 18 m — at the 11 m petting lens the Jersey at the back
       // fence was ~16 m out and its coarse LOD barrel read as faceted beside the smooth Holstein; the 21 m
       // pasture lens still draws the herd at LOD)
-      l.actor.setFar(outdoors && cam.distanceTo(l.actor.pos) > (l.actor.gait.radius * l.actor.scale > 0.22 ? 18 : 14));
+      // (perf g18: the full sculpt to 18 m only under a close lens (< 14 m: the 11-13 m petting / chores
+      // lenses it was tuned at). At the 18.5 m co-op lens the whole herd sat 14-18 m out drawing the full
+      // skinned sculpt in colour + shadow (+68k tris); there big stock at 14-18 m takes the 0.75 mid LOD,
+      // whose silhouette (pig ears, back) holds up where the 0.55 one faceted.)
+      const d = outdoors ? cam.distanceTo(l.actor.pos) : 0;
+      const big = l.actor.gait.radius * l.actor.scale > 0.22;
+      l.actor.setFar(d > (closeLens && big ? 18 : 14), big && !closeLens && d <= 18);
       l.actor.update(dt, t, actors);
       if (l.actor.isSleeping && !l.actor.resting) {
         l.zT -= dt;
@@ -3083,6 +3090,8 @@ export class AnimalSystem implements System, AnimalsApi {
         pet.actor.area = { x0: 43.55, z0: 39.25, x1: 43.85, z1: 39.55 };
         pet.actor.blockers = PASTURE_PROPS;
         pet.actor.curious = false;
+        // (r22: holds its pose face to the lens — pottering round its tiny box it was caught tail-on)
+        pet.actor.hold = 'idle';
         pet.actor.place(43.7, 39.4, 0.1);
       } else if (pet) {
         // Yard shot: sitting by the bowl, looking up at the farmer.

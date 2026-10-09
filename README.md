@@ -422,6 +422,30 @@ adapts it to game events.
   then a 4-10 s lull — instead of independent random targets that could average into a steady roar
   (fall-wind LRA 2.3 → 6.6 LU on the draw that flattened it); indoors the eaves drip a little quicker
   (house rain 3.9 → 6.3 audible drops/s).
+- **Round 19** (audio pod r12): **whole songs, not just openings**. The r11 whole-song renders flagged
+  what a 30 s opening never reaches; each is fixed in the arrangement, not the meter. *Chord-change
+  damping* (`composer.ts` `dampAtChanges`): a comping / pad note was written to the end of its span (+2 %,
+  + the humanised drift), so the old chord rang on under the new one — 18-19 notes sounding at once at
+  the changes of Snowlight, the title and the Harvest Reel (FORM-CROWD); the strings not in the next chord
+  now let go 50 ms before it lands (their own release still decays them), common tones ring through, a
+  re-struck string stops its previous sound and a roll that doubled its top note strikes it once — every
+  song now peaks at ≤ 14 notes. *Handed-off strains*: the tune's doubling (a glockenspiel an octave up)
+  colours the tune's own instrument only — it no longer sparkles over the nylon guitar's bridge or the
+  clarinet's B (`double.handoff` keeps it, as winter's glock over its celesta does); the counter-line
+  rests while its own instrument has the tune (Market Morning's clarinet B, First Furrow's clarinet
+  bridge, the Warm Kettle's B). *The clarinet's clarion rounds* (`instruments.ts` `clarion`): above C5 it
+  loses upper partials instead of gaining them — its D5-C6 sat at a 3.1 kHz centroid with 44 % of the
+  tone in 2-5 kHz against the flute's 1.9 kHz / 30 % (First Furrow C and Market Morning B: FORM-GLARE).
+  First Furrow's bridge also drops into the chalumeau it was written for (`melody.cOctave`; C strain
+  2457 → 1072 Hz centroid, 33 → 10 % presence). Two unbreathed register jumps smoothed (Salt & Sun's B
+  climbs into its high A from the tonic instead of leaping a ninth off A's G#; Mossway's B closes by
+  step into the pickup instead of dropping a tenth). The composition critic judges NARROW / WIDE per
+  voice (a strain handed to another instrument is another player's compass). **Combat foley**: the crab
+  answers hollow — a narrow ~1.1 kHz cavity "tok" with an upper shell ring and two claw snaps instead of a
+  380 Hz knock on the blade's 300 Hz slap — and the imp spits a 200 ms crackle of embers: blind impact
+  recognition 63 → 66/66 (`shots/audio-r12b/recognize-imp2.log`). Hear a bridge without waiting for
+  it: `?demo=audio&theme=spring&from=C` (`from` = B, C, outro, B2 / A3 for a later strain, or seconds;
+  `music.ts` `MUSIC_SEEK`), e.g. `&theme=town&from=B`, `&theme=summer&from=C`.
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);
@@ -1619,6 +1643,24 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   to the lens; lens 16.2 -> 15.3. *Herd* — the jersey's head ~0.85x the holstein's and side-on in the pasture;
   the sheep's head + ears lifted 6 cm / 3 cm forward out of the fleece on a short neck, the plain face a deeper
   taupe; hens: bigger eyes, comb set back on the crown, slimmer deeper-red wattles, a bigger beak between.
+- r22 (critic r10, 8.1): *Smooth stock* — the herd now opts into the GTAO G-buffer (`userData.ao` on every
+  animal mesh, far LOD and curled pet included). The animals group was `noAO`, so the half-res AO of whatever
+  stood behind an animal (fence rails, stall boards, the barn's stone footing) was multiplied onto its pixels:
+  the "faceted box" Jersey was really dark horizontal fence-rail bands across a smooth flank, the pig's
+  blotches the stall boards (+12 G-buffer draws in the petting lens, ~1.0 M tris total, 60 fps). Big stock
+  keeps the full sculpt out to 18 m (14 for birds / pets): the Jersey at the petting lens's back fence was on
+  its coarse LOD. Cow barrel rounder (softer rump corners, belly swelling below a dipped back, udder lowered to
+  match), forearm / gaskin a touch fuller (1.12; 1.3 pushed the leg tops out of the flank as pillows), the
+  Jersey shades darker over the haunch and shoulder top. Pig: the rump rounds over ~12 cm into hams with a
+  waist (it closed in 3.5 cm — a flat disc on a straight pink tube from above), tail set back to match.
+  *Petting* — a sheep is staged a fleece-width (0.12 m) further out and only 0.36 m towards the lens, and the
+  hand lands on the near shoulder of the fleece (it went into the wool / up behind the chibi head). The
+  petting close-up's pig steps out from under the energy HUD onto the wallow rim and the goat holds a mark by
+  the pond (it wandered out of the frame corner); the drinking Holstein stands 14 cm further in so her muzzle
+  is over the water, not on the trough's rim. *Coop* — the calm bedding gathers into ~26 drifts with a sparse
+  scatter between, over three-tone planks with darker 3 px seams: the boards read through ("brown mush").
+  Co-op: all of it is local rendering or the shared staging path (`settleForPet(from)` stages a farmhand's
+  pat the same way), so remote farmers see the same thing. Shots: `shots/animals-r21/`.
 
 ## Co-op multiplayer (1–4 farmers)
 
