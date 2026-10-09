@@ -619,7 +619,8 @@ export function buildWinterWear(
       const ww = w * (0.6 + 0.4 * Math.sin(i * 0.9) ** 2);
       const base = pos.length / 3;
       pos.push(x + nx * ww, river.waterY + 0.046, z + nz * ww, x - nx * ww, river.waterY + 0.046, z - nz * ww);
-      if (n > 0) idx.push(base - 2, base - 1, base, base, base - 1, base + 1);
+      // (both windings: the loops double back on themselves, so half of every strip faced down)
+      if (n > 0) idx.push(base - 2, base - 1, base, base, base - 1, base + 1, base - 2, base, base - 1, base, base + 1, base - 1);
       n++;
     }
     if (!idx.length) return;
@@ -658,7 +659,7 @@ export function buildWinterWear(
         const v = sB * Math.sin(t) * Math.cos(t) + 0.12 * Math.sin(t * 3 + r);
         pts.push([p.x + tx * u + nx * v, p.z + tz * u + nz * v]);
       }
-      strip(pts, 0.04, 0xfbfdff);
+      strip(pts, 0.03, 0xd2deec);
     }
     // A long glide in and out of the loops.
     const g: [number, number][] = [];
@@ -667,7 +668,7 @@ export function buildWinterWear(
       const u = -A * 2.6 + (i / 30) * A * 5.2;
       g.push([p.x + tx * u + nx * (off + Math.sin(i * 0.25) * 0.35), p.z + tz * u + nz * (off + Math.sin(i * 0.25) * 0.35)]);
     }
-    strip(g, 0.032, 0xf6faff);
+    strip(g, 0.024, 0xd8e3ef);
   }
   {
     // The ice-fishing hole: open black water, a cracked slush collar, a pail and its lid on the ice.

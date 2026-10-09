@@ -283,8 +283,19 @@ export class BarnInterior extends InteriorMap {
       // Tack above each stall
       const px = cx + 0.5;
       k.cyl('wood', 0.025, 0.025, 0.14, [px, 1.78, 0.08], { rx: Math.PI / 2, tint: POST });
-      if (i % 2 === 0) k.add('fabric', new THREE.TorusGeometry(0.14, 0.03, 6, 16), mat(px, 1.62, 0.12, 0.1, 0, 0), { tint: 0xc8a870 });
-      else k.add('fabric', new THREE.TorusGeometry(0.12, 0.022, 5, 14), mat(px, 1.62, 0.12, 0.15, 0, 0.3), { tint: [0xb8452e, 0x3a6a9a, 0x4a7a3a][i % 3] });
+      // r23: a coiled lead rope (three loose loops hung off the peg + its tail) or a webbing halter
+      // (crown strap loop, noseband, lead snap + a rope down) — the single tori read as floating donuts.
+      if (i % 2 === 0) {
+        for (let c = 0; c < 3; c++) k.add('fabric', new THREE.TorusGeometry(0.13 + c * 0.012, 0.018, 5, 18), mat(px + (c - 1) * 0.018, 1.64 - c * 0.025, 0.1 + c * 0.012, 0.18, 0, (c - 1) * 0.12, 0.85, 1.08, 1), { tint: [0xc8a870, 0xb89860, 0xd2b47c][c] });
+        k.cyl('fabric', 0.016, 0.016, 0.42, [px + 0.1, 1.28, 0.13], { rz: -0.12, tint: 0xb89860 });
+        k.sphere('fabric', 0.026, [px + 0.125, 1.08, 0.13], 0xa88450);
+      } else {
+        const col = [0xb8452e, 0x3a6a9a, 0x4a7a3a][i % 3]!;
+        k.add('fabric', new THREE.TorusGeometry(0.12, 0.016, 4, 16), mat(px, 1.62, 0.11, 0.12, 0, 0.18, 0.8, 1.15, 1), { tint: col });
+        k.add('fabric', new THREE.TorusGeometry(0.075, 0.016, 4, 14), mat(px + 0.04, 1.44, 0.13, 0.25, 0, 0.18, 1.1, 0.75, 1), { tint: col });
+        k.sphere('iron', 0.02, [px + 0.05, 1.38, 0.14], 0x8a8480);
+        k.cyl('fabric', 0.013, 0.013, 0.5, [px + 0.06, 1.12, 0.14], { rz: 0.06, tint: 0xd8c8a0 });
+      }
     }
     k.add('iron', new THREE.TorusGeometry(0.1, 0.022, 6, 14, Math.PI * 1.3), mat(6.5, 2.4, 0.06, 0, 0, -Math.PI * 0.15 + Math.PI), { tint: 0x8a8480 });
     // r21: stall stories for the stalls whose animals are often out in the aisle / the front straw:

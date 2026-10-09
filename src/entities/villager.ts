@@ -1065,7 +1065,8 @@ export class Villager {
     }
     const earK = FP.ears ?? 1;
     const earX = R * 0.98 * Math.min(1, faceS[0] / 1.04);
-    for (const sx of [-1, 1]) {
+    // (r18: a headscarf wraps over the ears — they poked through the cloth as brown wedges at the temples)
+    for (const sx of L.hat === 'bandana' ? [] : [-1, 1]) {
       rb.add(B.head, sphG(0.07, 10, 8), H(sx * earX, R * 0.88, 0, 0, 0, 0, 0.6 * earK, earK, earK), L.skin);
       // Inner ear fold (a darker crescent: ears read as ears, not balls).
       rb.tag = 1;
@@ -1838,7 +1839,8 @@ export class Villager {
         const tilt = BANDANA_TILT;
         const rr = R * 1.075;
         const polar = Math.PI * 0.44;
-        const T = (): THREE.Matrix4 => H(0, R * 0.98, -0.03, tilt, 0, 0);
+        // (r18: a touch wider than the skull — Odessa's broad temples showed through at the sides)
+        const T = (): THREE.Matrix4 => H(0, R * 0.98, -0.03, tilt, 0, 0, 1.06, 1, 1.03);
         // Soft cloth folds gathered towards the knot (a sculpted shell, not a smooth dome).
         const dome = hairShell(rr, 0, polar, 7, 0.035, 0, 1.3, 0.2);
         // Hugging the skull (a low crown, not a helmet dome).

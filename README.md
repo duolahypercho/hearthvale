@@ -437,7 +437,11 @@ adapts it to game events.
   loses upper partials instead of gaining them — its D5-C6 sat at a 3.1 kHz centroid with 44 % of the
   tone in 2-5 kHz against the flute's 1.9 kHz / 30 % (First Furrow C and Market Morning B: FORM-GLARE).
   First Furrow's bridge also drops into the chalumeau it was written for (`melody.cOctave`; C strain
-  2457 → 1072 Hz centroid, 33 → 10 % presence). Two unbreathed register jumps smoothed (Salt & Sun's B
+  2457 → 1072 Hz centroid, 33 → 10 % presence), and Market Morning's clarinet B answers the high ocarina
+  an octave down (`melody.bOctave`: written E5-B5, its third harmonic sat at 2-3 kHz — 40 % of the
+  strain in 2-5 kHz after the ocarina's 4 %). *The nylon guitar sings sweeter up the neck*
+  (`PLUCKS.guitar.sweet`): above G4 its tone ceiling falls instead of rising with pitch (Long Light's
+  guitar bridge 3.5 → 2.8 kHz centroid; the comping register is untouched). Two unbreathed register jumps smoothed (Salt & Sun's B
   climbs into its high A from the tonic instead of leaping a ninth off A's G#; Mossway's B closes by
   step into the pickup instead of dropping a tenth). The composition critic judges NARROW / WIDE per
   voice (a strain handed to another instrument is another player's compass). **Combat foley**: the crab

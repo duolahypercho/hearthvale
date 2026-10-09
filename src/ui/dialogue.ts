@@ -882,6 +882,15 @@ export class DialoguePanel implements Panel {
     this.manual = on;
     this.mClock = 0;
     this.autoT = 0;
+    // (r18: a capture sequence's first frame caught the box and portrait mid pop-in on the wall clock —
+    // an empty card; in sim-clock mode the CSS entrances land at once)
+    if (on && !document.getElementById('hv-dlg-seq')) {
+      const st = document.createElement('style');
+      st.id = 'hv-dlg-seq';
+      st.textContent = '.hv-dialogue.hv-seq, .hv-dialogue.hv-seq *, .hv-dialogue.hv-seq *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; }';
+      document.head.appendChild(st);
+    }
+    this.el.classList.toggle('hv-seq', on);
   }
   /** setTimeout, or (sim-clock mode) a wake-up on the stepped clock. */
   private later(fn: () => void, ms: number): number {

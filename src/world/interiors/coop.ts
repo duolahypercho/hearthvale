@@ -240,14 +240,20 @@ export class CoopInterior extends InteriorMap {
     // halo of spilled grain + two pecked-clean patches.
     const fx = 4.35;
     const fz = 2.95;
+    // r23: a barn-red enamelled feeder (pan, squat hopper, scalloped hood) on its crate lid — the old
+    // galvanised one stood in the middle of the room as the water fount's twin (two grey "robots").
     k.box('wood', [0.62, 0.1, 0.62], [fx, 0, fz], { tint: 0x9a6a44, r: 0.02 });
-    k.cyl('tin', 0.36, 0.28, 0.08, [fx, 0.1, fz], { tint: 0xc0c8cc, seg: 24 });
-    k.add('tin', new THREE.TorusGeometry(0.36, 0.022, 6, 28), mat(fx, 0.18, fz, Math.PI / 2, 0, 0), { tint: 0xdce2e4 });
+    k.cyl('ceramic', 0.36, 0.3, 0.08, [fx, 0.1, fz], { tint: 0xa8392a, seg: 24 });
+    k.add('ceramic', new THREE.TorusGeometry(0.36, 0.022, 6, 28), mat(fx, 0.18, fz, Math.PI / 2, 0, 0), { tint: 0xc4503a });
     k.cyl('ceramic', 0.33, 0.33, 0.012, [fx, 0.165, fz], { tint: 0xe0b040, seg: 24 });
-    k.cyl('tin', 0.13, 0.16, 0.44, [fx, 0.16, fz], { tint: 0xd8dee2, seg: 20 });
-    for (const y of [0.3, 0.52]) k.add('tin', new THREE.TorusGeometry(0.155, 0.01, 5, 20), mat(fx, y, fz, Math.PI / 2, 0, 0), { tint: 0xa8b0b4 });
-    k.add('tin', new THREE.ConeGeometry(0.17, 0.14, 20), mat(fx, 0.67, fz), { tint: 0xc8d0d4 });
-    k.sphere('tin', 0.03, [fx, 0.75, fz], 0xa8b0b4);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + 0.2;
+      k.box('ceramic', [0.02, 0.07, 0.15], [fx + Math.cos(a) * 0.22, 0.17, fz + Math.sin(a) * 0.22], { tint: 0x8e3022, ry: -a });
+    }
+    k.cyl('ceramic', 0.15, 0.17, 0.3, [fx, 0.16, fz], { tint: 0xb4402e, seg: 20 });
+    k.add('ceramic', new THREE.TorusGeometry(0.165, 0.012, 5, 20), mat(fx, 0.3, fz, Math.PI / 2, 0, 0), { tint: 0xe8d8b0 });
+    k.add('ceramic', new THREE.ConeGeometry(0.21, 0.13, 20), mat(fx, 0.52, fz), { tint: 0xc04a34 });
+    k.sphere('iron', 0.028, [fx, 0.6, fz], 0x3a3432);
     // (r9: thinned ~60 % and kept close to the pan — the floor read as noise at the props' contrast)
     for (let i = 0; i < 34; i++) {
       const a = rng.next() * Math.PI * 2;
