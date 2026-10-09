@@ -2459,7 +2459,7 @@ export function cropMaterial(): THREE.MeshStandardMaterial {
     applyWorldFx(cropMat, { snowUp: 0.6 });
     applyWind(cropMat, CROP_WIND);
     applyPlantLighting(cropMat, { translucency: 0.4, floor: 0.05 });
-    applyCropGlow(cropMat, 'crop-glow', 0.3, 0.22, 0.3);
+    applyCropGlow(cropMat, 'crop-glow', 0.3, 0.3, 0.3);
     fallShift(cropMat, 'crop-fall');
     leafVeins(cropMat, 'crop-veins');
     cropDepth = windDepthMaterial(CROP_WIND);

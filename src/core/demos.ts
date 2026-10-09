@@ -53,7 +53,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Farming pod: hero harvest field (URL: &season=fall|spring, &act=harvest|hoe|wateringCan|scythe),
   // tool feel stills (&tool=hoe|wateringCan|scythe|axe|pickaxe|charge|harvest|sow, &tier=0-3,
   // &pose=<seconds> to freeze, -1 = live; &loop=<tool> repeats the action), giant crops, crows.
-  'farm-harvest': { map: 'farm', x: 20.5, z: 24.5, facing: 'down', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: 6, pitch: 44, distance: 17, offsetX: 2.0, offsetZ: 0.5 }, showcase: ['harvest'] },
+  'farm-harvest': { map: 'farm', x: 20.5, z: 24.5, facing: 'down', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: 6, pitch: 44, distance: 14.6, offsetX: 1.6, offsetZ: 0.7 }, showcase: ['harvest'] },
   // (r15: swung ~24° round and closer: the blade lands in front of the farmer's body, not under the hat.)
   // (r17: pulled back to ~1.4x gameplay zoom — the whole farmer, hat to boots, the bed and the tool's arc in frame.)
   // (r18: from the farmer's front-left (3/4, face and blade both to the lens) at ~1.3x gameplay zoom: the r17
@@ -62,7 +62,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'farm-giant': { map: 'farm', x: 20.6, z: 27.7, facing: 'left', time: 15.8, season: 'fall', weather: 'sun', camera: { yaw: -30, pitch: 37, distance: 10, offsetX: -0.75, offsetZ: 0.1 }, showcase: ['giant'] },
   'farm-crops': { map: 'farm', x: 28.6, z: 27.2, facing: 'left', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 12.2, offsetX: -4.6, offsetZ: -4.0 }, showcase: ['gallery'] },
   'farm-crows': { map: 'farm', x: 30.5, z: 30.5, facing: 'left', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 44, distance: 9.4, offsetX: -5.2, offsetZ: -0.6 }, showcase: ['crows'] },
-  'farm-harvest-fall': { map: 'farm', x: 19.5, z: 24.5, facing: 'down', time: 15.9, season: 'fall', weather: 'sun', camera: { yaw: 26, pitch: 40, distance: 15, offsetX: 3.1, offsetZ: 1.0 }, showcase: ['harvest'] },
+  'farm-harvest-fall': { map: 'farm', x: 19.5, z: 24.5, facing: 'down', time: 15.9, season: 'fall', weather: 'sun', camera: { yaw: 16, pitch: 42, distance: 13.6, offsetX: 3.0, offsetZ: 1.1 }, showcase: ['harvest'] },
   // (r16) Co-op on one beat: the host hoeing + three farmhands (hoe contact, mid-pour, catching a crop).
   // (r17: pulled back + recentred so all four farmers and their tiles sit inside the frame.)
   'farm-coop-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.6, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 42, distance: 12.5, offsetX: -0.8, offsetZ: 0.9 }, showcase: ['tools', 'crew'] },

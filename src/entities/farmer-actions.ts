@@ -65,10 +65,12 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // both fists climb past the hat brim on the camera side and the shaft lays back over the
     // shoulder, the blade cocked up behind and out (the face stays open below the arms). No chest
     // twist toward the lens: the coil is a back arch, so the silhouette stays in profile.
-    { t: 0.17, ease: 'out', aR: [-2.6, -0.42], aL: [-2.48, -0.62], torso: [-0.24, -0.08, -0.12], head: -0.04, sy: 1.08, hips: [-0.12, -0.08], stance: 0.46, grip: 0.04, reach: 1.22, toolT: [-1.0, 0, 0.5] },
+    { t: 0.17, ease: 'out', aR: [-2.6, -0.42], aL: [-2.48, -0.62], torso: [-0.24, -0.08, -0.12], head: -0.04, sy: 1.08, hips: [-0.12, -0.08], stance: 0.46, grip: 0.12, reach: 1.22, toolT: [-0.55, 0, 0.5] },
     // Top: the held beat before the blow — arched back, fists high over the head, the hoe laid back
-    // ~75° with the blade high behind, chin up (exertion).
-    { t: 0.205, ease: 'out', aR: [-2.92, -0.46], aL: [-2.8, -0.66], torso: [-0.34, -0.1, -0.16], head: -0.06, sy: 1.13, hips: [-0.16, -0.1], stance: 0.52, grip: 0.08, reach: 1.34, toolT: [-1.38, 0, 0.55] },
+    // ~45° in the torso (≈ 65° from plumb once the back arch adds its lean) so the blade stands HIGH
+    // above and behind the hat, chin up (exertion). (r24: at 79° + the arch the shaft lay flat behind
+    // the neck like a bindle, the blade at ear height.)
+    { t: 0.205, ease: 'out', aR: [-2.92, -0.46], aL: [-2.8, -0.66], torso: [-0.34, -0.1, -0.16], head: -0.06, sy: 1.13, hips: [-0.16, -0.1], stance: 0.52, grip: 0.17, reach: 1.34, toolT: [-0.78, 0, 0.55] },
     // Downswing (two readable frames, ~70 ms): the hips fire first, the body jack-knifes forward, the
     // arms whip down; the blade sweeps over OUT FRONT of the face (shaft ~50° forward, never across it).
     { t: 0.24, ease: 'in', aR: [-2.05, -0.3], aL: [-1.95, -0.42], torso: [0.1, -0.06, -0.08], head: -0.2, sy: 1.02, hips: [0.06, -0.06], stance: 0.54, grip: 0.06, reach: 1.24, toolT: [0.85, 0, 0.35] },
@@ -115,13 +117,13 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // The lift: a committed heave up past shoulder height, the free hand under the belly, body tall.
     // (r22) Higher and held further out (r9 critic: "the can barely tips"): the can rides up to chin
     // height so the water has a real drop to arc across.
-    { t: 0.3, ease: 'back', aR: [-1.92, -0.16], aL: [-1.55, 0.6], torso: [-0.08, 0, 0.06], head: 0.02, sy: 1.09, level: 0.14, reach: 1.36 },
+    { t: 0.3, ease: 'back', aR: [-1.92, -0.16], aL: [-1.55, 0.6], torso: [-0.08, 0, 0.06], head: 0.02, sy: 1.09, level: 0.14, reach: 1.2 },
     // The tip: the shoulder rolls hard into it (torso roll toward the can, hips under it), the can
     // pitched ~45° so the rose levels out over the tile and the water leaves it forward in a long arc
     // (the face stays up, clear of the hat).
-    { t: 0.4, ease: 'inout', aR: [-1.82, -0.16], aL: [-1.46, 0.62], torso: [0.08, 0, 0.26], head: 0.0, sy: 1.0, level: 0.8, reach: 1.36, stance: 0.18, hips: [0.04, 0] },
+    { t: 0.4, ease: 'inout', aR: [-1.82, -0.16], aL: [-1.46, 0.62], torso: [0.08, 0, 0.26], head: 0.0, sy: 1.0, level: 0.8, reach: 1.18, stance: 0.18, hips: [0.04, 0] },
     // Held tipped (pours ~0.6 s), tipping further as the can empties.
-    { t: 0.92, ease: 'linear', aR: [-1.76, -0.16], aL: [-1.4, 0.62], torso: [0.1, 0, 0.29], head: 0.02, sy: 0.99, level: 0.94, reach: 1.36, stance: 0.2, hips: [0.05, 0] },
+    { t: 0.92, ease: 'linear', aR: [-1.76, -0.16], aL: [-1.4, 0.62], torso: [0.1, 0, 0.29], head: 0.02, sy: 0.99, level: 0.94, reach: 1.18, stance: 0.2, hips: [0.05, 0] },
     { t: 1.08, ease: 'inout', aR: [-0.95, -0.14], aL: [-0.6, 0.45], torso: [0.03, 0, 0.02], sy: 1.03, level: 0.05, reach: 1.2 },
     { t: 1.26, ease: 'inout' },
   ],

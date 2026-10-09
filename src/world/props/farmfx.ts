@@ -1069,7 +1069,9 @@ void main() {
     vec3 sider = cross(tanr, normalize(cameraPosition - pr));
     sider = length(sider) > 1e-5 ? normalize(sider) : vec3(1.0, 0.0, 0.0);
     // (r18) A readable body: from the 11–17 m hero lenses the r17 ribbon thinned to a hairline.
-    float wr = mix(0.022, 0.075, sr) * clamp(length(cameraPosition - pr) / 9.0, 1.0, 1.6);
+    // (r24) The ribbon widens into a soft mist sheath round the apex (r10 critic: "apex mist"): wide,
+    // feathered and faint, so the beads ride inside a breath of spray rather than along a wire.
+    float wr = mix(0.022, 0.2, smoothstep(0.05, 0.55, sr)) * clamp(length(cameraPosition - pr) / 9.0, 1.0, 1.6);
     pr += sider * position.y * wr;
     vec4 mvr = viewMatrix * vec4(pr, 1.0);
     gl_Position = projectionMatrix * mvr;
@@ -1083,7 +1085,8 @@ void main() {
     // reads as a solid wire.
     float pulse = 0.6 + 0.4 * sin(sr * 38.0 - uTime * 22.0 + ph * 6.0);
     // (r22) Softer still (no glassy wire): a column off the nozzle, a whisper of veil beyond it.
-    vA = aA.x * smoothstep(0.0, 0.05, sr) * (0.16 * (1.0 - smoothstep(0.08, 0.28, sr)) + 0.06 * pulse * (1.0 - smoothstep(0.25, 0.7, sr)));
+    vA = aA.x * smoothstep(0.0, 0.05, sr) * (0.16 * (1.0 - smoothstep(0.08, 0.28, sr)) + 0.05 * pulse * (1.0 - smoothstep(0.25, 0.7, sr))
+      + 0.075 * smoothstep(0.22, 0.42, sr) * (1.0 - smoothstep(0.6, 0.8, sr)) * (0.75 + 0.25 * pulse));
     #ifdef USE_FOG
     vFogDepth = -mvr.z;
     #endif
@@ -1168,8 +1171,8 @@ void main() {
   if (vS < -0.5) {
     // Ribbon: soft across its width, a brighter core line.
     float acr = abs(vUv.x);
-    a = (1.0 - smoothstep(0.15, 1.0, acr)) * vA;
-    c = mix(uBody, uCore, 1.0 - smoothstep(0.0, 0.45, acr));
+    a = (1.0 - smoothstep(0.0, 1.0, acr)) * (1.0 - smoothstep(0.0, 1.0, acr)) * vA * 1.3;
+    c = mix(uCore, vec3(0.96, 0.98, 1.0), 0.4);
   } else if (vS > 0.0) {
     // Landing crown: a thin bright ring with a faint wet fill inside.
     float ring = smoothstep(0.55, 0.78, d) * (1.0 - smoothstep(0.82, 1.0, d));
