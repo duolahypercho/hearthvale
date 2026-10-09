@@ -1367,7 +1367,7 @@ const BUILDERS: Record<CropId, Builder> = {
         const top = R * (sy - 0.1);
         add(tube([new THREE.Vector3(0, top, 0), new THREE.Vector3(0.01, top + 0.05, 0.005), new THREE.Vector3(0.04, top + 0.07, 0.02), new THREE.Vector3(0.06, top + 0.055, 0.04)], 0.016, 0.009, C(0x6a6a34), C(0x9a8a4a), 6, 5), tilt, 'skin');
       };
-      one(0.85 + r.next() * 0.32, 0.05 + (r.next() - 0.5) * 0.06, 0.08 + (r.next() - 0.5) * 0.06);
+      one(0.9 + r.next() * 0.2, 0.05 + (r.next() - 0.5) * 0.06, 0.08 + (r.next() - 0.5) * 0.06);
       if (r.next() < 0.35) one(0.5 + r.next() * 0.12, -0.16 + (r.next() - 0.5) * 0.05, -0.1 + (r.next() - 0.5) * 0.05);
     }
   },
@@ -2846,7 +2846,10 @@ export class CropVisuals {
     // No two plants alike: ±18 % size (±6 % on trellises, which must fill their frame), a little
     // height stretch, a lean of the whole plant, and a hue / value shift of the foliage.
     const hv = (sh: number, m: number): number => ((seed >>> sh) % m) / (m - 1);
-    const s = STAGE_SCALE[stage]! * (pl.scale ?? 1) * (1 + (hv(3, 37) - 0.5) * (trel ? 0.12 : 0.36));
+    // (r29) Ripe gourds only ±8 % on top of their own fruit / form variation (blind judge: one front
+    // pumpkin read as oversized against the rest — the three spreads stacked to a 2.5x size range).
+    const ripeGourd = stage >= 4 && (id === 'melon' || id === 'pumpkin');
+    const s = STAGE_SCALE[stage]! * (pl.scale ?? 1) * (1 + (hv(3, 37) - 0.5) * (trel ? 0.12 : ripeGourd ? 0.16 : 0.36));
     const jitter = trel ? 0 : 0.014;
     const pos = new THREE.Vector3(x + (((seed >> 5) % 7) - 3) * jitter, y, z + (((seed >> 8) % 7) - 3) * jitter);
     const yawRange = pl.yaw ?? Math.PI * 2;
@@ -2857,7 +2860,7 @@ export class CropVisuals {
     const j = hv(13, 29) - 0.5;
     const l = (gourd ? 0.86 : 0.92) + hv(17, 23) * (gourd ? 0.26 : 0.16);
     const tint = new THREE.Color(l * (1 + j * (gourd ? 0.2 : 0.1)), l * (1 + j * 0.03), l * (1 - j * (gourd ? 0.24 : 0.12)));
-    const gs = gourd ? 0.88 + hv(19, 31) * 0.22 : 1;
+    const gs = gourd ? 0.92 + hv(19, 31) * 0.12 : 1;
     const sq = gourd ? 0.84 + hv(11, 17) * 0.3 : 0.92 + hv(11, 17) * 0.16;
     return this.place(set, pos, yaw, new THREE.Vector3(s * gs, s * gs * sq, s * gs), tint);
   }

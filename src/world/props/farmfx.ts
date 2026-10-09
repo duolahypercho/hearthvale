@@ -942,7 +942,9 @@ class Stream {
         this.at(s, p);
         // Fan apart + per-bead scatter growing as the jet breaks up; a little hand-held wobble.
         const jx = (h11(i * 3.1 + j * 17 + Math.floor(this.t / this.T + (i + hsh * 0.6) / jet.n) * 5.7) - 0.5) * 2;
-        p.addScaledVector(lat, (jet.off ?? 0) * Math.min(1, f * 6) + jet.spread * f * f + jx * jet.jit * f + Math.sin(this.t * 21 + j * 2) * 0.006 * f);
+        // (r29) The rose's holes diverge from the start (a linear fan, not a late quadratic flare), so the
+        // pour reads as a shower of fine streams opening out of the rose across the whole arc.
+        p.addScaledVector(lat, (jet.off ?? 0) * Math.min(1, f * 6) + jet.spread * 1.25 * (0.55 * f + 0.45 * f * f) + jx * jet.jit * f + Math.sin(this.t * 21 + j * 2) * 0.006 * f);
         p.y += (hsh - 0.5) * jet.jit * f;
         tan.set(this.vel.x, this.vel.y - 9.8 * s, this.vel.z);
         const sp = tan.length();
@@ -971,7 +973,10 @@ class Stream {
           // (r19) Under the coherent rope the beads are only its texture; they own the lower arc.
           // (r25) The ribbon carries the upper ~2/3 of the arc as one sheet of water (r10 critic: "a
           // pearl necklace"); beads are only its break-up over the landing third.
-          this.al[k4 + e] = jet.a * Math.min(1, tipFade) * (0.06 + 0.94 * THREE.MathUtils.smoothstep(f, 0.5, 0.74));
+          // (r29) The side holes' droplet threads show along the whole arc (r9 critic: "a tiny bead … a short
+          // near-vertical bundle"): the fan of fine streams traces the parabola from rose to soil; only
+          // the core rope hands its upper arc to the glass ribbon.
+          this.al[k4 + e] = jet.a * Math.min(1, tipFade) * (j === 0 ? 0.06 + 0.94 * THREE.MathUtils.smoothstep(f, 0.5, 0.74) : 0.5 + 0.5 * THREE.MathUtils.smoothstep(f, 0.15, 0.5));
         }
       }
     });
@@ -1094,7 +1099,10 @@ void main() {
     // (r28) One soft translucent ribbon per jet over the whole throw (r10 critic: the beads alone read
     // as scattered stipple / dithering): a faint feathered veil from the nozzle to the landing, thinning
     // toward the rim, so each jet reads as ONE arc of water with the bead packets riding inside it.
-    mist += aA.x * 0.2 * smoothstep(0.0, 0.08, sr) * (1.0 - smoothstep(0.72, 0.97, sr)) * (1.0 - 0.45 * sr);
+    // (r29) ...broken into travelling slugs of water (the pressure pulses of an impact head) with clear
+    // gaps between them, so the veil never reads as one continuous glass wire / fountain tube.
+    float slug = smoothstep(0.35, 0.75, 0.5 + 0.5 * sin(sr * 24.0 - uTime * 15.0 + ph * 5.0));
+    mist += aA.x * 0.17 * smoothstep(0.0, 0.08, sr) * (1.0 - smoothstep(0.72, 0.97, sr)) * (1.0 - 0.45 * sr) * (0.15 + 0.85 * slug);
     vS = -1.0 - clamp(mist, 0.0, 0.99);
     // (r18) The coherent body only over the first ~60 % of the throw, then it has broken into drops
     // (a full-length ribbon read as a hose / wire).

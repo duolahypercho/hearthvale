@@ -72,7 +72,11 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // (r25) A centred overhead coil (r10 critic: the wind-up turned square to the lens with the hoe
     // held at the shoulder like a flag): no twist or side roll — the chest stays on the tile — both
     // fists climb straight up over the hat and the blade swings up and BACK over the crown.
-    { t: 0.17, ease: 'out', aR: [-2.6, -0.2], aL: [-2.48, -0.02], torso: [-0.12, -0.14, -0.04], head: 0.0, sy: 1.1, hips: [-0.06, 0.2], stance: 0.5, grip: 0.12, reach: 1.26, toolT: [-0.45, 0, 0.16] },
+    // (r29) In profile the chibi's arms straight up end at the hat brim (hands read "at the chin", the
+    // hoe a flagpole behind the head): a cartoon STRETCH — the arms rubber-hose up (reach 1.75 → 2.0) so
+    // both fists clear the hat crown and the whole shaft rides above the head, blade cocked high behind,
+    // the face open underneath; the downswing snaps the arms back to length (squash on the bite).
+    { t: 0.17, ease: 'out', aR: [-2.45, -0.3], aL: [-2.35, -0.12], torso: [-0.1, -0.12, -0.04], head: 0.02, sy: 1.1, hips: [-0.06, 0.2], stance: 0.56, grip: 0.2, reach: 1.75, toolT: [-0.55, 0, 0.3] },
     // Top: the held beat before the blow — arched back, fists high over the head, the hoe laid back
     // ~45° in the torso (≈ 65° from plumb once the back arch adds its lean) so the blade stands HIGH
     // above and behind the hat, chin up (exertion). (r24: at 79° + the arch the shaft lay flat behind
@@ -82,7 +86,7 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // (A light arch only: a deep one turned the face up into a high lens, reading as a turn to camera.)
     // (r27) The pelvis stays coiled at the top (hips 0.22 back, chest counter-turned onto the tile), so
     // the downswing is a visible unwinding from the legs up rather than arms alone.
-    { t: 0.205, ease: 'out', aR: [-2.88, -0.18], aL: [-2.76, 0.0], torso: [-0.18, -0.16, -0.05], head: 0.0, sy: 1.15, hips: [-0.08, 0.22], stance: 0.58, grip: 0.16, reach: 1.36, toolT: [-0.6, 0, 0.18] },
+    { t: 0.205, ease: 'out', aR: [-2.62, -0.3], aL: [-2.52, -0.12], torso: [-0.14, -0.12, -0.05], head: 0.04, sy: 1.14, hips: [-0.1, 0.22], stance: 0.64, grip: 0.24, reach: 2.0, toolT: [-0.72, 0, 0.32] },
     // Downswing (two readable frames, ~70 ms): the hips fire first, the body jack-knifes forward, the
     // arms whip down; the blade sweeps over OUT FRONT of the face (shaft ~50° forward, never across it).
     { t: 0.24, ease: 'in', aR: [-2.05, -0.3], aL: [-1.95, -0.42], torso: [0.1, 0.0, -0.08], head: -0.2, sy: 1.02, hips: [0.08, -0.08], stance: 0.56, grip: 0.06, reach: 1.24, toolT: [0.85, 0, 0.35] },
@@ -134,15 +138,17 @@ const TRACKS: Record<ActionKind, Key[]> = {
     // height so the water has a real drop to arc across.
     // (r27) The heave overshoots (rear heel up, body stretched, can cocked back past level) so the
     // tip that follows is a visible change of direction, not a drift.
-    { t: 0.3, ease: 'back', aR: [-2.02, -0.16], aL: [-1.62, 0.6], torso: [-0.12, 0, 0.08], head: 0.04, sy: 1.12, level: 0.08, reach: 1.22, stance: 0.16 },
+    { t: 0.3, ease: 'back', aR: [-1.78, -0.16], aL: [-1.42, 0.6], torso: [-0.12, 0, 0.08], head: 0.04, sy: 1.12, level: 0.08, reach: 1.22, stance: 0.16 },
     // The tip: the shoulder rolls hard into it (torso roll toward the can, hips under it), the can
     // pitched ~45° so the rose levels out over the tile and the water leaves it forward in a long arc
     // (the face stays up, clear of the hat).
     // (r27) Committed: the whole body leans into the pour (chest over the front foot, split stance,
     // shoulder rolled ~20°) and the can tips ~55° — the rose points down the arc it throws.
-    { t: 0.4, ease: 'inout', aR: [-1.8, -0.16], aL: [-1.44, 0.62], torso: [0.17, 0, 0.34], head: -0.1, sy: 0.97, level: 1.0, reach: 1.2, stance: 0.32, hips: [0.08, 0] },
+    // (r29) The can is tipped at chest height, not chin height: held up by the face it hid the farmer's
+    // face behind the can for the whole pour; the fan of rose streams carries the arc from there.
+    { t: 0.4, ease: 'inout', aR: [-1.5, -0.16], aL: [-1.18, 0.62], torso: [0.17, 0, 0.34], head: -0.1, sy: 0.97, level: 1.0, reach: 1.2, stance: 0.32, hips: [0.08, 0] },
     // Held tipped (pours ~0.6 s), tipping further as the can empties.
-    { t: 0.92, ease: 'linear', aR: [-1.74, -0.16], aL: [-1.38, 0.62], torso: [0.2, 0, 0.37], head: -0.1, sy: 0.96, level: 1.14, reach: 1.2, stance: 0.34, hips: [0.09, 0] },
+    { t: 0.92, ease: 'linear', aR: [-1.44, -0.16], aL: [-1.12, 0.62], torso: [0.2, 0, 0.37], head: -0.1, sy: 0.96, level: 1.14, reach: 1.2, stance: 0.34, hips: [0.09, 0] },
     { t: 1.08, ease: 'inout', aR: [-0.95, -0.14], aL: [-0.6, 0.45], torso: [0.03, 0, 0.02], sy: 1.05, level: 0.05, reach: 1.2 },
     { t: 1.26, ease: 'inout' },
   ],

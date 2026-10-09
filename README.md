@@ -1365,6 +1365,27 @@ Tilling culls grass tufts and ground cover overhanging the tile (`grass.clearTil
   `farm-coop-tools` lens pulled back (13.1 m, offsetX −1.05) so all three farmhands and the scarecrow sit in frame.
   Note: `crop:planted` is the state flip at the press (the co-op seed-refund check reads it synchronously inside
   `item:use`); SFX key on `crop:sown` / `tool:impact`, which land with the seeds.
+- **r29 polish**: *Hero fields* (blind judge: "red / yellow blob shapes … unclear whether bushes or boulders",
+  "add more life — a coop, barrels or lamps"): the lumpy flora bushes inside the hero frame are cleared, the orchard
+  tree whose canopy poked into the fall frame's left edge as a flat orange lump is felled for the still, and a
+  farmyard stands west of the front beds (`stageYard`: a red hen house on legs, round + square hay bales, a keg row,
+  a lantern post, a crate of the season's own produce models, a wheelbarrow — one `mergeStatic` mesh, ~+6 draws) with
+  three hens scratching / pecking round the coop door (`entities/critters` `Chicken`). Fewer tumbling leaves over
+  hero fields (map `leafGusts` 0.25: near the lens they flew by as big flat orange squares) and the bed litter only
+  where wind piles it (bed edging / path margins — no "confetti"). Ripe gourds vary only ±8 % on top of their own
+  fruit variation (three stacked spreads gave a 2.5× size range; one front pumpkin read as a giant). *Scarecrow*
+  (farmkit) modelled like the crops: split post lashed to the bar, straw skirt at the foot, plaid shirt with sagging
+  sleeves, rolled cuffs and straw bursting from cuffs / collar / waist, red neckerchief, patched bib overalls with
+  hanging legs, a cinched burlap head with cross-stitched eyes, button nose and stitched grin, a ragged wavy straw brim
+  with a torn notch. *Hoe* — the wind-up top is a cartoon stretch: arms rubber-hose up (reach 1.75 → 2.0, the chibi's
+  arms straight up ended at the hat brim, so the hands read "at the chin") with the hands slid down the shaft, the
+  whole hoe above the head and the blade cocked high behind the crown; `farm-tools` lensed lower (pitch 25, yaw −20)
+  so the overhead arc reads against the porch. *Pour* — the rose throws a fan of fine streams that diverge from the
+  rose (linear fan) and show along the whole arc (they used to appear only in the landing third), so the pour reads
+  as a shower from can to soil; the can is tipped at chest height (held at the chin it hid the face for the whole
+  pour); `farm-water` lens 8.3 m, yaw −34 (face + can + arc + tile in frame, no cropped hat on the lift).
+  *Sprinklers* — the per-jet veil is broken into travelling slugs of water (impact-head pressure pulses) with clear
+  gaps, so a jet never reads as one continuous glass wire.
 - **Demos**: `farm-harvest` (summer hero field, farmer mid-harvest holding a melon with a gold star; `&act=none` for an
   empty-handed field, `&crop=<id>`), `farm-harvest-fall` (pumpkin), `farm-harvest&season=spring` (cauliflower),
   `farm-giant`, `farm-crops` (gallery: every crop × stage, `&crops=melon,pumpkin`, `&season=`), `farm-tools` (hoe,
