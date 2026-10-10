@@ -146,7 +146,7 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
       diffuseColor.rgb *= 1.0 - uWet * ${wetDark.toFixed(3)} * (1.0 - hvSnowAmt);`;
     }
     fs = after(fs, '#include <color_fragment>', albedo);
-    if (wet && fs.includes('#include <emissivemap_fragment>')) {
+    if (wet && wetGloss < 0.5 && fs.includes('#include <emissivemap_fragment>') && fs.includes('vViewPosition')) {
       // Wet sheen: leaves, rocks, bark and soil catch the overcast sky at grazing angles (a cool
       // Fresnel rim, scaled with how glossy the surface gets when wet).
       fs = after(
