@@ -275,8 +275,7 @@ export class CoopDemo {
       pl.setFacing('down');
       // (r7c) faces the lens, a glance toward the group (r7: -0.7 showed the back of the hat)
       (pl as unknown as { targetYaw: number }).targetYaw = -0.15;
-      // (tuned on the lens: at this camera yaw the hat + bob read frontal at ~-0.5)
-      this.hostBias = -0.5;
+      this.hostBias = -0.15;
       this.game.followPlayer(true);
     });
     this.net.emitRoster();
@@ -450,7 +449,13 @@ export class CoopDemo {
   }
 
   update(dt: number, _time: number): void {
-    if (!this.active || this.asleep) return;
+    if (!this.active) return;
+    // Staged stills: the host's idle glance is off (a random ±0.45-0.8 rad head turn read as the whole
+    // farmer turned away under the bob + brim in some stills and not others).
+    const look = this.game.player as unknown as { lookTarget: number; lookT: number };
+    look.lookTarget = 0;
+    look.lookT = 10;
+    if (this.asleep) return;
     if (this.choreo) {
       this.choreo.update(dt);
       return;
@@ -471,6 +476,7 @@ export class CoopDemo {
     if (this.hostBias !== null) {
       const pl = this.game.player;
       (pl as unknown as { targetYaw: number }).targetYaw = Math.atan2(cam.x - pl.position.x, cam.z - pl.position.z) + (this.hostBiasUrl ?? this.hostBias);
+
     }
   }
 }

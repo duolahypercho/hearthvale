@@ -566,7 +566,7 @@ export class FarmChoreo {
           continue;
         }
         map.root.add(b.m);
-        b.m.scale.setScalar(1);
+        b.m.scale.setScalar(1.45);
         const at = this.carrying ? SPARE_AT : BASKET_AT;
         b.spare = this.carrying;
         b.to.set(at.x, map.heightAt(at.x, at.z) + (this.carrying ? 0.24 : 0.3), at.z);
@@ -592,9 +592,10 @@ export class FarmChoreo {
       // A lob with a bit of life: stretched along the climb / fall, squashed round at the apex, a spin.
       const k = b.t;
       b.m.position.lerpVectors(b.from, b.to, k);
-      b.m.position.y += Math.sin(k * Math.PI) * 1.25;
+      b.m.position.y += Math.sin(k * Math.PI) * 1.45;
+      // (r7c) ~1.45x the bed's berries in flight so the lob reads from the high lens
       const vy = Math.abs(Math.cos(k * Math.PI));
-      b.m.scale.set(1.1 - vy * 0.15, 0.95 + vy * 0.4, 1.1 - vy * 0.15);
+      b.m.scale.set(1.6 - vy * 0.2, 1.4 + vy * 0.55, 1.6 - vy * 0.2);
       b.m.rotation.z += dt * 9;
     }
     if (this.sparkle && this.sparkle.t >= 0) {
@@ -644,9 +645,12 @@ export class FarmChoreo {
       }
     }
     this.clock = c1;
+    const cam = this.game.rc.camera.position;
     for (const a of this.actors) {
       const s = sampleTrack(a.keys, c1);
       const f = a.p.farmer;
+      // Eyes on the lens whenever they're idle (no random glance away in a still; walking ignores it).
+      f.gaze = Math.atan2(cam.x - s.x, cam.z - s.z);
       const acting = f.acting;
       f.position.set(s.x, map ? map.heightAt(s.x, s.z) : 0, s.z);
       f.speed = acting ? 0 : s.speed;
@@ -658,6 +662,7 @@ export class FarmChoreo {
 
   dispose(): void {
     this.actors[2]?.p.farmer.carry(null);
+    for (const a of this.actors) a.p.farmer.gaze = null;
     this.actors = [];
     this.basket.root.removeFromParent();
     this.spare.root.removeFromParent();
