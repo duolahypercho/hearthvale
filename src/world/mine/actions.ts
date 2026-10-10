@@ -41,24 +41,30 @@ const TRACKS: Record<MineActionKind, { keys: Key[]; impact: number }> = {
       { t: 0.6, ease: 'inout' },
     ],
   },
+  // (r6) Re-solved so the blade really sweeps ~180° (the old keys turned the torso one way and the
+  // arm the other: the tip moved ~35° and sat behind the hat on the impact frame). Sword arm raised
+  // forward, the wrist carries the blade on along the forearm; azimuths of the tip relative to the
+  // facing: wind-up ±110°, IMPACT ∓30° (the leading edge of the crescent), follow-through ∓70°.
   slash: {
     impact: 0.16,
     keys: [
       { t: 0 },
-      { t: 0.09, ease: 'out', aR: [-1.35, -1.35], aL: [-0.5, 0.35], torso: [0.1, 1.0, 0.06], head: -0.05, sy: 0.93, tool: [Math.PI / 2, 0, -1.25] },
-      { t: 0.19, ease: 'in', aR: [-1.4, 0.55], aL: [-0.7, 0.15], torso: [0.2, -1.1, -0.06], head: 0.1, sy: 1.06, tool: [Math.PI / 2, 0, -1.25] },
-      { t: 0.26, ease: 'out', aR: [-1.25, 0.6], aL: [-0.6, 0.15], torso: [0.18, -1.2, -0.05], sy: 0.96, tool: [Math.PI / 2, 0, -1.25] },
-      { t: 0.44, ease: 'inout' },
+      { t: 0.09, ease: 'out', aR: [-1.1, 0.0], aL: [-0.5, 0.35], torso: [0.1, 0.9, 0.06], head: -0.05, sy: 0.93, tool: [1.9, 0, -1.0] },
+      { t: 0.16, ease: 'in', aR: [-0.75, 0.1], aL: [-0.65, 0.2], torso: [0.2, -0.6, -0.06], head: 0.1, sy: 1.06, tool: [2.3, 0, 0.2] },
+      { t: 0.21, ease: 'out', aR: [-1.0, 0.2], aL: [-0.6, 0.15], torso: [0.18, -0.95, -0.05], sy: 0.98, tool: [2.7, 0, 0.6] },
+      { t: 0.28, ease: 'out', aR: [-0.9, -0.2], aL: [-0.5, 0.15], torso: [0.15, -1.05, -0.04], sy: 0.97, tool: [2.7, 0, 0.2] },
+      { t: 0.46, ease: 'inout' },
     ],
   },
   backslash: {
     impact: 0.16,
     keys: [
       { t: 0 },
-      { t: 0.09, ease: 'out', aR: [-1.45, 0.65], aL: [-0.6, 0.2], torso: [0.12, -1.05, -0.05], head: -0.05, sy: 0.93, tool: [Math.PI / 2, 0, 1.3] },
-      { t: 0.19, ease: 'in', aR: [-1.3, -1.3], aL: [-0.5, 0.35], torso: [0.2, 1.05, 0.06], head: 0.1, sy: 1.06, tool: [Math.PI / 2, 0, 1.3] },
-      { t: 0.26, ease: 'out', aR: [-1.2, -1.4], aL: [-0.45, 0.35], torso: [0.18, 1.15, 0.05], sy: 0.96, tool: [Math.PI / 2, 0, 1.3] },
-      { t: 0.44, ease: 'inout' },
+      { t: 0.09, ease: 'out', aR: [-1.1, 0.0], aL: [-0.6, 0.2], torso: [0.12, -1.1, -0.05], head: -0.05, sy: 0.93, tool: [1.9, 0, 1.0] },
+      { t: 0.16, ease: 'in', aR: [-0.8, 0.3], aL: [-0.5, 0.35], torso: [0.2, 0.6, 0.06], head: 0.1, sy: 1.06, tool: [2.3, 0, 0.6] },
+      { t: 0.21, ease: 'out', aR: [-1.0, 0.3], aL: [-0.45, 0.35], torso: [0.18, 0.95, 0.05], sy: 0.98, tool: [2.7, 0, 0.4] },
+      { t: 0.28, ease: 'out', aR: [-0.9, 0.2], aL: [-0.45, 0.3], torso: [0.15, 1.05, 0.04], sy: 0.97, tool: [2.7, 0, 0.2] },
+      { t: 0.46, ease: 'inout' },
     ],
   },
 };
@@ -201,10 +207,10 @@ export class MineActions {
       a.fired = true;
       a.onImpact?.();
     }
-    a.onUpdate?.(a.t);
     const ks = track.keys;
     const end = ks[ks.length - 1]!.t;
     if (a.t >= end) {
+      a.onUpdate?.(a.t);
       this.finish();
       return null;
     }
@@ -238,6 +244,10 @@ export class MineActions {
     const brace = Math.max(0, rig.torso.rotation.x) * 0.5;
     rig.legL.rotation.x = -brace;
     rig.legR.rotation.x = brace * 0.6;
+    // (r6) After the pose is applied: toolPoint() reads THIS frame's blade (the player resets the
+    // arms + torso to rest before actionPose runs, so sampling first traced the rest pose — the
+    // ribbon and crescent never matched the blade).
+    a.onUpdate?.(a.t);
     return { sy: m(k0.sy ?? 1, k1.sy ?? 1), bob: 0 };
   }
 }
@@ -445,7 +455,7 @@ const ARC_RAD = 6;
 const ARC_SPAN = THREE.MathUtils.degToRad(135);
 /** Crescent radii (m): outer (blade-tip path) and the core band thickness at the middle. */
 const ARC_OUT = 1.62;
-const ARC_CORE = 0.42;
+const ARC_CORE = 0.3;
 /** Impact hold of the crescent (s): long enough to read as a shape, not a one-frame flicker. */
 const HOLD = 0.125;
 
@@ -478,7 +488,7 @@ export class SlashArc {
       const rOut = ARC_OUT - (1 - w) * 0.1;
       // v 0..0.5 = soft inner wash (towards the farmer), 0.5..1 = the core band.
       const rCore = rOut - ARC_CORE * w;
-      const rIn = rOut - (ARC_CORE + 0.55) * w - 0.01;
+      const rIn = rOut - (ARC_CORE + 0.36) * w - 0.01;
       for (let j = 0; j <= ARC_RAD; j++) {
         const v = j / ARC_RAD;
         const r = v < 0.5 ? rIn + (rCore - rIn) * (v / 0.5) : rCore + (rOut - rCore) * ((v - 0.5) / 0.5);
@@ -518,13 +528,15 @@ export class SlashArc {
           float v = vUv.y;
           float core = smoothstep(0.5, 0.62, v);
           float edge = smoothstep(0.84, 0.97, v) * (1.0 - smoothstep(0.985, 1.0, v));
-          float wash = smoothstep(0.0, 0.5, v) * (1.0 - core) * 0.42;
+          float wash = smoothstep(0.0, 0.5, v) * (1.0 - core) * 0.26;
           float streak = 0.78 + 0.22 * sin((s * 3.0 - uScroll * 6.0) * 6.2832 + v * 7.0);
           vec3 warm = mix(vec3(1.0, 0.55, 0.18), vec3(1.0, 0.78, 0.16), uCrit);
           vec3 hot = mix(vec3(1.0, 0.96, 0.86), vec3(1.0, 0.92, 0.6), uCrit);
           // Warm-white blade edge → gold core band → amber wash fading to nothing towards the farmer.
           vec3 band = mix(warm, hot, smoothstep(0.55, 0.95, v));
-          vec3 col = warm * wash + band * core * 0.85 * streak + hot * edge * (1.25 + head * 0.8 + uHit * 0.5);
+          // (r6: capped — the edge peaks just over the bloom knee for a thin glint, the band stays under it:
+          // a crisp arc, never a white blob over the victim, the blade and the farmer's arm)
+          vec3 col = warm * wash + band * core * 0.5 * streak + hot * edge * (0.85 + head * 0.3 + uHit * 0.15);
           col *= tail * uFade * smoothstep(0.0, 0.07, s) * smoothstep(0.0, 0.06, uHead + 0.015 - s);
           // Afterimages: dimmer, warmer, no hot edge flare.
           col = mix(col, warm * (core + edge) * 0.9 * tail * uFade * smoothstep(0.0, 0.1, s), step(0.001, uGhost)) * (uGhost > 0.0 ? uGhost : 1.0);
@@ -532,7 +544,7 @@ export class SlashArc {
         }`,
     });
     this.mesh = new THREE.Mesh(g, mat(0));
-    for (const k of [0.5, 0.26]) {
+    for (const k of [0.3, 0.14]) {
       const gm = new THREE.Mesh(g, mat(k));
       gm.frustumCulled = false;
       gm.renderOrder = 59;
@@ -565,8 +577,23 @@ export class SlashArc {
     this.u.uFade.value = 1;
     this.u.uHit.value = 0;
     this.t = 0;
+    this.following = false;
     this.mesh.visible = true;
   }
+
+  /**
+   * (r6) Drive the crescent's head from the real blade: `rel` = the blade tip's azimuth relative to
+   * the facing (radians, atan2(x, z) convention). The crescent fills up to the blade and never
+   * runs ahead of it, so on the impact frame its bright head sits on the blade tip.
+   */
+  follow(rel: number): void {
+    if (this.t < 0) return;
+    this.following = true;
+    const s = (ARC_SPAN / 2 + this.u.uDir.value * rel) / ARC_SPAN;
+    this.u.uHead.value = Math.max(this.u.uHead.value, Math.min(1, s));
+  }
+
+  private following = false;
 
   /** Impact frame: snap the crescent to full length and (re)start the flash hold. */
   impact(crit = false, hit = false): void {
@@ -575,7 +602,7 @@ export class SlashArc {
     this.u.uHit.value = hit ? 1 : 0;
     if (crit) this.mesh.scale.setScalar(1.14);
     this.t = Math.min(this.t, this.sweep);
-    this.u.uHead.value = 1;
+    if (!this.following) this.u.uHead.value = 1;
   }
 
   get active(): boolean {
@@ -598,10 +625,10 @@ export class SlashArc {
     this.ghosts.forEach((gm, i) => (gm.rotation.y = -this.u.uDir.value * (i + 1) * 0.25 * lagK));
     if (t < this.sweep) {
       const k = t / this.sweep;
-      this.u.uHead.value = Math.max(this.u.uHead.value, 1 - (1 - k) * (1 - k));
+      if (!this.following) this.u.uHead.value = Math.max(this.u.uHead.value, 1 - (1 - k) * (1 - k));
       this.u.uFade.value = 1;
     } else if (t < this.sweep + this.hold) {
-      this.u.uHead.value = 1;
+      if (!this.following) this.u.uHead.value = 1;
       this.u.uFade.value = 1;
     } else if (t < this.sweep + this.hold + this.fade) {
       const k = (t - this.sweep - this.hold) / this.fade;

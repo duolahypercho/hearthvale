@@ -45,7 +45,8 @@ export class CaveLighting {
 
   constructor(private game: Game) {
     this.group.name = 'cave-lights';
-    this.key = new THREE.SpotLight(0xffb46a, 30, 22, 0.95, 0.85, 1.25);
+    // (r6: wider, fully feathered cone — the pool read as a hard stage-light disc on the floor)
+    this.key = new THREE.SpotLight(0xffb46a, 30, 22, 1.05, 1.0, 1.25);
     this.key.castShadow = true;
     const q = game.rc.preset.shadowMapSize >= 4096 ? 2048 : 1024;
     this.key.shadow.mapSize.set(q, q);

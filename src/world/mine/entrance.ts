@@ -616,9 +616,22 @@ export class MineEntranceMap implements GameMap {
             float blockTone = 0.86 + 0.26 * bk;
             vec3 mossC = vec3(0.24, 0.38, 0.11);
             float mossy = step(0.72, bk) * smoothstep(0.3, 0.0, min(jf, 1.0 - jf) * jw) * smoothstep(0.4, 0.95, fb);
-            vec3 bedC = diffuseColor.rgb * (1.0 - groove * gk) * (1.0 + lip * 0.2 * broken) * bedShade * blockTone * (1.0 - crev * 0.55);
+            vec3 bedC = diffuseColor.rgb * (1.0 - groove * gk) * (1.0 + lip * 0.2 * broken) * bedShade * blockTone * (1.0 - crev * 0.68);
             bedC = mix(bedC, mossC * (0.8 + 0.3 * bk), mossy * 0.7);
             diffuseColor.rgb = mix(diffuseColor.rgb, bedC, face);
+            // (r6) Tall VERTICAL fractures running through many beds (jointing that breaks the
+            // pancake rhythm), each a dark open seam with a shadowed side, wandering a little.
+            {
+              float vx = vCfW.x + (hvNoise(vec2(vCfW.y * 0.45, 7.0)) - 0.5) * 0.9 + vCfW.z * 0.3;
+              float vc = floor(vx / 4.6);
+              float vh = fract(sin(vc * 37.1 + 1.7) * 43758.5453);
+              float vfx = fract(vx / 4.6) * 4.6 - (0.8 + vh * 3.0);
+              float vlen = smoothstep(0.2, 0.5, hvNoise(vec2(vc * 3.7, vCfW.y * 0.22)));
+              float vcr = (1.0 - smoothstep(0.03, 0.09 + fwidth(vx) * 1.5, abs(vfx))) * vlen * step(0.35, vh);
+              float vsh = smoothstep(0.0, 0.5, vfx) * (1.0 - smoothstep(0.5, 0.9, vfx)) * vlen * step(0.35, vh);
+              diffuseColor.rgb *= 1.0 - (vcr * 0.7 + vsh * 0.16) * face;
+              cfCrack = max(cfCrack, vcr * 0.6);
+            }
             // The fault crack itself + a moss / weep stain trailing down from it.
             diffuseColor.rgb *= 1.0 - cfCrack * 0.72 * face;
             diffuseColor.rgb = mix(diffuseColor.rgb, mossC * 0.9, cfCrack * smoothstep(0.45, 0.7, hvNoise(vec2(vCfW.x * 3.0, vCfW.y * 0.8))) * 0.55 * face);
@@ -856,6 +869,11 @@ export class MineEntranceMap implements GameMap {
       for (const d of [-1, 1]) b.add('woodGrain', roundedBox(0.11, 2.15, 0.11, 0.02), mat(0, y, -0.78 + k * 0.05, 0, 0, d * 0.78), { tint: 0x8e6844 });
     }
     b.add('woodGrain', roundedBox(2.3, 0.22, 2.0, 0.04), mat(0, H, 0), { tint: 0x98704a });
+    // (r6) A dressed-stone PLINTH the headframe stands on (it read as floating beside the cliff):
+    // a low course of blocks with a darker skirt, a step in front of the cage.
+    b.add(mineRockMaterial(), boxUV(roundedBox(2.9, 0.34, 2.5, 0.07), 1.2), mat(0, 0.0, 0.05), { tint: 0x6e6458, aoWorld: (p) => 0.6 + 0.4 * smoothstep(-0.15, 0.17, p.y) });
+    for (let k = -2; k <= 2; k++) b.add(mineRockMaterial(), boxUV(roundedBox(0.56, 0.3, 0.2, 0.05), 1), mat(k * 0.58, -0.02, 1.33, 0, (k % 2) * 0.04, 0), { tint: k % 2 ? 0x7c705f : 0x6a6052 });
+    b.add(mineRockMaterial(), boxUV(roundedBox(1.3, 0.16, 0.42, 0.04), 1), mat(0, 0.02, 1.62), { tint: 0x766a5a });
     // Sheave bearers: an A-frame on each side carries the wheel's axle (it sat perched on posts).
     for (const sz of [-1, 1]) {
       for (const sx of [-1, 1]) b.add('woodGrain', roundedBox(0.16, 1.25, 0.16, 0.03), mat(sx * 0.38, H + 0.5, sz * 0.32, 0, 0, sx * -0.42), { tint: wood });
@@ -918,6 +936,25 @@ export class MineEntranceMap implements GameMap {
     ]);
     const lp = buildLanternPost();
     this.addLit(lp, x - 1.9, z + 1.2, 0);
+    // (r6) Spoil heap against the plinth's west side: a slumped cone of broken waste rock and
+    // gravel tipped from the shaft (grounds the headframe in the yard).
+    {
+      const r = this.rng.fork('spoil');
+      const sb = new MeshBuilder();
+      const hx = x - 1.85;
+      const hz = z + 0.55;
+      for (let k = 0; k < 26; k++) {
+        const a = r.next() * Math.PI * 2;
+        const d = Math.sqrt(r.next()) * 1.05;
+        const rr = 0.09 + r.next() * 0.16 * (1.2 - d * 0.6);
+        const px = hx + Math.cos(a) * d;
+        const pz = hz + Math.sin(a) * d * 0.8;
+        const py = this.H(px, pz) + Math.max(0, 0.62 - d * 0.55) - rr * 0.25;
+        sb.add(mineRockMaterial(), facetRock(r, rr, [0x8a7c6a, 0x7a6e60, 0x9a8a74, 0x6a6058][k % 4]!, { chunky: true, squash: 0.65, rim: 0.5, detail: 0 }), mat(px, py, pz, 0, r.next() * 6, 0));
+      }
+      const heap = sb.build({ name: 'spoil-heap' });
+      this.add(heap, 0, 0, 0, [], 0);
+    }
   }
 
   private addLit(bp: BuiltProp, x: number, z: number, rot: number): void {

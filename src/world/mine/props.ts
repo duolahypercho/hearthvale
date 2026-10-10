@@ -166,6 +166,64 @@ export interface MineProps {
   dispose(): void;
 }
 
+/**
+ * (r6) A basalt / obsidian column with columnar jointing: 2-3 stacked hex drums, each its own
+ * irregular hexagon (rim verts pushed in / out ±14 %, so faces catch the light differently), a
+ * small twist and slip per drum, and the joints between drums returned as thin rings (drawn as
+ * dim ember seams). Local space: centred on the origin, height `hh` along +Y.
+ */
+function basaltColumn(r: Rng, hh: number, rTop: number, rBot: number, color?: (t: number, c: THREE.Color) => void): { drums: THREE.BufferGeometry[]; joints: THREE.BufferGeometry[] } {
+  const cuts = [0];
+  const n = hh > 1.3 ? 3 : 2;
+  for (let k = 1; k < n; k++) cuts.push((k / n + (r.next() - 0.5) * 0.18) * hh);
+  cuts.push(hh);
+  const prof = Array.from({ length: 6 }, () => 0.86 + r.next() * 0.28);
+  const drums: THREE.BufferGeometry[] = [];
+  const joints: THREE.BufferGeometry[] = [];
+  const c = new THREE.Color();
+  for (let k = 0; k < cuts.length - 1; k++) {
+    const y0 = cuts[k]!;
+    const y1 = cuts[k + 1]! - (k < cuts.length - 2 ? 0.025 : 0);
+    const t0 = y0 / hh;
+    const t1 = y1 / hh;
+    const ra = rBot + (rTop - rBot) * t0;
+    const rb = rBot + (rTop - rBot) * t1;
+    const g = new THREE.CylinderGeometry(rb, ra, y1 - y0, 6, 1).toNonIndexed();
+    const pa = g.attributes.position as THREE.BufferAttribute;
+    // per-drum wobble on the shared profile: the column stays one crystal, each drum chipped
+    const wob = Array.from({ length: 6 }, (_, i) => prof[i]! * (0.94 + r.next() * 0.12));
+    for (let i = 0; i < pa.count; i++) {
+      const x = pa.getX(i);
+      const z = pa.getZ(i);
+      const rr = Math.hypot(x, z);
+      if (rr < 1e-4) continue;
+      const ai = Math.round(((Math.atan2(z, x) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 3)) % 6;
+      pa.setXYZ(i, x * wob[ai]!, pa.getY(i), z * wob[ai]!);
+    }
+    g.computeVertexNormals();
+    const tw = (r.next() - 0.5) * 0.22;
+    g.applyMatrix4(new THREE.Matrix4().makeRotationY(tw).setPosition((r.next() - 0.5) * 0.03, (y0 + y1) / 2 - hh / 2, (r.next() - 0.5) * 0.03));
+    if (color) {
+      const col = new Float32Array(pa.count * 3);
+      for (let i = 0; i < pa.count; i++) {
+        color((pa.getY(i) + hh / 2) / hh, c);
+        // each drum a touch different in value
+        c.multiplyScalar(0.9 + (k % 2) * 0.14);
+        col.set([c.r, c.g, c.b], i * 3);
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    }
+    drums.push(g);
+    if (k < cuts.length - 2) {
+      const jr = rb * 0.97;
+      const j = new THREE.CylinderGeometry(jr, jr, 0.035, 6, 1, true);
+      j.applyMatrix4(new THREE.Matrix4().makeRotationY(tw).setPosition(0, y1 + 0.012 - hh / 2, 0));
+      joints.push(j);
+    }
+  }
+  return { drums, joints };
+}
+
 let obsidianMat: THREE.MeshStandardMaterial | null = null;
 function obsidianMaterial(): THREE.MeshStandardMaterial {
   if (!obsidianMat) {
@@ -434,11 +492,12 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
           const a = (k / n) * Math.PI * 2 + r.next();
           const dd = k === 0 ? 0 : 0.28 + r.next() * 0.1;
           const hgt = (k === 0 ? 1.8 : 0.7 + r.next() * 0.9) * d.scale;
-          const g = new THREE.CylinderGeometry(0.2, 0.22, hgt, 6, 1);
-          g.translate(0, hgt / 2, 0);
           const x = d.x + Math.cos(a) * dd;
           const z = d.z + Math.sin(a) * dd;
-          b.add('stone', g, mat(x, heightAt(x, z) - 0.05, z, 0, r.next(), 0), { tint: 0x3a3032, aoWorld: (p) => 0.5 + 0.5 * THREE.MathUtils.smoothstep(p.y - y, 0, 1.0) });
+          const col = basaltColumn(r, hgt, 0.2, 0.22);
+          const ryc = r.next();
+          for (const g of col.drums) b.add('stone', g, mat(x, heightAt(x, z) - 0.05 + hgt / 2, z, 0, ryc, 0), { tint: 0x3a3032, aoWorld: (p) => 0.5 + 0.5 * THREE.MathUtils.smoothstep(p.y - y, 0, 1.0) });
+          for (const g of col.joints) glowB.add(glowMaterial(), g, mat(x, heightAt(x, z) - 0.05 + hgt / 2, z, 0, ryc, 0), { tint: 0x4a1404 });
           // Bevelled basalt crown (a flat red hex read as plastic) with a small ember heart.
           const ry = r.next();
           const topc = new THREE.CylinderGeometry(0.15, 0.205, 0.07, 6);
@@ -915,18 +974,13 @@ function wallDressing(L: FloorLayout, r: Rng, heightAt: H, surfaceAt: H, B: Buil
         const hh = 1.4 + r.next() * 1.6;
         const tz = faceZ(x, zb, hh) ?? fz;
         const by = heightAt(x, fz + 0.2);
-        const g = new THREE.CylinderGeometry(0.2 + r.next() * 0.06, 0.24, hh, 6, 1);
-        const col = new Float32Array(g.attributes.position!.count * 3);
-        const c = new THREE.Color();
-        const pa = g.attributes.position as THREE.BufferAttribute;
-        for (let i = 0; i < pa.count; i++) {
-          const t = (pa.getY(i) + hh / 2) / hh;
-          c.setHex(0x1a1420).lerp(new THREE.Color(0x3a2e44), t * 0.6);
-          col.set([c.r, c.g, c.b], i * 3);
-        }
-        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        const lo = new THREE.Color(0x1a1420);
+        const hi = new THREE.Color(0x3a2e44);
+        const colm = basaltColumn(r, hh, 0.2 + r.next() * 0.06, 0.24, (t, c) => c.copy(lo).lerp(hi, t * 0.6));
         const th = Math.atan2(tz - fz, hh);
-        B.rockB.add(obsidianMaterial(), g.toNonIndexed(), mat(x, by + hh / 2 - 0.05, (fz + tz) / 2 + 0.22, th, r.next(), 0));
+        const ryc = r.next();
+        for (const g of colm.drums) B.rockB.add(obsidianMaterial(), g, mat(x, by + hh / 2 - 0.05, (fz + tz) / 2 + 0.22, th, ryc, 0));
+        for (const g of colm.joints) B.glowB.add(glowMaterial(), g, mat(x, by + hh / 2 - 0.05, (fz + tz) / 2 + 0.22, th, ryc, 0), { tint: 0x5a1a06 });
         // Bevelled obsidian crown (a flat glowing red hex cap read as plastic) + a small ember heart.
         const ry = r.next();
         const capG = new THREE.CylinderGeometry(0.15, 0.215, 0.08, 6);

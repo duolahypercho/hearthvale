@@ -2090,7 +2090,24 @@ Frostvein Grotto, Cinder Depths (`biomes.ts`), repeating with a tier (tougher mo
 - **Demos**: `mine-entrance`, `mine-floor` (earth, floor 3), `mine-ice` (14), `mine-lava` (24), `mine-combat`
   (live arena + autopilot; `&still=1` freezes a landed hit, `&god=1`), `mine-coop` (two scripted farmhands fighting
   and mining beside you, name tags; no server), `mine-chest` (floor 10 reforge). Params: `&floor=N`, `&pick=1`
-  (`&still=1` freezes the pick impact), `&foe=0` (no staged monster), `&ui=elevator`.
+  (`&still=1` freezes the pick impact), `&foe=0` (no staged monster), `&ui=elevator` (stages the farmer beside the
+  floor's lift cage; use with `&floor=5`).
+- **Round 6 (critic r5 fixes)**: the slash keys are re-solved so the blade really sweeps ~180° (wind-up ±110°,
+  impact ∓30°, follow-through ∓70° of the facing; the old torso and arm turned against each other, so the tip moved
+  ~35° and sat behind the hat). The crescent's head now rides the measured blade tip (`SlashArc.follow`), and pose
+  callbacks sample the blade after the pose is applied (the ribbon used to trace the rest pose). Aim assist snaps
+  side-on unless the target is almost straight above or below. Hit VFX stay under the bloom knee: a thinner
+  crescent with a capped edge, a 2-frame pale silhouette flash clamped at 0.62, a few warm sparks instead of a white
+  burst, and a 5 % exposure kick. Damage numbers merge per victim within 0.7 s, fan out sideways, and at most 3 are
+  on screen. Pick staging puts the farmer where the head actually lands, ~1.3 m from the rock, and the burst shows
+  the contact, then the shatter on the next swing. Ore veins are tilted bands of lumpy nuggets with satellites,
+  ore rocks get slab / tall / round silhouettes at about 1.32x scale, and an ore pocket is capped at about 4 rocks.
+  Earth floors have patches of grey stone setts that break up sett by sett, plus glossy wet-mud hollows. Every
+  warm lantern washes the rock around it with a fake lamp pool (`layout.lamps`, a 16-slot shell loop, no real
+  lights), and the key cone is wider and fully feathered. Lava basalt is a value darker, and its columns are
+  jointed drums with ember seams. The entrance cliff gets tall vertical fractures; the headframe stands on a
+  stone plinth beside a spoil heap. Co-op farmers arriving on an occupied spot land 1.6 tiles away. Rim boulders
+  dropped to 80 tris each.
 - **Perf (pillar 14)**: the farmer / monster cutaway's `discard` switches off hidden-surface removal on tile GPUs, so
   every cut-patched material has a solid twin (`occlude.ts`): the shell, rim boulders, rubble and merged props are
   sorted into 2 m cells and each frame only the cells whose bounds can reach a cutaway ellipse or the foreground band

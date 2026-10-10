@@ -641,6 +641,11 @@ export class MineCoop implements MineNetApi {
     this.toHost(['m.p', f, cm(p.x), cm(p.z), alive ? 1 : 0]);
   }
 
+  /** (r6) Other farmers known to stand on `floor` (arrival spacing: never land inside one). */
+  othersOn(floor: number): THREE.Vector3[] {
+    return this.farmersOn(floor).map((f) => f.pos);
+  }
+
   private farmersOn(floor: number): { id: number; pos: THREE.Vector3; targetable: boolean }[] {
     const out: { id: number; pos: THREE.Vector3; targetable: boolean }[] = [];
     for (const p of this.peers.values()) if (p.floor === floor) out.push({ id: p.id, pos: p.pos, targetable: p.alive });
@@ -1054,7 +1059,7 @@ export class MineCoop implements MineNetApi {
       const dz = h.mo.pos.z - origin.z;
       const d = Math.hypot(dx, dz) || 1;
       at.x += (dx / d) * h.mo.radius * 0.6;
-      this.numbers.pop(at, String(h.dmg), h.crit ? 'crit' : 'dmg', { dy: -i * 30 });
+      this.numbers.pop(at, String(h.dmg), h.crit ? 'crit' : 'dmg', { dy: -i * 6, dx: (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 44, track: h.mo.pos });
     });
   }
 

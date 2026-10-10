@@ -729,7 +729,8 @@ export class MineMap implements GameMap {
       } else if (m.kind === 'imp') {
         this.fx.sparks(at, { color: 0xffb040, to: 0xff3010, count: 16, speed: 3, up: 1.2, size: 0.12, gravity: 4, drag: 2, life: 0.5, dir: kdir, cone: 0.5 });
       }
-      this.fx.sparks(at, { color: 0xffffff, to: crit ? 0xffc040 : 0xffe8c0, count: crit ? 18 : 10, speed: crit ? 5 : 3.6, up: 0.8, size: crit ? 0.14 : 0.1, gravity: 4, drag: 3, life: 0.28, dir: kdir, cone: 0.4 });
+      // (r6: a few small warm sparks thrown off the far side — the white burst bloomed over the victim)
+      this.fx.sparks(at.clone().addScaledVector(kdir, m.radius * 0.6), { color: crit ? 0xffd070 : 0xffd8a0, to: crit ? 0xff9020 : 0xc08040, count: crit ? 10 : 6, speed: crit ? 4.4 : 3.4, up: 0.7, size: crit ? 0.1 : 0.075, gravity: 5, drag: 3, life: 0.24, dir: kdir, cone: 0.35 });
       // One voice per kind for the whole swing (systems/audio.ts collapses simultaneous hits).
       mineSfx.hit(m.kind, crit, killed, m.pos);
     }

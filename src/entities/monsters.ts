@@ -95,12 +95,15 @@ function monsterMat(color: number, opts: { rough?: number; clearcoat?: boolean |
         float frF = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 1.5);
         float fLum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
         float fK = uFlash * mix(1.0, 0.3, smoothstep(0.25, 0.7, fLum));
-        totalEmissiveRadiance += (diffuseColor.rgb * 0.55 + vec3(0.3)) * fK + vec3(1.0, 0.9, 0.7) * frF * uFlash * mix(1.1, 0.6, smoothstep(0.25, 0.7, fLum));
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.6 + 0.4, fK * 0.4);
+        // (r6: kept well under the bloom knee — the flash reads on the victim's silhouette, it never
+        // blooms into a white blob over the blade and the farmer's arm)
+        totalEmissiveRadiance += (diffuseColor.rgb * 0.3 + vec3(0.12)) * fK + vec3(1.0, 0.86, 0.62) * frF * uFlash * mix(0.55, 0.3, smoothstep(0.25, 0.7, fLum));
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.7 + 0.25, fK * 0.35);
       }`,
     );
-    // The first ~2 frames of a hit: a full white silhouette (the classic hit-flash read).
-    fs = after(fs, '#include <dithering_fragment>', 'gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0, 0.97, 0.92) * 0.95, step(0.72, uFlash));');
+    // The first ~2 frames of a hit: a flat pale silhouette (the classic hit-flash read), clamped
+    // below the bloom threshold so it stays the creature's shape instead of a glow ball.
+    fs = after(fs, '#include <dithering_fragment>', 'gl_FragColor.rgb = mix(gl_FragColor.rgb, min(vec3(1.0, 0.95, 0.88) * 0.62, max(gl_FragColor.rgb, vec3(0.5))), step(0.76, uFlash));');
     shader.fragmentShader = fs;
   });
   return m;
@@ -423,7 +426,7 @@ export abstract class Monster {
   }
 
   update(dt: number, ctx: ArenaCtx, frozen = false): void {
-    this.flash = this.holdFlash ? 0.5 : Math.max(0, this.flash - dt * 7);
+    this.flash = this.holdFlash ? 0.6 : Math.max(0, this.flash - dt * 7);
     if (frozen && this.dying < 0) {
       if (this.squash > 0) {
         this.squash = Math.max(this.holdFlash ? 0.6 : 0, this.squash - dt / SQUASH_TIME);

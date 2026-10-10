@@ -169,7 +169,8 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     strata: [0x1e1618, 0x2e2224, 0x3a2a28, 0x241a1c, 0x4a3430, 0x2a1e20],
     wallValue: 0.8,
     // Desaturated charcoal-brown walkable rock: the melt is the only hot hue in the frame.
-    floor: [0x5a524c, 0x46403c, 0x221e1d],
+    // (r6: a value darker — under the lantern key the old tone washed out to pale clay)
+    floor: [0x3e3936, 0x312d2b, 0x1c1918],
     rock: [0x4e4240, 0x3e3434, 0x5a4a44],
     crystals: [0xff6a1a, 0xff3a2a, 0xffb040],
     crystalCount: 9,

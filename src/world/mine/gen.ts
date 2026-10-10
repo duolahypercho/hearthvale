@@ -93,6 +93,11 @@ export interface FloorLayout {
   crystals: CrystalSpec[];
   decor: DecorSpec[];
   lights: LightSpec[];
+  /**
+   * (r6) Every warm practical on the floor (wall / frame lanterns, braziers): the cave shell paints a
+   * cheap fake light pool on the rock round each one (no real light: only 5 accents are real).
+   */
+  lamps: LightSpec[];
   /** BFS distance (tiles) from the spawn over walkable floor (-1 = unreachable). */
   dist: Int16Array;
 }
@@ -606,16 +611,43 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     if (seeds.length >= seamN + 1) break;
     if (spaced(seeds, c.x, c.z, 8)) seeds.push(c);
   }
+  // (r6) Ore pockets cap at ~4 rocks of one ore: a seam reads as a vein you mine out, never a
+  // carpet of 10-15 identical copper lumps (the contagion grew whole fields of it).
+  const rockAt = new Map<number, RockSpec>();
+  const pocket = (x: number, z: number, ore: OreId): number => {
+    const seen = new Set<number>([idx(x, z)]);
+    const q = [idx(x, z)];
+    let n = 0;
+    for (let h = 0; h < q.length && n < 6; h++) {
+      const i = q[h]!;
+      const cx = i % W;
+      const cz = (i / W) | 0;
+      for (const [dx, dz] of N8) {
+        if (!inb(cx + dx, cz + dz)) continue;
+        const j = idx(cx + dx, cz + dz);
+        if (seen.has(j)) continue;
+        seen.add(j);
+        if (rockAt.get(j)?.ore === ore) {
+          n++;
+          q.push(j);
+        }
+      }
+    }
+    return n;
+  };
   const roll = (x: number, z: number): OreId | null => {
     let ore = rng.weighted(oreTable);
     const nb = rocks.find((r) => Math.abs(r.x - x) + Math.abs(r.z - z) === 1 && r.ore);
     if (nb?.ore && rng.next() < 0.5) ore = nb.ore;
+    if (ore && pocket(x, z, ore) >= 3) ore = null;
     return ore;
   };
   const place = (x: number, z: number, ore: OreId | null): void => {
     const big = !ore && rng.next() < 0.12;
     const oreHp = ore ? ({ copperOre: 1, ironOre: 2, goldOre: 3, coal: 1 } as Record<string, number>)[ore] ?? 2 : 0;
-    rocks.push({ x, z, ore, big, hp: 1 + (big ? 2 : 0) + oreHp + tier + (biome === 'lava' ? 1 : 0), seed: rng.int(0, 1e6) });
+    const spec: RockSpec = { x, z, ore, big, hp: 1 + (big ? 2 : 0) + oreHp + tier + (biome === 'lava' ? 1 : 0), seed: rng.int(0, 1e6) };
+    rocks.push(spec);
+    rockAt.set(idx(x, z), spec);
     taken[idx(x, z)] = 1;
   };
   const per = Math.ceil((rockTarget - 3) / Math.max(1, seeds.length));
@@ -811,7 +843,12 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     lights.push({ x: l.x, y: l.y, z: l.z, color: l.color, intensity: l.intensity, distance: l.distance, flicker: l.flicker });
   }
 
-  return { floor, biome, tier, w: W, d: D, solid, lava, pool, ladderUp, spawn, elevator, chest, rocks, ladderRock, monsters, crystals, decor, lights, dist };
+  const lamps: LightSpec[] = lightSources
+    .filter((l) => l.flicker > 0 && l.y >= 1.5)
+    .slice(0, 16)
+    .map((l) => ({ x: l.x, y: l.y, z: l.z, color: l.color, intensity: l.intensity, distance: l.distance, flicker: l.flicker }));
+
+  return { floor, biome, tier, w: W, d: D, solid, lava, pool, ladderUp, spawn, elevator, chest, rocks, ladderRock, monsters, crystals, decor, lights, lamps, dist };
 }
 
 /**

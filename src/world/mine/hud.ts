@@ -282,7 +282,9 @@ export class DamageNumbers {
     }
     // Rapid hits on the same target merge into ONE ticking number (re-pops, upgrades to a crit).
     if (!opts.follow && (kind === 'dmg' || kind === 'crit') && /^\d+$/.test(text)) {
-      const same = this.list.find((n) => (n.kind === 'dmg' || n.kind === 'crit') && !n.follow && n.age < 0.45 && n.pos.distanceToSquared(at) < 0.8 * 0.8);
+      // (r6: matched by the victim itself — knockback carried it out of the old 0.8 m radius, so
+      // successive swings stacked a tower of numbers over one slime)
+      const same = this.list.find((n) => (n.kind === 'dmg' || n.kind === 'crit') && !n.follow && (opts.track && n.track === opts.track ? n.age < 0.7 : n.age < 0.45 && n.pos.distanceToSquared(at) < 0.8 * 0.8));
       if (same) {
         same.qty += Number(text);
         same.el.textContent = String(same.qty);
@@ -290,13 +292,17 @@ export class DamageNumbers {
           same.kind = 'crit';
           same.el.className = 'hv-dmg crit';
         }
-        same.pos.lerp(at, 0.5);
+        if (!same.track) same.pos.lerp(at, 0.5);
         same.age = 0.02;
         return;
       }
+      // At most 3 hit numbers on screen: the oldest one hurries out.
+      const live = this.list.filter((n) => (n.kind === 'dmg' || n.kind === 'crit') && !n.follow && n.age < n.life * 0.8);
+      for (let i = 0; i <= live.length - 3; i++) live[i]!.age = Math.max(live[i]!.age, live[i]!.life * 0.8);
       // Different targets close together fan out sideways (alternating) instead of stacking.
       const near = this.list.filter((n) => n.kind !== 'loot' && !n.follow && n.age < 0.6 && n.pos.distanceToSquared(at) < 2.2 * 2.2).length;
-      if (near) opts = { ...opts, dx: (opts.dx ?? 0) + (near % 2 ? 1 : -1) * (40 + 30 * Math.floor((near - 1) / 2)), dy: (opts.dy ?? 0) - 10 * near };
+      if (near) opts = { ...opts, dx: (opts.dx ?? 0) + (near % 2 ? 1 : -1) * (46 + 34 * Math.floor((near - 1) / 2)), dy: (opts.dy ?? 0) - 6 * near };
+      opts = { ...opts, dx: (opts.dx ?? 0) + (Math.random() - 0.5) * 22 };
       this.push(at, text, kind, opts, text, Number(text));
       return;
     }
@@ -319,7 +325,7 @@ export class DamageNumbers {
       follow: opts.follow ? at : null,
       off: opts.off?.clone() ?? new THREE.Vector3(),
       age: 0,
-      life: kind === 'loot' || kind === 'info' ? 1.3 : kind === 'crit' ? 1.1 : 0.95,
+      life: kind === 'loot' || kind === 'info' ? 1.3 : kind === 'crit' ? 1.0 : kind === 'player' ? 0.95 : 0.8,
       dx: kind === 'loot' ? 0 : (Math.random() - 0.5) * 12,
       sx: opts.dx ?? 0,
       sy: opts.dy ?? 0,
@@ -375,9 +381,10 @@ export class DamageNumbers {
           const cy = py + ty;
           const hit = this.boxes.find((b) => cx + hw > b.x0 && cx - hw < b.x1 && cy + hh > b.y0 && cy - hh < b.y1);
           if (!hit) break;
-          // Up by the overlap, with a small sideways step away from the box's centre.
-          ty -= cy + hh - hit.y0 + 2;
-          tx += cx >= (hit.x0 + hit.x1) / 2 ? 10 : -10;
+          // Sideways out of the box first (a row, not a tower), then up a little.
+          const right = cx >= (hit.x0 + hit.x1) / 2;
+          tx += right ? hit.x1 - (cx - hw) + 4 : hit.x0 - (cx + hw) - 4;
+          if (pass > 1) ty -= (cy + hh - hit.y0 + 2) * 0.5;
         }
         if (n.age <= dt * 1.5) {
           n.nx = tx;

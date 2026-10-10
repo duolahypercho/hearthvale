@@ -160,26 +160,52 @@ function nuggetGeo(r: Rng, kind: 'metal' | 'gem' | 'coal', radius: number, big: 
       parts.push(g);
     }
   } else {
-    // Metal ores: 5–8 raised, faceted NUGGETS studding the rock's crown and flanks in the ore's
-    // own saturated colour (copper salmon-orange, iron pale blue-white, gold yellow): the ore type
-    // reads from across the hall, like a sprite with clear colour specks. Nuggets sit half proud
-    // of the surface (they cast tiny shadows and catch the lantern on their facets).
-    const n = ore === 'goldOre' ? 8 : ore === 'ironOre' ? 6 : 7;
+    // (r6) Metal ores run as a VEIN: a tilted band wrapping over the rock's crown, studded with
+    // elongated nuggets that follow it (a hero lump mid-band), plus a couple of stray flecks — a
+    // seam you can read, not polka dots. Each variant tilts its band its own way.
+    const n = ore === 'goldOre' ? 6 : 5;
     const a0 = r.next() * Math.PI * 2;
-    for (let k = 0; k < n; k++) {
-      // Spread round the rock (golden-angle azimuths), biased to the camera-facing upper half.
-      const az = a0 + k * 2.39996 + (r.next() - 0.5) * 0.5;
-      const el = 0.28 + r.next() * 0.95;
-      const dir = new THREE.Vector3(Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el));
-      const p = dir.clone().multiply(new THREE.Vector3(R * 0.86, R * 0.6, R * 0.86)).add(new THREE.Vector3(0, R * 0.17, 0));
-      const hero = k === 0;
-      const rad = R * (ore === 'goldOre' ? (hero ? 0.24 : 0.12 + r.next() * 0.07) : ore === 'ironOre' ? (hero ? 0.29 : 0.17 + r.next() * 0.07) : hero ? 0.27 : 0.15 + r.next() * 0.07);
-      let g = facetRock(r, rad, 0xffffff, { detail: 0, squash: ore === 'ironOre' ? 0.55 : 0.75, chunky: true, rim: 0, facet: 0.45 });
-      const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().lerp(new THREE.Vector3(0, 1, 0), 0.3).normalize());
-      q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.next() * 6));
-      g.applyMatrix4(new THREE.Matrix4().compose(p.addScaledVector(dir, rad * 0.25), q, new THREE.Vector3(1, 1, 1)));
+    const tilt = 0.35 + r.next() * 0.5;
+    const nB = new THREE.Vector3(Math.cos(a0) * Math.cos(tilt), Math.sin(tilt), Math.sin(a0) * Math.cos(tilt)).normalize();
+    const bu = new THREE.Vector3().crossVectors(nB, new THREE.Vector3(0, 1, 0)).normalize();
+    const bv = new THREE.Vector3().crossVectors(nB, bu).normalize();
+    const phi0 = Math.atan2(bv.y, bu.y);
+    const nug = (dir: THREE.Vector3, tan: THREE.Vector3, rad: number, stretch: number): void => {
+      let g = facetRock(r, rad, 0xffffff, { detail: 0, squash: ore === 'ironOre' ? 0.68 : 0.72, chunky: true, rim: 0, facet: 0.45 });
       if (g.index) g = g.toNonIndexed();
+      const Y = dir.clone().lerp(new THREE.Vector3(0, 1, 0), 0.25).normalize();
+      const X = tan.clone().addScaledVector(Y, -tan.dot(Y)).normalize();
+      const Z = new THREE.Vector3().crossVectors(X, Y);
+      const p = dir.clone().multiply(new THREE.Vector3(R * 0.86, R * 0.6, R * 0.86)).add(new THREE.Vector3(0, R * 0.17, 0)).addScaledVector(dir, rad * 0.22);
+      const m = new THREE.Matrix4().makeBasis(X, Y, Z).multiply(new THREE.Matrix4().makeScale(stretch, 1, 1 / Math.sqrt(stretch)));
+      m.setPosition(p);
+      g.applyMatrix4(m);
       parts.push(g);
+    };
+    const span = 2.2 + r.next() * 0.5;
+    for (let k = 0; k < n; k++) {
+      const u = k / (n - 1);
+      const phi = phi0 + (u - 0.5) * span + (r.next() - 0.5) * 0.12;
+      const dir = bu.clone().multiplyScalar(Math.cos(phi)).addScaledVector(bv, Math.sin(phi)).addScaledVector(nB, (r.next() - 0.5) * 0.16).normalize();
+      if (dir.y < -0.15) continue;
+      const tan = bu.clone().multiplyScalar(-Math.sin(phi)).addScaledVector(bv, Math.cos(phi));
+      const mid = 1 - Math.abs(u - 0.5) * 2;
+      const hero = Math.abs(u - 0.5) < 0.5 / n;
+      const base = ore === 'goldOre' ? 0.19 : ore === 'ironOre' ? 0.2 : 0.18;
+      const rad = R * (hero ? base * 1.55 : base * (0.7 + mid * 0.45 + r.next() * 0.25));
+      nug(dir, tan, rad, ore === 'ironOre' ? 1.2 : 1.15 + r.next() * 0.25);
+      // a satellite lump beside the band now and then (a vein is lumpy, not a rope)
+      if (!hero && r.next() < 0.45) {
+        const d2 = dir.clone().addScaledVector(nB, (r.next() < 0.5 ? -1 : 1) * 0.3).normalize();
+        nug(d2, tan, rad * 0.62, 1.1);
+      }
+    }
+    // Stray flecks off the band.
+    for (let k = 0; k < 2; k++) {
+      const az = a0 + Math.PI * (0.6 + r.next() * 0.8);
+      const el = 0.3 + r.next() * 0.6;
+      const dir = new THREE.Vector3(Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el));
+      nug(dir, new THREE.Vector3(-Math.sin(az), 0, Math.cos(az)), R * (ore === 'goldOre' ? 0.07 : 0.09), 1.2);
     }
   }
   const out = mergeNonIndexed(parts);
@@ -281,13 +307,14 @@ export class RockField {
       const z = s.z + 0.5 + (r.next() - 0.5) * 0.6;
       const pos = new THREE.Vector3(x, heightAt(x, z) - 0.03, z);
       const rot = r.next() * Math.PI * 2;
-      const scale = (0.75 + r.next() * 0.5) * (s.ore ? 1.25 : 1);
+      const scale = (0.75 + r.next() * 0.5) * (s.ore ? 1.32 : 1);
       // Silhouette + value variety (drawn after the placement draws, so layouts are unchanged):
       // plain stones become low slabs, tall knuckles or squat lumps; every rock gets its own
       // tone, so a field of them stops reading as one potato stamped 90 times.
-      const kind = s.ore ? 3 : Math.floor(r.next() * 3);
+      // (r6: ore rocks vary too — slab / tall / round — the copper lump was one stamp)
+      const kind = s.ore ? [0, 1, 3][Math.floor(r.next() * 3)]! : Math.floor(r.next() * 3);
       const j = (): number => 0.92 + r.next() * 0.16;
-      const shape = kind === 0 ? new THREE.Vector3(1.22 * j(), 0.7 * j(), 1.05 * j()) : kind === 1 ? new THREE.Vector3(0.84 * j(), 1.24 * j(), 0.9 * j()) : new THREE.Vector3(j(), j(), j());
+      const shape = kind === 0 ? new THREE.Vector3(1.22 * j(), s.ore ? 0.82 * j() : 0.7 * j(), 1.05 * j()) : kind === 1 ? new THREE.Vector3(0.86 * j(), s.ore ? 1.16 * j() : 1.24 * j(), 0.9 * j()) : new THREE.Vector3(j(), j(), j());
       const v = s.ore ? 0.74 + r.next() * 0.08 : 0.8 + r.next() * 0.3;
       const w = (r.next() - 0.5) * 0.08;
       const tint = new THREE.Color(v * (1 + w), v, v * (1 - w));

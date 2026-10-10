@@ -217,10 +217,12 @@ export class CombatSystem implements System, HealthApi {
       const dx = mo.pos.x - p.x;
       const dz = mo.pos.z - p.z;
       const d = Math.hypot(dx, dz);
-      if (d < REACH + 0.9 && (!best || d < best.d)) best = { d, dx, dz };
+      if (d < REACH + 1.5 && (!best || d < best.d)) best = { d, dx, dz };
     }
     if (!best) return;
-    const side = Math.abs(best.dx) > Math.abs(best.dz) * 0.45;
+    // (r6: side-on unless the target is nearly straight above / below — a swing facing up hid the
+    // blade behind the farmer's back while the pack stood to the side)
+    const side = Math.abs(best.dx) > Math.abs(best.dz) * 0.35 || (best.dz < 0 && Math.abs(best.dx) > 0.25);
     const f = side ? (best.dx > 0 ? 'right' : 'left') : best.dz > 0 ? 'down' : 'up';
     if (f !== this.game.player.facing) this.game.player.setFacing(f);
   }
@@ -241,7 +243,7 @@ export class CombatSystem implements System, HealthApi {
     // mirrored when facing left. Plus a three-quarter twist so the face reads under the hat brim.
     const staged = this.still && !!this.auto;
     const kind = staged ? (player.facing === 'left' ? 'slash' : 'backslash') : this.side ? 'backslash' : 'slash';
-    if (staged) acts.twist = player.facing === 'left' ? 0.75 : player.facing === 'right' ? -0.75 : 0;
+    if (staged) acts.twist = player.facing === 'left' ? 0.3 : player.facing === 'right' ? -0.3 : 0;
     this.side = !this.side;
     this.trail.reset();
     // (The swing itself is voiced by tool:swing → 'sword' in systems/audio.ts.)
@@ -249,6 +251,9 @@ export class CombatSystem implements System, HealthApi {
     this.game.events.emit('tool:swing', { tool: 'sword', tier: 0, charge: 0 });
     const origin = player.position.clone();
     const dir = FACE[player.facing]!.clone();
+    // The forehand (slash) sweeps the blade from the sword arm's side across the body (azimuth
+    // falling), the backhand the other way: the crescent's head travels with it.
+    const sweep = kind === 'slash' ? -1 : 1;
     let arcFired = false;
     acts.start(kind, this.sword, {
       speed: 1.05,
@@ -259,20 +264,30 @@ export class CombatSystem implements System, HealthApi {
           acts.toolPoint(SWORD_BASE, this.base);
           this.trail.push(this.tip, this.base);
         }
-        // The crescent sweeps in with the blade so it is full length on the impact frame.
+        // The crescent opens at the end of the wind-up and its head rides the blade tip.
         if (!arcFired && t >= 0.085) {
           arcFired = true;
-          this.arc.fire(player.position, dir, kind === 'slash' ? 1 : -1);
+          this.arc.fire(player.position, dir, sweep);
         }
+        if (arcFired && t < 0.3) this.arc.follow(this.bladeRel(dir));
       },
       onImpact: () => {
         if (!arcFired) {
           arcFired = true;
-          this.arc.fire(player.position, dir, kind === 'slash' ? 1 : -1);
+          this.arc.fire(player.position, dir, sweep);
+          this.arc.follow(this.bladeRel(dir));
         }
         this.resolve(origin, dir);
       },
     });
+  }
+
+  /** Blade tip azimuth relative to `dir` (radians, atan2(x, z)), from this frame's pose. */
+  private bladeRel(dir: THREE.Vector3): number {
+    const p = this.game.player.position;
+    mineActions(this.game.player).toolPoint(SWORD_TIP, this.tip);
+    const rel = Math.atan2(this.tip.x - p.x, this.tip.z - p.z) - Math.atan2(dir.x, dir.z);
+    return Math.atan2(Math.sin(rel), Math.cos(rel));
   }
 
   private resolve(origin: THREE.Vector3, dir: THREE.Vector3): void {
@@ -317,7 +332,7 @@ export class CombatSystem implements System, HealthApi {
       this.held = true;
     }
     this.game.rc.rig.addShake(crit ? 0.3 : kill ? 0.22 : 0.14);
-    m.lighting.flash = Math.max(m.lighting.flash, crit ? 0.35 : 0.15);
+    m.lighting.flash = Math.max(m.lighting.flash, crit ? 0.14 : 0.05);
   }
 
   /**
@@ -333,7 +348,7 @@ export class CombatSystem implements System, HealthApi {
     const dz = mo.pos.z - from.z;
     const d = Math.hypot(dx, dz) || 1;
     at.x += (dx / d) * mo.radius * 0.35;
-    this.numbers.pop(at, String(damage), crit ? 'crit' : 'dmg', { dy: -i * 30, dx: (i % 2 ? 1 : -1) * i * 12, track: mo.pos });
+    this.numbers.pop(at, String(damage), crit ? 'crit' : 'dmg', { dy: -i * 6, dx: (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 44, track: mo.pos });
   }
 
   /** Kill: a radial goo / scorch splat decal where it died (fades over ~6 s). */
@@ -555,12 +570,31 @@ export class CombatSystem implements System, HealthApi {
     // The staged farmer never walks: loot streams in from anywhere in the arena (no gel carpet).
     m.pickups.magnetR = 9;
     const p = this.game.player.position;
+    this.dodgeTangents(m);
     if (this.still && this.stageStill(m)) {
       this.auto = { t: 0.3, min: 62, home: new THREE.Vector2(p.x, p.z) };
       return;
     }
     this.populate(m, true);
     this.auto = { t: 0.9, min: 62, home: new THREE.Vector2(p.x, p.z) };
+  }
+
+  /**
+   * (r6) Staged arena: a tall crystal cluster 0.5–3.5 m straight behind the farmer projects right
+   * onto the hat from the demo lens (it read as a feather in the hat band) — step the farmer a
+   * tile or two sideways until the head line is clear.
+   */
+  private dodgeTangents(m: MineMap): void {
+    const p = this.game.player.position;
+    const blocked = (x: number, z: number): boolean => m.layout.crystals.some((c) => Math.abs(c.x - x) < 1.0 && c.z < z - 0.4 && c.z > z - 3.6);
+    if (!blocked(p.x, p.z)) return;
+    for (const dx of [1, -1, 2, -2]) {
+      const x = p.x + dx;
+      if (!m.grid.isWalkable(Math.floor(x), Math.floor(p.z)) || !m.clearAt(x, p.z, 0.5, false) || blocked(x, p.z)) continue;
+      p.x = x;
+      p.y = m.heightAt(p.x, p.z);
+      return;
+    }
   }
 
   /**
@@ -597,7 +631,8 @@ export class CombatSystem implements System, HealthApi {
     if (!v) return false;
     const o = -side;
     place(biome === 'lava' ? 'imp' : 'slime', [[o * 2.3, 0.9], [o * 2.1, 1.5], [o * 2.6, 0.2]]);
-    place('bat', [[o * 1.6, -1.8], [o * 2.4, -1.2], [side * 2.6, -1.6]]);
+    // (bat well clear of the farmer's head line — it read as a hat ornament at 1.6 / -1.8)
+    place('bat', [[o * 2.7, -2.4], [o * 3.0, -1.4], [side * 2.8, -2.2]]);
     if (biome === 'earth') {
       const c = place('crab', [[side * 2.4, 1.9], [o * 1.0, 2.4], [side * 1.4, 2.5]]);
       if (c instanceof Crab) c.wake();
