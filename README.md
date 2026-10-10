@@ -459,6 +459,36 @@ adapts it to game events.
   recognition 63 → 66/66 (`shots/audio-r12b/recognize-imp2.log`). Hear a bridge without waiting for
   it: `?demo=audio&theme=spring&from=C` (`from` = B, C, outro, B2 / A3 for a later strain, or seconds;
   `music.ts` `MUSIC_SEEK`), e.g. `&theme=town&from=B`, `&theme=summer&from=C`.
+- **Round 20** (audio pod r13): **second-time bars**. A strain played twice in a row (A A, B B) used to
+  be restated note for note; `Tune.again` (`composer.ts`) gives the second playing its own bars ('' = as
+  written) the way a fiddler plays a repeat — the hook bars stay, what changes is where the strain goes.
+  The Harvest Reel's second A turns bar 3 round the tonic (F E D E F G A F) and closes D F E D instead of
+  the E-D drop, its second B comes down through the v and rolls home "D A, C D"; Market Morning's second A
+  walks the ocarina down G F# E D into the clarinet's low B; Long Light's second A runs up the V's scale
+  into B's high G; First Furrow's held tonic walks up G A into B's Bb. Hear a second time:
+  `?demo=audio&theme=festival-harvest&from=A2` (or `&from=B2`), `&theme=town&from=A2`, `&theme=summer&from=A2`. Distinct melody bars per whole song
+  (`audio-render.mjs --full`): spring 55 → 57 %, summer 58 → 60 %, town 54 → 56 %, Harvest Reel 37 → 40 %.
+  **The flute's third octave rounds** (`instruments.ts` `clarion: 86`): above D6 its tone loses upper
+  partials instead of gaining them (a real flute's top octave is nearly a pure tone) — First Furrow's B,
+  cresting on G6, was the one whole-song FORM-GLARE (26 % of it in 2-5 kHz; now under 25 %, 1785 → 1687 Hz
+  centroid), and the title's opening centroid 1759 → 1599 Hz. **Grey Lantern** (rain-3) was 3.3 dB over the soft
+  house curve in 60-200 Hz with its calibration shelf already at the -5 dB limit: the harp's rolls start
+  on G3 instead of E3 (its roots doubled the bass an octave up) and the soft bass sits 3 dB lower (low
+  band -2.7 → -5.2 dB re mid). All openings recalibrated (spread 0.0 LU).
+  **Offline proof, end to end**: `audio-render.mjs` runs its jobs on `--parallel N` sessions (default 3:
+  contexts in one headless browser, each job's log lines buffered and printed together; `--calibrate`
+  too), so the default run — 47 themes, 47 mixes, 10 whole songs, 14 ambience presets, the SFX reel,
+  gameplay and 3 transitions, 123 jobs — takes 38-70 min on this shared machine (load 60-200) instead of
+  ~1 h 45 min serially. `shots/audio-r13/final2/manifest.json` (rev aaa0b11, clean):
+  123/123 jobs ok, 0 flagged, composition / SFX hierarchy / gameplay masking clean, opening spread 0.6 LU → PASS. (The run before this round's fixes, rev 1b8da1c: 121/123, rain-3 TONE and spring B FORM-GLARE —
+  the two things fixed above.)
+  **Co-op A/B**: `audio-coop-perf.mjs` interleaves the audio-on / audio-off windows (`--pairs`, default
+  3, ABBA order; the delta is the median of the per-pair differences) — one long "on" window followed by
+  one "off" window had put the machine's load drift into r12b's host delta (+8.7 ms/frame "for audio" at
+  load 67, while its audio stack used 6.5 ms of main thread per second, ~0.3 ms a frame).
+  Run: `node scripts/audio-coop-perf.mjs --out shots/audio-r13/coop-perf.json` (not re-measured this round:
+  the machine sat at load 240-640 under other teams' perf runs and the four clients had not finished
+  booting after 25 min, so the run was stopped rather than measure the contention).
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);
