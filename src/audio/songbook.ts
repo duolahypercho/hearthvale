@@ -23,9 +23,10 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '6/8',
     key: 67, // G
     mode: 'major',
-    form: FORM,
+    // Round 7: B returns after the ocarina's C strain (A B C B A) — 79 s looped too soon.
+    form: ['intro', 'A', 'B', 'C', 'B', 'A', 'outro'],
     prog: {
-      intro: ['I', 'IV'],
+      intro: ['I', 'IV/5', 'iv/5', 'I'],
       A: ['I', 'I', 'IV', 'V', 'I', 'vi', 'ii', 'V', 'I', 'I', 'IV', 'iv', 'I', 'vi', 'ii V', 'I'],
       B: ['IV', 'V', 'iii', 'vi', 'IV', 'I', 'ii', 'V'],
       C: ['vi', 'iii', 'IV', 'I', 'vi', 'II', 'IV', 'V'],
@@ -37,15 +38,17 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       tune: {
         octave: 0,
         // "D G A B. A | G. D G.. | C B C E. D | D.. A.. |" — a skip up the tonic and a tumble home;
-        // the second strain climbs to the high G and borrows the minor iv (Eb) on its way down.
+        // the second strain climbs to the high G and borrows the minor iv (Eb) on its way down
+        // (round 18: once — it falls G F# E D. E over the IV, the D an add9, so the E can sink to the Eb).
         A: [
-          '5,:1 1:1 2:1 3:2 2:1', '1:2 5,:1 1:3', '4:1 3:1 4:1 6:2 5:1', '5:3 2:3',
-          '5,:1 1:1 2:1 3:2 5:1', '6:2 5:1 3:3', '4:1 3:1 2:1 6,:2 2:1', '7,:2 2:1 5,:3',
-          '5,:1 1:1 2:1 3:2 2:1', "1:1 3:1 5:1 1':3", "1':1 7:1 6:1 1':2 6:1", 'b6:2 5:1 4:3',
-          "3:2 5:1 1':2 7:1", "6:2 1':1 3:3", '4:2 3:1 2:2 7,:1', '1:3 r:3',
+          '5,:1 1:1 2:1 3:2 2:1', '1:2 7,:1 1:3', '4:1 3:1 4:1 6:2 5:1', '5:2 4:1 2:1 r:2',
+          '5,:1 1:1 2:1 3:2 5:1', '6:2 5:1 3:3', '4:1 3:1 2:1 6,:2 2:1', '7,:2 6,:1 5,:1 r:2',
+          '5,:1 1:1 2:1 3:2 2:1', "1:1 3:1 5:1 1':3", "1':1 7:1 6:1 5:2 6:1", 'b6:2 5:1 4:3',
+          '3:2 5:1 6:2 7:1', '6:2 5:1 3:3', '4:2 3:1 2:2 7,:1', '1:3 r:3',
         ],
-        B: ["1':3 6:2 5:1", "2':3 7:2 6:1", '7:3 5:2 3:1', '6:3 3:3', "4:2 6:1 1':3", "3':2 1':1 5:3", '6:2 4:1 2:3', '7,:3 2:3'],
-        C: ['3:1 6,:1 1:1 3:3', '5:1 3:1 5:1 7:3', "1':2 6:1 4:3", '5:3 3:3', '3:1 6,:1 3:1 6:3', '#4:2 6:1 2:3', '4:3 6:3', '5:3 7,:3'],
+        // Round 7: the second strain falls by step in sequence (G'. F# E | A'. G F# | F#. E D | E — ), then climbs to the high B and turns home.
+        B: ["1':3 7:2 6:1", "2':3 1':2 7:1", '7:3 6:2 5:1', '6:3 r:3', '4:2 5:1 6:3', "1':2 2':1 3':3", "2':2 1':1 6:3", '5:2 4:1 2:3'],
+        C: ['3:3 2:2 3:1', '5:3 3:2 2:1', '4:3 5:2 6:1', '5:3 r:3', '6:3 3:3', '#4:3 5:2 6:1', '6:3 5:2 4:1', '5:3 6:2 7:1'],
       },
     },
     counter: { inst: 'cello', range: [48, 62], on: 'repeat', style: 'moving' },
@@ -76,9 +79,11 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 62, // D
     mode: 'major',
-    form: FORM,
+    // Round 7: the sixteen-bar flute bridge (C) is played — 64 s on A/B alone looped too soon.
+    form: ['intro', 'A', 'A', 'B', 'A', 'C', 'A', 'outro'],
+    lift: 2,
     prog: {
-      intro: ['I', 'IV'],
+      intro: ['V7sus4'],
       A: ['I', 'V/3', 'vi', 'iii', 'IV', 'I/3', 'ii7', 'V'],
       Aend: ['V7', 'I'],
       B: ['IV', 'I/3', 'ii7', 'V', 'iii7', 'vi', 'ii7', 'V7'],
@@ -90,7 +95,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       tune: {
         octave: 1,
         // A falling-bass waltz (D – C#/A – B – F#m – G – D/F#): "F#. G F# E | E.. C# | D. E D C# | C#... |".
-        A: ['3:3 4:1 3:1 2:1', '2:4 7,:2', '1:3 2:1 1:1 7,:1', '7,:4 r:2', '6:3 7:1 6:1 5:1', '5:2 3:2 1:2', "2:3 4:1 6:1 1':1", "7:4 r:2"],
+        A: ['3:3 4:1 3:1 2:1', '2:4 7,:2', '1:3 2:1 1:1 7,:1', '7,:2 2:2 5:2', '6:3 7:1 6:1 5:1', '5:2 3:2 1:2', "2:3 4:1 6:1 1':1", '7:4 r:2'],
         Aend: ['2:2 4:2 7,:2', '1:6'],
         B: ["1':3 7:1 6:2", '5:4 3:2', '6:3 5:1 4:2', '2:4 r:2', '7:3 6:1 5:2', "6:4 1':2", "2':3 1':1 6:2", '5:2 4:2 2:2'],
         C: [
@@ -130,9 +135,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 69, // A
     mode: 'major',
-    form: FORM,
+    form: ['intro', 'A', 'B', 'A', 'B', 'C', 'A', 'outro'],
     prog: {
-      intro: ['I', 'IV'],
+      intro: ['V7sus4', 'V7'],
       A: ['I', 'I7', 'IV', 'iv6', 'I', 'vi7', 'ii7', 'V7'],
       Aend: ['V7', 'I'],
       B: ['IV', 'I', 'V/3', 'vi', 'IV', 'I/3', 'ii7', 'V7'],
@@ -143,17 +148,17 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       inst: 'fiddle', range: [62, 88], density: 0.5, legato: true, ornament: 0.3, cInst: 'guitar',
       tune: {
         octave: 0,
-        // "E A C# | E G E | F#. E D | F.. D | C#. B A | F# A C# | B. D F# | E.. G# |" — the flat seventh
-        // (G) and the borrowed minor iv (F) give it the front-porch sway.
-        A: ['5,:2 1:2 3:2', '5:2 b7:2 5:2', '6:3 5:1 4:2', 'b6:4 4:2', '3:3 2:1 1:2', '6,:2 1:2 3:2', '2:3 4:1 6:2', '5:4 7,:2'],
-        Aend: ['4:2 2:2 7,:2', '1:6'],
-        B: ["1':4 6:2", '5:3 3:1 1:2', '7:4 5:2', '6:3 5:1 3:2', "4:2 6:2 1':2", "3':3 2':1 1':2", '6:3 4:1 2:2', '5:3 4:1 2:2'],
-        C: ['3:2 6,:2 1:2', '5:4 3:2', "4:3 6:1 1':2", '5:6', '6:3 5:1 3:2', '#4:3 6:1 2:2', "1':2 6:2 4:2", '1:3 7,:3'],
+        // Round 7: the porch-swing lift up the triad, then a rocking line by step — "E A C# | E. D C# | D. E F# | F (the borrowed iv) — | C#. E A' | F#. E C# | E F# G# A' | G# — |": the peak on bar 7, a breath every fourth bar.
+        A: ['5,:2 1:2 3:2', '5:3 4:1 3:2', '4:3 5:1 6:2', 'b6:4 r:2', "3:3 5:1 1':2", '6:3 5:1 3:2', "5:1 6:1 7:2 1':2", '7:4 r:2'],
+        Aend: ['4:3 3:1 2:2', '1:6'],
+        B: ["1':3 7:1 6:2", '5:4 3:2', '2:3 3:1 4:2', '3:4 r:2', "4:3 6:1 1':2", "1':3 7:1 6:2", "2':3 1':1 6:2", '5:3 4:1 2:2'],
+        C: ['3:2 6,:2 1:2', '3:3 4:1 5:2', '6:4 5:1 4:1', '3:4 r:2', '1:2 3:2 6:2', '#4:3 5:1 6:2', "1':2 7:2 6:2", '5:3 6:1 7:2'],
       },
     },
     counter: { inst: 'cello', range: [45, 60], on: 'late', style: 'moving' },
     accomp: { inst: 'guitar', pattern: 'waltz', range: [52, 69], voices: 4, vel: 0.66 },
-    accomp2: { inst: 'marimba', pattern: 'waltzArp', range: [64, 81], voices: 3, vel: 0.36, on: 'repeat' },
+    // (Round 4: under the fiddle — at 64–81 the arpeggio sat on top of the tune.)
+    accomp2: { inst: 'marimba', pattern: 'waltzArp', range: [52, 66], voices: 3, vel: 0.38, on: 'repeat' },
     bass: { inst: 'upright', pattern: 'waltz', range: [36, 50], vel: 0.8 },
     perc: { pattern: 'shaker', on: 'late', vel: 0.4 },
     mix: {
@@ -179,7 +184,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     key: 60, // C
     mode: 'major',
     swing: 0.55,
-    form: FORM,
+    form: ['intro', 'A', 'B', 'A', 'C', 'A', 'outro'],
     prog: {
       intro: ['Imaj7', 'vi7'],
       A: ['Imaj7', 'vi7', 'ii7', 'V7', 'iii7', 'vi7', 'ii7', 'V7'],
@@ -194,10 +199,11 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       tune: {
         octave: 1,
         // "E.. G.. B | A G E.. | F.. A.. C | B A G.. |" — up the seventh chords in 3+3+2, a lazy fall.
-        A: ['3:3 5:3 7:2', '6:2 5:1 3:3 r:2', "4:3 6:3 1':2", '7:2 6:1 5:3 r:2', "5:3 7:3 2':2", "1':2 7:1 6:3 r:2", '4:2 3:1 2:3 6,:2', '7,:3 2:3 r:2'],
+        A: ['3:3 5:3 7:2', '6:2 5:1 3:3 r:2', "4:3 6:3 1':2", '7:2 6:1 5:3 r:2', "5:3 7:3 2':2", "1':2 7:1 6:3 r:2", '4:2 3:1 2:3 1:2', '7,:3 2:3 r:2'],
         Aend: ['4:2 6:1 2:3 5:2', '1:6 r:2'],
-        B: ['6:4 3:2 1:2', '2:3 7,:3 5,:2', '3:3 1:3 6,:2', '7,:4 r:4', "4:2 6:2 1':2 3':2", "2':3 7:3 5:2", "#4:3 6:3 1':2", "1':4 7:2 r:2"],
-        C: ['b6:3 5:3 b3:2', '4:3 2:3 b7,:2', '3:3 5:3 7:2', '6:4 r:4', "1':3 b6:3 b3:2", "2':3 b7:3 4:2", '6:3 4:3 1:2', '1:4 7,:2 r:2'],
+        // Round 7: B answers the arpeggio hook with a sung line by step (A. G F E | D. E G | A. G E | D C (breath)), one climb up the IVmaj7, the top E, home through the D7.
+        B: ['6:3 5:1 4:2 3:2', '2:3 3:1 5:4', '6:3 5:1 3:4', '2:2 1:2 r:4', "4:2 6:2 1':2 3':2", "2':3 1':1 7:4", "1':3 7:1 6:2 #4:2", '5:4 r:4'],
+        C: ['b6:3 5:3 b3:2', '4:3 2:3 b7,:2', '3:3 5:3 7:2', '6:4 r:4', "1':3 b7:1 b6:4", "b7:3 1':1 2':4", "1':3 b7:1 6:4", '1:4 7,:2 r:2'],
       },
     },
     counter: { inst: 'flute', range: [67, 81], on: 'late' },
@@ -231,7 +237,8 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '4/4',
     key: 57, // A
     mode: 'minor',
-    form: FORM,
+    form: ['intro', 'A', 'A', 'B', 'A', 'outro'],
+    lift: 1,
     prog: {
       intro: ['i', 'bVI'],
       A: ['i', 'bVI', 'bIII', 'bVII', 'iv', 'i', 'bVI', 'V'],
@@ -246,13 +253,15 @@ export const SONGBOOK: Record<string, ThemeDef> = {
         octave: 1,
         // "E.. C A... | F.. A C... | E.. G E C | D... B... |" — the tune walks down the minor triad and
         // climbs back through the relative major, a hymn you could hum by the fire.
-        A: ['5:3 4:1 3:2 1:2', '6,:3 7,:1 1:2 3:2', '5:3 6:1 7:2 5:2', '4:3 3:1 2:4', '6:3 5:1 4:4', '3:3 2:1 1:4', '1:2 2:1 3:1 6:4', '5:2 4:1 3:1 #7,:4'],
+        A: ['5:3 4:1 3:2 1:2', '6,:3 7,:1 1:2 3:2', '5:3 6:1 7:2 5:2', '4:3 3:1 2:4', '6:3 5:1 4:4', '3:3 2:1 1:4', '1:2 2:1 3:1 6:4', '5:2 4:1 3:1 #7,:2 r:2'],
         Aend: ['4:2 6:2 5:2 #7,:2', '1:8'],
-        B: ['7:3 6:1 5:2 3:2', '2:3 3:1 4:2 7:2', "6:3 1':1 6:2 4:2", '5:6 r:2', "1':3 7:1 6:2 3:2", '5:3 4:1 3:4', "4:3 5:1 6:2 1':2", '#7:4 5:2 4:2'],
+        // (Round 18: bar 3 turns on the E instead of touching the A' — the bridge's top is saved for bars 5 / 7.)
+        B: ['7:3 6:1 5:2 3:2', '2:3 3:1 4:2 7:2', '6:3 5:1 6:2 4:2', '5:6 r:2', "1':3 7:1 6:2 3:2", '5:3 4:1 3:4', '4:3 5:1 6:2 5:2', '#7:4 5:2 4:2'],
         C: ['3:3 4:1 5:2 7:2', "7:3 1':1 2':4", "3':3 2':1 1':2 6:2", '5:8', "6:3 7:1 1':2 3':2", "2':3 1':1 7:4", '6:3 5:1 4:4', '1:4 #7,:4'],
       },
     },
-    accomp: { inst: 'harp', pattern: 'arp8', range: [48, 67], voices: 4, vel: 0.6 },
+    // (Round 4: the harp capped at C4 so its arpeggio stays under the cello's tune.)
+    accomp: { inst: 'harp', pattern: 'arp8', range: [45, 60], voices: 4, vel: 0.6 },
     accomp2: { inst: 'pizz', pattern: 'pizzOff', range: [55, 69], voices: 3, vel: 0.4, on: 'late' },
     bass: { inst: 'softBass', pattern: 'rootFifth', range: [33, 47], vel: 0.6 },
     pad: { inst: 'pad', range: [52, 67], voices: 3, vel: 0.36, on: 'B' },
@@ -277,9 +286,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '6/8',
     key: 67, // G
     mode: 'minor',
-    form: FORM,
+    form: ['intro', 'A', 'B', 'A', 'B', 'outro'],
     prog: {
-      intro: ['i', 'bVII'],
+      intro: ['i', 'iv', 'i', 'bVII'],
       A: ['i', 'bVII', 'bVI', 'V', 'i', 'bVII', 'bVI', 'V', 'i', 'iv', 'bVII', 'bIII', 'bVI', 'iv', 'V', 'i'],
       B: ['bIII', 'bVII', 'iv', 'i', 'bVI', 'bIII', 'iv', 'V'],
       C: ['bVI', 'bVII', 'bIII', 'i', 'iv', 'bVII', 'bIII', 'V'],
@@ -342,15 +351,18 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       double: { inst: 'glock', interval: 12, on: 'repeat' },
       tune: {
         octave: 1,
-        // "D F Bb. A F | G.. F Eb... | D F A. C A | Bb... F G |" — a snowflake arpeggio that settles.
-        A: ["3:1 5:1 1':2 7:2 5:2", '6:3 5:1 4:4', "3:1 5:1 7:2 2':2 7:2", "1':4 r:2 5:1 6:1", "4:2 6:2 1':3 7:1", "2':3 1':1 7:2 5:2", "3:2 5:2 7:2 3':2", "2':4 1':4"],
-        Aend: ['2:2 4:2 5:2 7,:2', '1:8'],
-        B: ['6:3 5:1 3:4', '5:3 3:1 7,:4', "4:2 6:2 1':2 3':2", '7:4 5:4', '6:3 4:1 2:4', '3:3 5:1 7:4', "1':3 6:1 4:4", '1:4 7,:4'],
-        C: ['b6:4 5:4', 'b7:4 4:4', "3':4 7:4", '6:8', 'b6:4 4:4', "2':4 b7:4", "1':4 6:4", "1':4 7:4"],
+        // Round 7: the snowflake arpeggios, then it settles by step — "D F Bb. A F | G.. F Eb.. | D F A. C' A | G.. (breath) F G | Eb G Bb.. A | A.. Bb C' D' | D'.. C' Bb A | C'.. Bb (breath) |": the top D on bar 7.
+        A: ["3:1 5:1 1':2 7:2 5:2", '6:3 5:1 4:4', "3:1 5:1 7:2 2':2 7:2", '6:4 r:2 5:1 6:1', "4:2 6:2 1':3 7:1", "7:3 1':1 2':2 3':2", "3':3 2':1 1':2 7:2", "2':3 1':1 r:4"],
+        Aend: ['4:2 3:2 2:2 7,:2', '1:8'],
+        B: ['6:3 5:1 4:2 5:2', '3:3 2:1 1:4', '2:2 4:2 6:2 5:2', '6:4 5:4', "4:3 6:1 1':2 6:2", "2':3 1':1 7:4", "1':3 7:1 6:4", '5:4 r:4'],
+        C: ['5:4 b6:2 5:2', "b7:4 1':2 b7:2", "1':2 2':2 3':4", "2':4 1':2 r:2", "1':4 b7:2 b6:2", "b6:2 b7:2 1':4", "2':4 1':4", "1':4 7:2 r:2"],
       },
     },
     counter: { inst: 'flute', range: [65, 79], on: 'late' },
     accomp: { inst: 'harp', pattern: 'harpRoll', range: [53, 72], voices: 4, vel: 0.6 },
+    // Round 4: a soft held tenor under the harp rolls (the low bass and the celesta were two
+    // octaves apart).
+    accomp2: { inst: 'pad', pattern: 'block', range: [48, 62], voices: 3, vel: 0.27 },
     bass: { inst: 'softBass', pattern: 'root', range: [34, 46], vel: 0.5 },
     perc: { pattern: 'sleigh', on: 'late', vel: 0.35 },
     mix: {
@@ -358,6 +370,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       double: { gain: 0.15, pan: -0.26, send: 0.55 },
       counter: { gain: 0.4, pan: -0.32, send: 0.5 },
       accomp: { gain: 0.66, pan: -0.2, send: 0.42 },
+      accomp2: { gain: 0.3, pan: 0.2, send: 0.5 }, // (round 8: 0.18, lowmid -18.8 dB re mid)
       bass: { gain: 0.4, pan: 0, send: 0.1 },
       perc: { gain: 0.36, pan: 0.3, send: 0.3 },
     },
@@ -376,9 +389,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     meter: '6/8',
     key: 65, // F
     mode: 'major',
-    form: FORM,
+    form: ['intro', 'A', 'B', 'A', 'B', 'A', 'outro'],
     prog: {
-      intro: ['I', 'IV'],
+      intro: ['vi', 'V/3'],
       A: ['I', 'vi', 'IV', 'V', 'I', 'iii', 'IV', 'V', 'vi', 'iii', 'IV', 'I', 'IV', 'iv', 'V', 'I'],
       B: ['vi', 'iii', 'IV', 'I', 'ii', 'iii', 'IV', 'V'],
       C: ['iii', 'vi', 'ii', 'V', 'bVII', 'IV', 'ii', 'V'],
@@ -401,8 +414,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       },
     },
     counter: { inst: 'cello', range: [45, 60], on: 'repeat', style: 'moving' },
-    accomp: { inst: 'musicBox', pattern: 'musicBox', range: [69, 86], voices: 3, vel: 0.42 },
-    bass: { inst: 'softBass', pattern: 'root', range: [36, 48], vel: 0.5 },
+    // (Round 4: the music box moved under the flute — at 69–86 it twinkled on top of the tune.)
+    accomp: { inst: 'musicBox', pattern: 'musicBox', range: [58, 74], voices: 3, vel: 0.42 },
+    bass: { inst: 'softBass', pattern: 'root', range: [36, 48], vel: 0.55 },
     mix: {
       melody: { gain: 0.8, pan: 0.06, send: 0.44 },
       counter: { gain: 0.44, pan: -0.3, send: 0.42 },
@@ -428,9 +442,9 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     breaks: false,
     form: NIGHT_FORM,
     prog: {
-      intro: ['Imaj7', 'IVmaj7'],
-      A: ['Imaj7', 'IVmaj7', 'vi7', 'iii7', 'ii7', 'V7sus4', 'Imaj7', 'IVmaj7'],
-      Aend: ['V7sus4 V7', 'Imaj7'],
+      intro: ['I', 'ii7/7'],
+      A: ['I', 'ii7/7', 'I/3', 'IVmaj7', 'vi7', 'ii7', 'V7sus4', 'V7'],
+      Aend: ['V7sus4 V7', 'I'],
       B: ['vi7', 'iii7', 'IVmaj7', 'Imaj7', 'ii7', 'bVIImaj7', 'IVmaj7', 'V7sus4'],
       C: ['IVmaj7', 'iv6', 'Imaj7', 'vi7', 'ii7', 'V/3', 'IVmaj7', 'V7sus4'],
       outro: ['IVmaj7', 'Imaj7'],
@@ -439,14 +453,17 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       inst: 'flute', range: [65, 88], density: 0.3, legato: true, ornament: 0.15, cInst: 'celesta',
       tune: {
         octave: 0,
-        A: ['5:3 3:1 1:4', "6:3 1':1 6:4", '5:3 3:1 1:2 6,:2', '7,:4 r:4', '2:3 4:1 6:4', "5:3 4:1 1':4", '7:4 5:4', '6:4 r:4'],
-        Aend: ['4:2 2:2 5:2 7,:2', '1:8'],
+        // Round 12: a singing line (mostly steps, a held note tied over each bar line resolving down —
+        // 9-8 over IV, 4-3 over V7) instead of a chord arpeggio: "C.. Bb C | Db.. C Bb | Ab C Eb.. |
+        // Eb Db C.. | C Db Eb F | F.. Eb Db | Db.. C Bb | Ab.. G.. |".
+        A: ['3:4 2:2 3:2', '4:4 3:2 2:2', '1:2 3:2 5:4', '5:2 4:2 3:4', '3:2 4:2 5:2 6:2', '6:4 5:2 4:2', '4:4 3:2 2:2', '1:4 r:4'],
+        Aend: ['2:4 7,:4', '1:8'],
         B: ["1':3 6:1 5:4", '7:3 5:1 3:4', "4:2 6:2 1':4", '7:6 r:2', '6:3 4:1 2:4', 'b7:4 6:4', '4:3 3:1 1:4', '2:4 1:4'],
         C: ["1':4 6:4", 'b6:4 4:4', '5:4 3:4', '6,:4 r:4', '2:3 4:1 6:4', '7:3 5:1 2:4', '3:4 1:4', '4:4 2:4'],
       },
     },
     accomp: { inst: 'harp', pattern: 'arpUp', range: [51, 70], voices: 4, vel: 0.5 },
-    bass: { inst: 'softBass', pattern: 'root', range: [36, 48], vel: 0.45 },
+    bass: { inst: 'softBass', pattern: 'root', range: [36, 48], vel: 0.5 },
     pad: { inst: 'pad', range: [56, 70], voices: 3, vel: 0.3, on: 'B' },
     mix: {
       melody: { gain: 0.74, pan: 0.1, send: 0.52 },
@@ -456,6 +473,61 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     },
     rest: [6, 14],
     gain: 0.9,
+  },
+
+  /**
+   * Summer nights — a meadow serenade: soft vibraphone over fingerpicked nylon guitar, a lydian lift (the
+   * major II, B natural over G) where the fireflies come out, a flute bridge that slips through
+   * the borrowed bVI–bVII on its way home. Lazy swung eighths; the upright plucks root and fifth.
+   */
+  'night-summer': {
+    id: 'night-summer',
+    title: 'Firefly Meadow',
+    blurb: 'Night in the valley',
+    bpm: 68,
+    meter: '4/4',
+    key: 65, // F
+    mode: 'major',
+    swing: 0.56,
+    breaks: false,
+    form: ['intro', 'A', 'B', 'C', 'A', 'outro'],
+    prog: {
+      intro: ['ii7', 'V7sus4'],
+      A: ['Imaj7', 'II', 'IVmaj7', 'iii7', 'vi7', 'ii7', 'IVmaj7', 'V7sus4'],
+      Aend: ['ii7 V7', 'Imaj7'],
+      B: ['vi7', 'IVmaj7', 'Imaj7', 'iii7', 'vi7', 'II', 'IVmaj7', 'V7sus4'],
+      C: ['bVImaj7', 'bVIImaj7', 'Imaj7', 'vi7', 'IVmaj7', 'iv6', 'Imaj7', 'V7sus4'],
+      outro: ['IVmaj7', 'Imaj7'],
+    },
+    melody: {
+      // An octave over the guitar's picking (the tune sat inside the accompaniment's register).
+      inst: 'vibes', range: [72, 96], density: 0.3, ornament: 0.12, cInst: 'flute',
+      tune: {
+        octave: 1,
+        // Round 7: it still climbs out of the tonic chord and leans on the lydian B, but sighs home by step: "(.) C F A C'... | D'. B C'... | Bb D F'.. D | A... (breath) | D. E F D | E. D C Bb | Bb. A G... | C... (breath) |".
+        A: ['r:1 5,:1 1:1 3:1 5:4', '6:3 #4:1 5:4', "4:2 6:2 1':3 6:1", '3:6 r:2', "6:3 7:1 1':2 6:2", '7:3 6:1 5:2 4:2', '4:3 3:1 2:4', '5:4 r:4'],
+        Aend: ['4:2 3:2 2:2 7,:2', '1:8'],
+        B: ['3:2 5:2 6:4', '6:3 5:1 4:4', '3:3 4:1 5:4', '7:3 6:1 5:4', "6:2 7:2 1':4", "2':3 1':1 7:4", '6:2 5:2 4:2 3:2', '4:4 5:4'],
+        C: ["1':3 b7:1 b6:4", '5:3 6:1 b7:4', "1':3 7:1 6:4", '5:6 r:2', '4:3 5:1 6:4', 'b6:3 5:1 4:4', '3:2 2:2 3:4', '2:4 r:4'],
+      },
+    },
+    accomp: { inst: 'guitar', pattern: 'fingerpick', range: [48, 67], voices: 4, vel: 0.46 },
+    // Two plucks a bar (root, then fifth): at 68 bpm one pluck left half of every bar without a floor.
+    // (Round 8: a tenor string bed once the tune has been heard — the vibes sat 19 dB over everything
+    // between the bass and them.)
+    accomp2: { inst: 'pad', pattern: 'block', range: [52, 64], voices: 3, vel: 0.24, on: 'repeat' },
+    bass: { inst: 'upright', pattern: 'rootFifth', range: [36, 48], vel: 0.6 },
+    pad: { inst: 'pad', range: [57, 72], voices: 3, vel: 0.26, on: 'B' },
+    mix: {
+      melody: { gain: 0.74, pan: 0.14, send: 0.46 },
+      accomp: { gain: 0.6, pan: -0.22, send: 0.36 },
+      accomp2: { gain: 0.2, pan: 0.2, send: 0.55 },
+      bass: { gain: 0.5, pan: 0, send: 0.08 },
+      pad: { gain: 0.24, pan: 0, send: 0.55 },
+    },
+    rest: [6, 14],
+    gain: 0.9,
+    sheen: 1.5,
   },
 
   /** Fall nights — a dorian clarinet waltz in its low register, harp, flute bridge. */
@@ -470,7 +542,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     key: 62, // D
     mode: 'dorian',
     breaks: false,
-    form: NIGHT_FORM,
+    form: ['intro', 'A', 'B', 'A', 'B', 'outro'],
     prog: {
       intro: ['i', 'IV'],
       A: ['i', 'IV', 'bIII', 'bVII', 'i', 'IV', 'bVII', 'i'],
@@ -482,9 +554,12 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       inst: 'clarinet', range: [55, 79], density: 0.35, legato: true, ornament: 0.15, cInst: 'flute',
       tune: {
         octave: 0,
-        // "A. F D | G. B D' | C. A F | E... | D'. C A | B. A G | G E C | D..." — the raised sixth (B) is the owl.
-        A: ['5:3 3:1 1:2', "4:3 6:1 1':2", '7:3 5:1 3:2', '2:4 r:2', "1':3 7:1 5:2", '6:3 5:1 4:2', '4:2 2:2 7,:2', '1:6'],
-        B: ['3:2 5:2 7:2', "7:2 2':2 4':2", "1':3 6:1 4:2", '5:6', '3:3 5:1 7:2', "2':3 1':1 7:2", "6:3 4:1 1':2", '5:4 r:2'],
+        // "A. G F | G. A B | C'. B A | F E... | F. G A | B. A G | E. F E | D..." — round 6: a sung lullaby
+        // (was 28 % stepwise: a chord arpeggio flagged ANGULAR). The raised sixth (B) is still the owl,
+        // now reached by step; bar 4 leans F→E (a 4-3 suspension over C).
+        A: ['5:3 4:1 3:2', '4:3 5:1 6:2', "7:3 6:1 5:2", '3:2 2:4', '3:3 4:1 5:2', '6:3 5:1 4:2', '2:3 3:1 2:2', '1:6'],
+        // The bridge climbs by step to a held A, then one wide reach (A → F') and a falling answer.
+        B: ['3:2 5:2 4:1 3:1', '5:3 6:1 7:2', "1':3 7:1 6:2", '5:6', "3':3 2':1 1':2", "2':2 7:2 5:2", '4:3 6:1 4:2', '5:4 r:2'],
         C: ["1':3 b6:1 3:2", "5:3 7:1 3':2", "2':3 1':1 7:2", "1':6", "3':3 1':1 b6:2", '7:3 5:1 2:2', "4:3 6:1 1':2", '5:3 7:3'],
       },
     },
@@ -513,7 +588,7 @@ export const SONGBOOK: Record<string, ThemeDef> = {
     breaks: false,
     form: NIGHT_FORM,
     prog: {
-      intro: ['I', 'IV'],
+      intro: ['Isus4', 'I'],
       A: ['I', 'iii', 'IV', 'I', 'vi', 'ii7', 'IV', 'V7sus4 V'],
       Aend: ['V7', 'I'],
       B: ['vi', 'iii', 'IV', 'I', 'ii7', 'V', 'IV', 'V7'],
@@ -525,18 +600,24 @@ export const SONGBOOK: Record<string, ThemeDef> = {
       tune: {
         octave: 1,
         // "D. C B | B A B D | E. D C | B.. A | G A B E | E D C A | G. F# E | G. F# |" — it rocks down by step.
-        A: ['5:3 4:1 3:2', '3:2 2:1 3:1 5:2', '6:3 5:1 4:2', '3:4 2:2', '1:2 2:1 3:1 6:2', '6:2 5:1 4:1 2:2', '1:3 7,:1 6,:2', '1:3 7,:3'],
+        // (Round 18: bar 6 steps down from the E it reached instead of striking it again — D over the
+        // ii7, an Am11 sigh — so the leap to E in bar 5 is the strain's one high point.)
+        A: ['5:3 4:1 3:2', '3:2 2:1 3:1 5:2', '6:3 5:1 4:2', '3:4 2:2', '1:2 2:1 3:1 6:2', '5:2 4:1 3:1 2:2', '1:3 7,:1 6,:2', '1:4 r:2'],
         Aend: ['4:2 3:1 2:1 7,:2', '1:6'],
         B: ['3:3 2:1 1:1 7,:1', '7,:3 1:1 2:2', '1:2 2:1 3:1 4:2', '5:6', '6:3 5:1 4:2', '5:2 4:1 3:1 2:2', '1:3 2:1 3:2', '4:3 3:1 2:2'],
         C: ['6:3 5:1 3:2', 'b6:3 5:1 4:2', '7:3 6:1 5:2', '6:6', "1':2 7:1 6:1 5:2", 'b7:3 6:1 4:2', '1:2 2:1 3:1 6,:2', '4:3 2:3'],
       },
     },
     accomp: { inst: 'harp', pattern: 'waltzArp', range: [52, 71], voices: 4, vel: 0.46 },
+    // (Round 8: a low string bed in the tenor under the box and harp — 200-500 Hz sat 21 dB under the
+    // tune: a lullaby with nothing between the bass and the bells.)
+    accomp2: { inst: 'pad', pattern: 'block', range: [50, 62], voices: 3, vel: 0.26, on: 'repeat' },
     bass: { inst: 'softBass', pattern: 'root', range: [36, 48], vel: 0.45 },
     pad: { inst: 'pad', range: [55, 69], voices: 3, vel: 0.3, on: 'B' },
     mix: {
       melody: { gain: 0.88, pan: 0.1, send: 0.5 },
       accomp: { gain: 0.6, pan: -0.2, send: 0.44 },
+      accomp2: { gain: 0.24, pan: 0.16, send: 0.55 },
       bass: { gain: 0.38, pan: 0, send: 0.1 },
       pad: { gain: 0.22, pan: 0, send: 0.55 },
     },

@@ -39,6 +39,12 @@ interface Crow {
   crop: THREE.Vector3;
   /** Heading toward the crop while on the ground. */
   face: number;
+  /** Ground contact shadow (root child, kept on the soil). */
+  shadow: THREE.Mesh;
+  /** Length of the current hop → look → peck cycle (s). */
+  cycle: number;
+  /** (r30) A flutter-hop on the plant: wings spread, tail cocked (one bird in a staged raid). */
+  display: boolean;
 }
 
 let crowMat: THREE.MeshStandardMaterial | null = null;
@@ -48,7 +54,7 @@ let crowMat: THREE.MeshStandardMaterial | null = null;
  */
 function material(): THREE.MeshStandardMaterial {
   if (!crowMat) {
-    crowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.04 });
+    crowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.08 });
     crowMat.name = 'crow';
     applyWorldFx(crowMat, { snow: false });
     patchMaterial(crowMat, 'crow-sheen', (shader) => {
@@ -61,7 +67,10 @@ function material(): THREE.MeshStandardMaterial {
           float rim = pow(1.0 - ndv, 2.4);
           // Oil-slick sheen: blue at the rim shading to violet, stronger on the darkest feathers.
           float ink = 1.0 - smoothstep(0.05, 0.3, dot(diffuseColor.rgb, vec3(0.33)));
-          totalEmissiveRadiance += mix(vec3(0.12, 0.17, 0.34), vec3(0.2, 0.14, 0.3), ndv) * rim * (0.25 + 0.3 * ink) + diffuseColor.rgb * rim * 0.4;
+          totalEmissiveRadiance += mix(vec3(0.12, 0.17, 0.34), vec3(0.2, 0.14, 0.32), ndv) * rim * (0.35 + 0.4 * ink) + diffuseColor.rgb * rim * 0.5;
+          // Feather gloss: a soft blue-white band across the back where the sky reflects.
+          vec3 Nv = normalize(normal);
+          totalEmissiveRadiance += vec3(0.1, 0.13, 0.2) * smoothstep(0.55, 0.95, Nv.y) * ink * 0.6;
         }`,
       );
     });
@@ -80,10 +89,42 @@ function part(fn: (b: MeshBuilder) => void, name: string): THREE.Mesh {
 
 // Slate blue-black rather than pure ink: the form (breast, folded wing, crown) keeps reading
 // against dark soil and leaf shadow instead of collapsing into a black blob.
-const INK = 0x1c202c;
-const SHEEN = 0x3a4666;
-const BREAST = 0x2c3242;
-const WING = 0x252c42;
+// (r15: near-black glossy — the slate navy read as a toy bird; the blue lives in the rim sheen.)
+const INK = 0x16191f;
+const SHEEN = 0x34405a;
+const BREAST = 0x262a33;
+const WING = 0x15181f;
+
+/** Head pivot at rest (upright neck) — pecks drive it forward + down from here. */
+const HEAD_Y = 0.315;
+const HEAD_Z = 0.085;
+
+let shadowGeo: THREE.CircleGeometry | null = null;
+let shadowMat: THREE.MeshBasicMaterial | null = null;
+/** A soft contact shadow under each bird (grounds it; follows the hop, shrinks in the air). */
+function contactShadow(): THREE.Mesh {
+  if (!shadowGeo) {
+    shadowGeo = new THREE.CircleGeometry(0.13, 18);
+    shadowGeo.rotateX(-Math.PI / 2);
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d')!;
+    const gr = g.createRadialGradient(32, 32, 2, 32, 32, 32);
+    gr.addColorStop(0, 'rgba(0,0,0,0.55)');
+    gr.addColorStop(0.55, 'rgba(0,0,0,0.3)');
+    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 64, 64);
+    const t = new THREE.CanvasTexture(c);
+    shadowMat = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, fog: false });
+    shadowMat.name = 'crow-shadow';
+  }
+  const m = new THREE.Mesh(shadowGeo, shadowMat!);
+  m.name = 'crow-shadow';
+  m.renderOrder = 3;
+  m.userData.noAO = true;
+  return m;
+}
 
 const _cc = new THREE.Color();
 const _cs = new THREE.Color();
@@ -244,7 +285,7 @@ export class CrowFlock {
     return this.crows.length;
   }
 
-  private build(): Pick<Crow, 'root' | 'body' | 'head' | 'wingL' | 'wingR' | 'folded'> {
+  private build(): Pick<Crow, 'root' | 'body' | 'head' | 'wingL' | 'wingR' | 'folded' | 'shadow'> {
     const M = material();
     const r = this.rng;
     const root = new THREE.Group();
@@ -255,21 +296,26 @@ export class CrowFlock {
         // One sculpted body: breast forward, back sloping into the tail, the closed wings painted
         // into the same surface (no separate pods). Coloured per vertex: slate belly, glossy back,
         // scalloped wing-covert rows so it reads as feathers, not a black egg.
-        b.add(M, crowBody(), mat(0, 0.15, -0.01, -0.16, 0, 0));
+        // (r16) An upright, alert stance: the body tilted ~30° chest-up on long visible legs, the tail
+        // angled down to the ground behind (r9 critic: the low horizontal bodies read as dead birds).
+        b.add(M, crowBody(), mat(0, 0.21, 0, -0.52, 0, 0));
         // Closed wings: thin curved shells hugging the flanks, primaries meeting over the tail.
-        for (const sd of [-1, 1]) b.add(M, wingShell(sd), mat(0, 0.15, -0.01, -0.16, 0, 0));
+        for (const sd of [-1, 1]) b.add(M, wingShell(sd), mat(0, 0.21, 0, -0.52, 0, 0));
         // Tail: a rounded, bevelled fan angled down behind the body (the crow's tell-tale tail).
-        b.add(M, tailFan(), mat(0, 0.13, -0.17, -0.3, 0, 0));
-        // Legs + toes (three forward, one back)
+        // (r30) Cocked up a little (r10 critic: no tail silhouette — it lay flat on the soil).
+        b.add(M, tailFan(), mat(0, 0.15, -0.135, -0.5, 0, 0, 1.15, 1, 1.2));
+        // Legs: feathered thighs, then long scaly shanks + spread toes (three forward, one back), a
+        // warm grey so they read against dark soil.
         for (const sd of [-1, 1]) {
-          b.add(M, new THREE.CylinderGeometry(0.008, 0.007, 0.09, 5), mat(sd * 0.032, 0.045, 0.02), { tint: 0x34302e });
-          for (const a of [-0.45, 0, 0.45]) b.add(M, new THREE.CylinderGeometry(0.0055, 0.0035, 0.05, 4), mat(sd * 0.032 + Math.sin(a) * 0.018, 0.004, 0.04 + Math.cos(a) * 0.012, Math.PI / 2, 0, -a), { tint: 0x34302e });
-          b.add(M, new THREE.CylinderGeometry(0.005, 0.0035, 0.035, 4), mat(sd * 0.032, 0.004, 0.0, -Math.PI / 2, 0, 0), { tint: 0x34302e });
+          b.add(M, new THREE.SphereGeometry(0.03, 8, 6), mat(sd * 0.034, 0.135, 0.015, 0, 0, 0, 0.9, 1.3, 1), { tint: BREAST });
+          b.add(M, new THREE.CylinderGeometry(0.0085, 0.007, 0.125, 6), mat(sd * 0.036, 0.064, 0.022, 0.08, 0, 0), { tint: 0x57514c });
+          for (const a of [-0.5, 0, 0.5]) b.add(M, new THREE.CylinderGeometry(0.006, 0.0035, 0.055, 4), mat(sd * 0.036 + Math.sin(a) * 0.02, 0.005, 0.048 + Math.cos(a) * 0.012, Math.PI / 2, 0, -a), { tint: 0x57514c });
+          b.add(M, new THREE.CylinderGeometry(0.0055, 0.0035, 0.04, 4), mat(sd * 0.036, 0.005, 0.003, -Math.PI / 2, 0, 0), { tint: 0x57514c });
         }
       }, 'crow-body'),
     );
     const head = new THREE.Group();
-    head.position.set(0, 0.22, 0.1);
+    head.position.set(0, HEAD_Y, HEAD_Z);
     head.add(
       part((b) => {
         // Neck ruff blending the head into the breast, then a slightly flat-crowned head.
@@ -277,21 +323,24 @@ export class CrowFlock {
         b.add(M, headGeo(), mat(0, 0.02, 0.02));
         // Heavy crow bill: horn-grey (lighter than the plumage so it reads at gameplay zoom), a deep
         // curved upper mandible over a thinner lower one, bristles at the base.
-        b.add(M, billGeo(0.03, 0.12, 0.1), mat(0, 0.016, 0.07, 0, 0, 0), { tint: 0x55545c });
-        b.add(M, billGeo(0.02, 0.09, -0.05), mat(0, -0.004, 0.07, 0.1, 0, 0), { tint: 0x3a3940 });
+        // A heavy black bill (a grey one read as a toy's).
+        // (r30) A pale horn bill (r10 critic: no readable beak against the dark head at gameplay zoom).
+        b.add(M, billGeo(0.032, 0.13, 0.1), mat(0, 0.016, 0.07, 0, 0, 0), { tint: 0xb4aa98 });
+        b.add(M, billGeo(0.021, 0.095, -0.05), mat(0, -0.004, 0.07, 0.1, 0, 0), { tint: 0x8a8274 });
         b.add(M, new THREE.SphereGeometry(0.03, 8, 6), mat(0, 0.02, 0.07, 0, 0, 0, 1, 0.9, 0.7), { tint: 0x2a2e3c });
         for (const sd of [-1, 1]) {
           // Dark eye in a slate ring with a hard white glint (reads at gameplay zoom).
-          b.add(M, new THREE.SphereGeometry(0.017, 10, 8), mat(sd * 0.044, 0.036, 0.048), { tint: 0x3a4050 });
-          b.add(M, new THREE.SphereGeometry(0.0145, 10, 8), mat(sd * 0.048, 0.037, 0.05), { tint: 0x050507 });
-          b.add(M, new THREE.SphereGeometry(0.0055, 6, 4), mat(sd * 0.058, 0.044, 0.058), { tint: 0xffffff });
+          // (r30) A bigger, brighter glint + a pale lid ring: the eye reads at gameplay zoom.
+          b.add(M, new THREE.SphereGeometry(0.02, 10, 8), mat(sd * 0.043, 0.036, 0.048), { tint: 0x6a6e78 });
+          b.add(M, new THREE.SphereGeometry(0.0165, 10, 8), mat(sd * 0.048, 0.037, 0.05), { tint: 0x050507 });
+          b.add(M, new THREE.SphereGeometry(0.0095, 6, 4), mat(sd * 0.06, 0.046, 0.058), { tint: 0xffffff });
         }
       }, 'crow-head'),
     );
     body.add(head);
     const wing = (s: number): THREE.Group => {
       const w = new THREE.Group();
-      w.position.set(s * 0.07, 0.19, 0.0);
+      w.position.set(s * 0.07, 0.25, 0.0);
       w.add(
         part((b) => {
           // A proper wing silhouette: rounded shoulder, then four splayed primary "fingers".
@@ -330,11 +379,13 @@ export class CrowFlock {
     // The closed wings are part of the body now; this is only the half-lifted "flick" pose (the
     // shells raised off the back for one hop), shown instead of the flight wings.
     const folded = part((b) => {
-      for (const sd of [-1, 1]) b.add(M, wingShell(sd), mat(sd * 0.012, 0.165, -0.01, -0.22, sd * 0.12, sd * 0.28, 1.05, 1, 1.02));
+      for (const sd of [-1, 1]) b.add(M, wingShell(sd), mat(sd * 0.012, 0.225, 0, -0.58, sd * 0.12, sd * 0.28, 1.05, 1, 1.02));
     }, 'crow-folded');
     folded.visible = false;
     body.add(wingL, wingR, folded);
-    return { root, body, head, wingL, wingR, folded };
+    const shadow = contactShadow();
+    root.add(shadow);
+    return { root, body, head, wingL, wingR, folded, shadow };
   }
 
   /**
@@ -342,7 +393,7 @@ export class CrowFlock {
    * `opts.eatAt`). `opts.landed` starts it already on the ground mid-raid (demos); `opts.stay`
    * keeps it pecking until the farmer scares it; `opts.onPeck` fires on every peck.
    */
-  spawn(x: number, z: number, onEat: () => void, delay = 0, opts: { landed?: boolean; stay?: boolean; eatAt?: number; onPeck?: (p: THREE.Vector3) => void; scale?: number; side?: number } = {}): void {
+  spawn(x: number, z: number, onEat: () => void, delay = 0, opts: { landed?: boolean; stay?: boolean; eatAt?: number; onPeck?: (p: THREE.Vector3) => void; scale?: number; side?: number; display?: boolean } = {}): void {
     if (this.crows.length >= 5) return;
     const parts = this.build();
     const a = this.rng.next() * Math.PI - Math.PI;
@@ -369,6 +420,8 @@ export class CrowFlock {
       eatAt: opts.eatAt ?? 3,
       bob: this.rng.next() * 6,
       face: Math.atan2(x - lx, z - lz),
+      cycle: 0.8,
+      display: !!opts.display,
     };
     crow.root.position.copy(from);
     if (opts.landed) {
@@ -379,7 +432,8 @@ export class CrowFlock {
       crow.root.rotation.y = crow.face;
     }
     // ~0.25 m body: a real crow beside a knee-high plant (the old 1.5× read as head-sized).
-    crow.root.scale.setScalar(opts.scale ?? 0.82);
+    // (r30) 0.62 (r10 critic: each crow was ~half a tile, as big as a pepper plant).
+    crow.root.scale.setScalar(opts.scale ?? 0.62);
     crow.root.visible = delay <= 0;
     this.group.add(crow.root);
     this.crows.push(crow);
@@ -425,6 +479,7 @@ export class CrowFlock {
       for (const o of others) if (Math.hypot(o.x - p.x, o.z - p.z) < r) return true;
       return false;
     };
+    const ss = THREE.MathUtils.smoothstep;
     for (let i = this.crows.length - 1; i >= 0; i--) {
       const c = this.crows[i]!;
       c.t += dt;
@@ -432,12 +487,15 @@ export class CrowFlock {
       c.root.visible = true;
       c.flap += dt;
       const root = c.root;
+      c.body.scale.set(1, 1, 1);
       if (c.state === 'in') {
         this.showWings(c, true);
         c.wingL.rotation.y = 0;
         c.wingR.rotation.y = 0;
         c.wingL.scale.set(1, 1, 1);
         c.wingR.scale.set(1, 1, 1);
+        c.head.position.set(0, HEAD_Y, HEAD_Z);
+        c.head.rotation.set(0, 0, 0);
         const T = 2.6;
         const t = Math.min(1, c.t / T);
         const e = 1 - Math.pow(1 - t, 2.2);
@@ -446,13 +504,13 @@ export class CrowFlock {
         const d = new THREE.Vector3().subVectors(c.to, c.from).setY(0);
         root.position.copy(p);
         root.rotation.y = Math.atan2(d.x, d.z);
-        // Fast flaps, then a flare (wings spread, body pitched up) before touching down.
-        const flare = THREE.MathUtils.smoothstep(t, 0.75, 1);
-        const f = Math.sin(c.flap * 22) * (1 - flare) + 0.55 * flare;
+        // Fast flaps, then a flare (wings spread high, body pitched up, legs forward) to land.
+        const flare = ss(t, 0.75, 1);
+        const f = Math.sin(c.flap * 22) * (1 - flare) + 0.75 * flare;
         c.wingL.rotation.z = -f * 0.9;
         c.wingR.rotation.z = f * 0.9;
-        c.body.rotation.x = -0.25 * flare + 0.15 * (1 - flare);
-        // A farmer standing by the landing spot: veer off instead of landing on a hat.
+        // In flight the upright standing body levels out (it was modelled ~30° chest-up).
+        c.body.rotation.x = 0.45 * (1 - flare) - 0.15 * flare;
         if (near(c.to, 1.6)) {
           c.state = 'out';
           c.t = 0;
@@ -464,14 +522,16 @@ export class CrowFlock {
           c.t = 0;
           c.body.rotation.x = 0;
           root.rotation.y = c.face;
+          c.cycle = c.peckT = 0.5;
         }
       } else if (c.state === 'peck') {
-        // Folded wings; hop, look around, peck.
+        // (r16) An alert, upright crow working the plant: a two-footed HOP (with a wing flick and a
+        // landing squash) → a jerky look about → a neck-driven PECK down into the leaves (the head
+        // shoots forward and down from the neck; the body only tips a little), then back up.
         c.peckT -= dt;
-        const k = Math.max(0, c.peckT);
         if (c.peckT <= 0) {
           c.pecks++;
-          c.peckT = 0.55 + this.rng.next() * 0.4;
+          c.cycle = c.peckT = 0.75 + this.rng.next() * 0.45;
           if (c.pecks === c.eatAt && c.onEat) {
             c.onEat();
             c.onEat = null;
@@ -481,61 +541,99 @@ export class CrowFlock {
             c.onPeck(c.head.localToWorld(new THREE.Vector3(0, -0.02, 0.14)));
           }
           // Shuffle about but keep facing the plant.
-          root.rotation.y = c.face + (this.rng.next() - 0.5) * 0.9;
+          root.rotation.y = c.face + (this.rng.next() - 0.5) * 0.8;
         }
-        const peck = Math.max(0, Math.sin((1 - k / 0.55) * Math.PI));
+        const tau = c.cycle - c.peckT;
+        // Down: the last 0.24 s of the cycle (fast stab, held in the leaves, a tug); up: the first 0.14 s.
+        const down = Math.max(1 - ss(c.peckT, 0.08, 0.17), 1 - ss(tau, 0.0, 0.1));
+        const tug = down > 0.95 ? Math.sin(c.bob * 45) * 0.04 : 0;
+        // Hop between 0.14 and 0.36 s (up and down on both feet), squash on landing.
+        const hu = (tau - 0.14) / 0.22;
+        const hop = hu > 0 && hu < 1 ? Math.sin(hu * Math.PI) : 0;
+        const land = tau > 0.36 && tau < 0.46 ? Math.sin(((tau - 0.36) / 0.1) * Math.PI) : 0;
         c.bob += dt;
-        // Between pecks: the jerky crow head-bob and a glance around.
-        const idle = 1 - peck;
-        c.body.rotation.x = peck * 0.8;
-        c.head.rotation.x = peck * 0.6 + idle * (Math.sin(c.bob * 11) > 0.3 ? 0.18 : -0.06);
-        c.head.rotation.y = idle * Math.sin(c.bob * 1.7) * 0.6;
-        c.head.position.z = 0.1 + idle * (Math.sin(c.bob * 11) > 0.3 ? 0.02 : -0.01);
-        // Between pecks: a little two-footed hop with a wing flick.
-        const hop = c.peckT > 0.45 ? Math.sin(((c.peckT - 0.45) / 0.3) * Math.PI) : 0;
-        root.position.y = c.to.y + Math.max(0, hop) * 0.06;
-        // Wings folded back along the body (a quick flick open on each hop).
-        const flick = Math.max(0, hop);
-        // Folded tight along the back (tips crossing over the tail), a quick flick on each hop.
-        c.wingL.rotation.y = -(Math.PI / 2 - 0.06) * (1 - flick * 0.6);
-        c.wingR.rotation.y = (Math.PI / 2 - 0.06) * (1 - flick * 0.6);
-        c.wingL.rotation.z = -0.12 - flick * 0.6;
-        c.wingR.rotation.z = 0.12 + flick * 0.6;
-        // Folded, the primaries stack up: the wing is ~70 % of its spread length along the back.
-        const fold = 0.7 + flick * 0.3;
-        c.wingL.scale.set(fold, 1, 1);
-        c.wingR.scale.set(fold, 1, 1);
-        // Only a real flick opens the flight wings; otherwise the closed-wing volumes show.
+        const idle = (1 - down) * (1 - hop);
+        const jerk = Math.sin(c.bob * 9) > 0.2 ? 1 : 0;
+        c.body.rotation.x = 0.32 * down - 0.08 * hop;
+        c.body.scale.set(1 + land * 0.06, 1 - land * 0.12 + hop * 0.04, 1);
+        c.head.position.set(0, HEAD_Y - 0.17 * down + 0.012 * jerk * idle, HEAD_Z + 0.075 * down + 0.018 * jerk * idle);
+        c.head.rotation.x = 0.95 * down + tug + idle * (jerk ? 0.1 : -0.12);
+        c.head.rotation.y = idle * Math.sin(c.bob * 1.7) * 0.7;
+        root.position.y = c.to.y + hop * 0.075;
+        // A wing flick on each hop: the closed wings lift off the back.
+        const flick = hop;
         this.showWings(c, false);
         c.folded.visible = flick > 0.08;
-        c.folded.scale.set(1 + flick * 0.2, 1 + flick * 0.2, 1);
+        c.folded.scale.set(1 + flick * 0.25, 1 + flick * 0.25, 1);
+        if (c.display) {
+          // (r30) Flutter-hop: up off the soil with both wings spread wide and the tail cocked, the
+          // body pitched chest-up (the raid's action beat; the others stay heads-down tearing).
+          const fl = Math.sin(c.flap * 13);
+          this.showWings(c, true);
+          c.wingL.rotation.y = 0;
+          c.wingR.rotation.y = 0;
+          c.wingL.scale.set(1.15, 1, 1.15);
+          c.wingR.scale.set(1.15, 1, 1.15);
+          c.wingL.rotation.z = -(0.55 + 0.35 * fl);
+          c.wingR.rotation.z = 0.55 + 0.35 * fl;
+          c.body.rotation.x = -0.22;
+          c.body.scale.set(1, 1.04, 1);
+          c.head.position.set(0, HEAD_Y + 0.01, HEAD_Z);
+          c.head.rotation.set(-0.15, 0, 0);
+          root.position.y = c.to.y + 0.12 + 0.03 * Math.sin(c.flap * 6.5);
+        }
         if ((c.pecks >= 6 && !c.stay) || near(root.position, 2.6)) {
           c.state = 'out';
           c.t = 0;
           c.from.copy(root.position);
         }
       } else {
-        const T = 2.4;
-        const t = Math.min(1, c.t / T);
-        const e = t * t;
-        root.position.lerpVectors(c.from, c.exit, e);
-        root.position.y += Math.sin(t * Math.PI * 0.5) * 1.5;
-        const d = new THREE.Vector3().subVectors(c.exit, c.from).setY(0);
-        root.rotation.y = Math.atan2(d.x, d.z);
+        // Escape: a startled crouch (head up, body squashed, wings snapping open), then a leap up
+        // and away with hard wingbeats.
+        const CROUCH = 0.14;
         this.showWings(c, true);
         c.wingL.rotation.y = 0;
         c.wingR.rotation.y = 0;
         c.wingL.scale.set(1, 1, 1);
         c.wingR.scale.set(1, 1, 1);
-        c.body.rotation.x = -0.35 * (1 - t);
-        const f = Math.sin(c.flap * 26);
-        c.wingL.rotation.z = -f;
-        c.wingR.rotation.z = f;
-        if (t >= 1) {
-          root.removeFromParent();
-          this.crows.splice(i, 1);
+        if (c.t < CROUCH) {
+          const k = c.t / CROUCH;
+          root.position.copy(c.from);
+          c.body.scale.set(1.06, 1 - 0.18 * Math.sin(k * Math.PI * 0.5), 1);
+          c.body.rotation.x = -0.15 * k;
+          c.head.position.set(0, HEAD_Y + 0.02 * k, HEAD_Z - 0.02 * k);
+          c.head.rotation.set(-0.3 * k, 0, 0);
+          c.wingL.rotation.z = -1.25 * k;
+          c.wingR.rotation.z = 1.25 * k;
+        } else {
+          const T = 2.4;
+          const t = Math.min(1, (c.t - CROUCH) / T);
+          const e = t * t;
+          root.position.lerpVectors(c.from, c.exit, e);
+          root.position.y += Math.sin(t * Math.PI * 0.5) * 1.5 + ss(t, 0, 0.12) * 0.25;
+          const d = new THREE.Vector3().subVectors(c.exit, c.from).setY(0);
+          root.rotation.y = Math.atan2(d.x, d.z);
+          c.body.rotation.x = -0.35 * (1 - t);
+          c.head.position.set(0, HEAD_Y, HEAD_Z);
+          c.head.rotation.set(0, 0, 0);
+          const f = Math.sin(c.flap * 26);
+          c.wingL.rotation.z = -f * 1.1;
+          c.wingR.rotation.z = f * 1.1;
+          if (t >= 1) {
+            root.removeFromParent();
+            this.crows.splice(i, 1);
+            continue;
+          }
         }
       }
+      // Contact shadow stays on the soil under the bird, fading and shrinking with height.
+      const gy = this.ground(root.position.x, root.position.z);
+      const hgt = Math.max(0, root.position.y - gy);
+      const sc = root.scale.x || 1;
+      c.shadow.position.y = (gy - root.position.y) / sc + 0.004;
+      const sk = Math.max(0, 1 - hgt / 2.5);
+      c.shadow.scale.setScalar(0.4 + 0.6 * sk);
+      c.shadow.visible = sk > 0.02;
     }
   }
 }

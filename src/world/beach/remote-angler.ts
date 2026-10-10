@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import { fishDef } from '../../data/fish';
-import { FishingGear } from './tackle';
+import { FishingGear, heldFishScale, TROPHY_SCALE } from './tackle';
 
 /** Wire order of FishingState (index = code). */
 export const STATE_CODES = ['idle', 'charging', 'casting', 'waiting', 'bite', 'reeling', 'caught', 'escaped', 'reelin'] as const;
@@ -49,10 +49,25 @@ export class RemoteAngler {
   st: NetState = 'idle';
   private stT = 0;
   private held = '';
+  /** The farmer's gripping fist (world), written by the pose hook; `fistOk` while it is fresh. */
+  readonly fist = new THREE.Vector3();
+  fistOk = false;
+  /** The held catch is a trophy (a bigger glory burst). */
+  trophy = false;
+  /** Hand spread for the two-hand chest presentation (every catch, r7b), × TROPHY_ARMS.z. */
+  spread = 1;
+  /** Catch arc (0 → 1 as the fish flies to the hands) from the latest snapshot. */
+  arc = 0;
   /** Screen anchor for the bite "!" (null when not biting / not visible). */
   readonly bang = { on: false, x: 0, y: 0 };
   /** Set once when a catch is shown (for a "X caught a Y" note). */
   caughtNote: string | null = null;
+  /** World point the catch note pops from: above this farmer's head (not the float / the arc). */
+  readonly noteAt = new THREE.Vector3();
+  /** Last rendered feet position (co-op: a local cast steps along the rail to keep clear of it). */
+  readonly feetPos = new THREE.Vector3();
+  private lastBob = new THREE.Vector3();
+  private wakeT = 0;
   map = '';
   stopped = false;
   private fade = 1;
@@ -123,12 +138,14 @@ export class RemoteAngler {
     this.stT += dt;
     const L = (i: number): number => (A[i] as number) + ((C[i] as number) - (A[i] as number)) * k;
     const feet = _feet.set(L(2), L(3), L(4));
+    this.feetPos.copy(feet);
     let dy = (C[5] as number) - (A[5] as number);
     dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     const yaw = (A[5] as number) + dy * k;
     const bob = _bob.set(L(6), L(7), L(8));
     const power = L(1);
     const arc = L(10);
+    this.arc = arc;
     const tension = L(11);
     if (st === 'idle') {
       this.hideAll(camera);
@@ -170,8 +187,30 @@ export class RemoteAngler {
     g.ease = st === 'reeling' || st === 'bite' ? 0.45 : st === 'casting' ? 0.4 : st === 'reelin' ? 0.3 : 0.12;
     if (inAir) g.resetLine(g.tip);
     g.updateLine(Math.min(dt, 1 / 30), _a.copy(g.bobber.position).setY(g.bobber.position.y + 0.34), camera);
-    if ((st === 'waiting' || st === 'reeling') && Math.random() < dt * (st === 'reeling' ? 3 : 0.35)) g.ripple(bob, st === 'reeling' ? 1.1 : 0.6, 1.3);
-    if (st === 'reeling' && Math.random() < dt * 1.6) g.splash(bob, false);
+    if (st === 'waiting' && Math.random() < dt * 0.35) g.ripple(bob, 0.6, 1.3, true);
+    if (st === 'reeling' && Math.random() < dt * 0.45) g.splash(bob, false);
+    // The float runs with the fish (its position comes in the snapshot): trail a wake behind it.
+    if (st === 'reeling') {
+      const sp = this.lastBob.lengthSq() > 0 ? Math.hypot(bob.x - this.lastBob.x, bob.z - this.lastBob.z) / Math.max(dt, 1e-3) : 0;
+      this.wakeT -= dt * Math.min(3, sp * 1.5);
+      if (sp > 0.35 && this.wakeT <= 0) {
+        this.wakeT = 0.05;
+        g.fx.emit(_b.set(bob.x, g.waterY + 0.03, bob.z), { color: 0xf2fbff, count: 1, speed: 0.2, size: 0.045, gravity: 0, life: 0.8, up: 0.02, spread: 0.1 });
+      }
+      g.setWake(bob, bob.x - feet.x, bob.z - feet.z, 0.45 + Math.min(1, sp / 1.6) * 0.55, dt);
+      this.lastBob.copy(bob);
+      // r8: the hooked fish as a dark shape just under the top, pulling away beyond the float
+      // (same look as the local angler's fight).
+      _a.set(bob.x - feet.x, 0, bob.z - feet.z);
+      if (_a.lengthSq() < 1e-4) _a.set(1, 0, 0);
+      _a.normalize();
+      const pull = Math.atan2(-_a.z, _a.x) + Math.PI + Math.sin(t * 10) * 0.22;
+      g.setShadow(_b.copy(bob).addScaledVector(_a, 0.45), 0.7, pull, g.rippleLift > 0.008 ? 0.075 : 0.045, 1.15);
+    } else {
+      this.lastBob.set(0, 0, 0);
+      g.setShadow(null, 0);
+      g.setWake(null, 0, 0, 0, dt);
+    }
     if (st === 'bite') {
       const s = project(_b.copy(feet).setY(feet.y + 2.3));
       this.bang.on = true;
@@ -185,24 +224,41 @@ export class RemoteAngler {
       const def = fishDef(fishId);
       if (def && this.held !== fishId) {
         g.hold(def, A[12]);
+        this.trophy = heldFishScale(def, A[12]) >= TROPHY_SCALE;
+        this.spread = presentSpread(heldFishScale(def, A[12]));
         this.held = fishId;
         this.caughtNote = def.name;
+        this.noteAt.copy(feet).addScaledVector(_UP, 3.9);
       }
-      const hold = _hold.copy(feet).addScaledVector(_UP, 1.18).addScaledVector(fwd, 0.58);
+      // Seen from far away the fish is scaled up a little (same rule as the local catch pose).
+      const boost = THREE.MathUtils.clamp(camera.position.distanceTo(_a.copy(feet).setY(feet.y + 2.4)) / 13, 1, 1.5);
+      // Over the hat (same as the local catch pose: the hat sits ≈ 1.9 m up, the fish floats above it).
+      // (Held clear above the farmer's floating name tag, ≈ 2.75 m: the tag never sits on the fish.)
+      const hold = _hold.copy(feet).addScaledVector(_UP, 3.3 + (boost - 1) * 0.35).addScaledVector(fwd, 0.08 - (boost - 1) * 0.3);
+      // Hanging from the farmer's fist when the pose hook reports it (else over the hat, as before).
+      if (this.fistOk) hold.copy(this.fist);
       if (arc < 1) {
         g.heldRoot.position.lerpVectors(bob, hold, arc);
         g.heldRoot.position.y += Math.sin(arc * Math.PI) * 1.2;
         g.heldRoot.rotation.set(0, t * 6, Math.sin(t * 20) * 0.4);
         g.setGlory(null, camera, 0, t);
       } else {
-        g.heldRoot.position.copy(hold);
-        g.heldRoot.position.y += Math.sin(t * 3) * 0.02;
-        // Side-on to whoever the farmer faces (same convention as the local catch pose).
-        g.heldRoot.rotation.set(0, -yaw, Math.sin(t * 5) * 0.07 + 0.08);
-        g.setGlory(_a.copy(hold).setY(hold.y + 0.4), camera, Math.min(1, this.stT * 2) * 0.4, t, 2.2);
+        g.heldRoot.scale.setScalar(boost);
+        g.glowHeld(0.6);
+        // (r7b: every catch presented across the chest in both hands, as the local pose: a fish hung by
+        // the tail at the hip read as a thin grey sliver from the co-op camera, critic r6.)
+        if (this.fistOk) g.presentHeld(this.fist, camera, 0, Math.sin(t * 2.2) * 0.05, hold);
+        else {
+          g.heldRoot.position.copy(hold);
+          g.heldRoot.position.y += Math.sin(t * 3) * 0.02;
+          // Flank squarely to this machine's camera (same billboard as the local catch pose).
+          g.faceHeld(camera, Math.sin(t * 5) * 0.07 + 0.08);
+        }
+        g.setGlory(_a.copy(hold).setY(hold.y + 0.05), camera, Math.min(1, this.stT * 2) * 0.4, t, 2.2 * boost);
       }
     } else if (this.held) {
       g.hold(null);
+      g.heldRoot.scale.setScalar(1);
       this.held = '';
       g.setGlory(null, camera, 0, t);
     }
@@ -217,7 +273,10 @@ export class RemoteAngler {
     if (st === 'waiting' && prev === 'casting') {
       g.waterY = s[7];
       g.splash(_b, false);
-    } else if (st === 'bite') g.splash(_b, true);
+    } else if (st === 'bite') {
+      g.splash(_b, true);
+      g.twang = 1;
+    }
     else if (st === 'caught') g.splash(_b, true);
     else if (st === 'reeling' && prev !== 'bite') g.splash(_b, false);
     if (st === 'casting' || st === 'charging') g.resetLine(_b);
@@ -232,6 +291,7 @@ export class RemoteAngler {
     g.hold(null);
     this.held = '';
     g.glory.visible = false;
+    g.setShadow(null, 0);
     g.updateLine(0, g.tip, camera);
   }
 
@@ -242,7 +302,7 @@ export class RemoteAngler {
 }
 
 /** Arm / torso pose for a farmer rig that is fishing in state `st` (remote farmers, the co-op demo). */
-export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D; torso: THREE.Object3D }, st: NetState, t: number, power = 0, arc = 0): void {
+export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D; torso: THREE.Object3D }, st: NetState, t: number, power = 0, arc = 0, fist?: THREE.Vector3, spread = 1): boolean {
   let ar = -0.95;
   let al = -0.8;
   let arz = 0.3;
@@ -262,15 +322,37 @@ export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D
     alz = -0.45 + Math.cos(t * (st === 'reeling' ? 16 : 5)) * 0.15;
     tx = -0.12;
   } else if (st === 'caught' && arc > 0.6) {
+    // Every catch is presented level across the chest in both hands (see FishingGear.presentHeld),
+    // the hands spread with the fish's length.
     const lift = Math.sin(t * 3) * 0.05;
-    ar = -1.35 + lift;
-    al = -1.35 + lift;
-    arz = -0.7;
-    alz = 0.7;
-    tx = -0.14;
+    ar = TROPHY_ARMS.x - (1 - spread) * 0.95 + lift;
+    al = TROPHY_ARMS.x - (1 - spread) * 0.95 + lift;
+    arz = TROPHY_ARMS.z * spread;
+    alz = -TROPHY_ARMS.z * spread;
+    tx = 0.08;
   }
   rig.armR.rotation.set(ar, 0, arz);
   rig.armL.rotation.set(al, 0, alz);
+  rig.armR.scale.y = 1;
   rig.torso.rotation.x = tx;
   rig.torso.rotation.y = ty;
+  if (!fist || !(st === 'caught' && arc > 0.6)) return false;
+  // The gripping fist in world space (the caller's farmer root must be up to date); for a trophy the
+  // point between both hands.
+  rig.armR.updateWorldMatrix(true, false);
+  rig.armR.localToWorld(fist.set(0, -0.31, 0.03));
+  {
+    rig.armL.updateWorldMatrix(true, false);
+    const l = rig.armL.localToWorld(new THREE.Vector3(0, -0.31, 0.03));
+    fist.add(l).multiplyScalar(0.5);
+  }
+  return true;
+}
+
+/** Arm pose (rotation x / outward z) for a trophy held level across the chest in both hands. */
+export const TROPHY_ARMS = { x: -1.38, z: 0.32 };
+
+/** Hand spread (× TROPHY_ARMS.z) for a held fish of mesh scale s: a sardine between close hands, a trophy wide. */
+export function presentSpread(s: number): number {
+  return Math.min(1, Math.max(0.45, 0.45 + (s - 0.6) * 0.85));
 }

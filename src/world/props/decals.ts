@@ -85,14 +85,54 @@ export class LightPools {
     this.mat.name = 'lightPool';
   }
 
+  /**
+   * Perf r20: every pool is a quad of ONE merged mesh (was a mesh each: town at night drew 8 pools as
+   * 8 draw calls). Same quads, same material; additive with no depth write, so their order among
+   * themselves never mattered.
+   */
+  private quads: number[] = [];
+  private mesh: THREE.Mesh | null = null;
+
   add(x: number, z: number, y: number, radius: number): void {
-    const g = new THREE.PlaneGeometry(radius * 2, radius * 2);
-    g.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(g, this.mat);
-    m.position.set(x, y + 0.04, z);
-    m.renderOrder = 3;
-    m.userData.noAO = true;
-    this.group.add(m);
+    this.quads.push(x, y + 0.04, z, radius);
+    const n = this.quads.length / 4;
+    const pos = new Float32Array(n * 12);
+    const uv = new Float32Array(n * 8);
+    const idx = new Uint16Array(n * 6);
+    // PlaneGeometry(2r, 2r).rotateX(-π/2) corners and uvs, in its index order.
+    const cx = [-1, 1, -1, 1];
+    const cz = [-1, -1, 1, 1];
+    const cu = [0, 1, 0, 1];
+    const cv = [1, 1, 0, 0];
+    for (let i = 0; i < n; i++) {
+      const qx = this.quads[i * 4]!;
+      const qy = this.quads[i * 4 + 1]!;
+      const qz = this.quads[i * 4 + 2]!;
+      const r = this.quads[i * 4 + 3]!;
+      for (let k = 0; k < 4; k++) {
+        pos[i * 12 + k * 3] = qx + cx[k]! * r;
+        pos[i * 12 + k * 3 + 1] = qy;
+        pos[i * 12 + k * 3 + 2] = qz + cz[k]! * r;
+        uv[i * 8 + k * 2] = cu[k]!;
+        uv[i * 8 + k * 2 + 1] = cv[k]!;
+      }
+      idx.set([0, 2, 1, 2, 3, 1].map((v) => v + i * 4), i * 6);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.computeBoundingSphere();
+    if (!this.mesh) {
+      this.mesh = new THREE.Mesh(g, this.mat);
+      this.mesh.name = 'light-pools';
+      this.mesh.renderOrder = 3;
+      this.mesh.userData.noAO = true;
+      this.group.add(this.mesh);
+    } else {
+      this.mesh.geometry.dispose();
+      this.mesh.geometry = g;
+    }
   }
 
   update(): void {

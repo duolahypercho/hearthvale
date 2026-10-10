@@ -9,6 +9,16 @@
 import * as THREE from 'three';
 
 const CSS = /* css */ `
+/* Underground: the clock's sky dial becomes a lantern in a rock niche (no sun / hills / weather). */
+.hv-under .h-sky { background: radial-gradient(circle at 50% 52%, #ffcf7a 0, #c9772e 16%, #5a3a24 38%, #2e1e14 62%, #1a110b 100%) !important; }
+.hv-under .h-sky .orb, .hv-under .h-sky .hills, .hv-under .h-sky .stars { display:none !important; }
+.hv-under .h-sky::before { content:''; position:absolute; inset:0; border-radius:50%;
+  background: radial-gradient(3px 2px at 22% 70%, #6e5038, transparent), radial-gradient(5px 3px at 74% 78%, #5e4430, transparent),
+    radial-gradient(4px 3px at 30% 24%, #4a3424, transparent), radial-gradient(3px 2px at 70% 22%, #4a3424, transparent); }
+.hv-under .h-sky::after { content:''; position:absolute; left:50%; top:50%; width:58%; height:58%; translate:-50% -50%;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><path d='M24 12h16l-3-5h-10z' fill='%233a2414'/><circle cx='32' cy='6' r='3' fill='none' stroke='%233a2414' stroke-width='2.5'/><rect x='21' y='12' width='22' height='5' rx='2' fill='%23b07a3c' stroke='%233a2414' stroke-width='2'/><path d='M23 17h18l2 26H21z' fill='%23ffd27a' stroke='%233a2414' stroke-width='2.5'/><path d='M32 22c4 5 5 9 0 15c-5-6-4-10 0-15z' fill='%23ff8a2a'/><path d='M32 27c2 3 2 5 0 8c-2-3-2-5 0-8z' fill='%23fff3c0'/><line x1='27' y1='18' x2='26' y2='42' stroke='%233a2414' stroke-width='2'/><line x1='37' y1='18' x2='38' y2='42' stroke='%233a2414' stroke-width='2'/><rect x='19' y='43' width='26' height='6' rx='2' fill='%23b07a3c' stroke='%233a2414' stroke-width='2'/></svg>") center/contain no-repeat; filter: drop-shadow(0 0 6px rgba(255,190,90,.85)); animation: hvLanternFlick 2.6s ease-in-out infinite; }
+@keyframes hvLanternFlick { 0%,100%{ filter: drop-shadow(0 0 6px rgba(255,190,90,.85)); } 45%{ filter: drop-shadow(0 0 9px rgba(255,170,70,.95)); } 60%{ filter: drop-shadow(0 0 5px rgba(255,190,90,.7)); } }
+.hv-under .h-date .d + .h-badge { display:none; }
 .hv-mine-hp { position:absolute; right:64px; bottom:16px; width:34px; height:178px; padding:6px; box-sizing:border-box;
   border-radius:18px; background: var(--wood-grad, linear-gradient(180deg,#c98c4c,#8a5226)); border:2px solid #5e3517;
   box-shadow: 0 6px 0 rgba(60,30,10,.35), 0 10px 24px rgba(30,15,5,.35), inset 0 2px 0 #d9a066, inset 0 -3px 0 #5e3517;
@@ -41,10 +51,10 @@ const CSS = /* css */ `
 .hv-mine-floor .sub { font-family: var(--font-body, 'Nunito', system-ui); font-size:12.5px; font-weight:800; opacity:.9; letter-spacing:.8px; text-transform:uppercase; color:#ffe2b0; margin-top:2px; }
 
 .hv-dmg-layer { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
-.hv-dmg { position:absolute; left:0; top:0; font-family: var(--font-head, 'Fredoka', system-ui); font-weight:700; font-size:42px; line-height:1; color:#fff;
-  -webkit-text-stroke: 6px #3a1a0a; paint-order: stroke fill; text-shadow: 0 4px 0 rgba(40,15,5,.6); will-change: transform, opacity; white-space:nowrap; }
-.hv-dmg.crit { color:#ffd84a; font-size:56px; -webkit-text-stroke:6px #3a1a0a; text-shadow: 0 4px 0 rgba(40,15,5,.6), 0 0 18px rgba(255,190,40,.65); }
-.hv-dmg.player { color:#ff6a58; font-size:40px; -webkit-text-stroke:6px #3a1a0a; text-shadow: 0 4px 0 rgba(40,15,5,.6), 0 0 14px rgba(0,0,0,.45); }
+.hv-dmg { position:absolute; left:0; top:0; font-family: var(--font-head, 'Fredoka', system-ui); font-weight:700; font-size:46px; line-height:1; color:#fff;
+  -webkit-text-stroke: 6px #2a1206; paint-order: stroke fill; text-shadow: 0 4px 0 rgba(30,10,3,.75), 0 6px 10px rgba(0,0,0,.45); will-change: transform, opacity; white-space:nowrap; }
+.hv-dmg.crit { color:#ffd84a; font-size:64px; -webkit-text-stroke:7px #3a1a0a; text-shadow: 0 4px 0 rgba(40,15,5,.6), 0 0 18px rgba(255,190,40,.65); }
+.hv-dmg.player { color:#ff2e2e; font-size:54px; -webkit-text-stroke:7px #fff6ee; text-shadow: 0 4px 0 rgba(60,0,0,.75), 0 0 16px rgba(0,0,0,.6); }
 .hv-dmg.loot { color:#fff4dc; font-size:22px; -webkit-text-stroke:3px #2a1a0c; text-shadow: 0 2px 0 rgba(20,10,4,.7); }
 .hv-dmg.info { color:#ffe9c4; font-size:22px; -webkit-text-stroke:4px #3a2410; }
 
@@ -154,6 +164,20 @@ export class HealthBar {
   }
 }
 
+/** Point the toolbar's selection at the tool actually in the farmer's hands (no-op if absent). */
+export function syncToolbar(game: { toolbarSlot: number; services: { inventory?: { slots: ({ id: string } | null)[] } }; events: { emit(n: 'toolbar:select', p: { slot: number }): void } }, itemId: string): void {
+  const slots = game.services.inventory?.slots;
+  if (!slots) return;
+  const k = slots.slice(0, 10).findIndex((st) => st?.id === itemId);
+  if (k >= 0 && k !== game.toolbarSlot) game.events.emit('toolbar:select', { slot: k });
+}
+
+/** Toggle the underground HUD variant (lantern dial, no weather badge) on the UI root. */
+export function setUnderground(root: HTMLElement, on: boolean): void {
+  inject();
+  if (root.classList.contains('hv-under') !== on) root.classList.toggle('hv-under', on);
+}
+
 export class FloorPlaque {
   readonly el: HTMLElement;
   constructor(parent: HTMLElement) {
@@ -206,9 +230,14 @@ interface Num {
   /** Screen-space de-overlap push (px, eased): numbers never print over each other. */
   ny: number;
   nx: number;
+  /** Rides a moving body (a knocked-back monster): pos = track + trackOff every frame. */
+  track: THREE.Vector3 | null;
+  trackOff: THREE.Vector3;
 }
 
 export interface PopOpts {
+  /** Ride this live position (the victim): the number stays on its head as it is knocked away. */
+  track?: THREE.Vector3;
   /** Track `at` (a live vector) every frame instead of copying it. */
   follow?: boolean;
   /** World offset added to the anchor. */
@@ -251,6 +280,32 @@ export class DamageNumbers {
       this.push(at, text, kind, opts, name, q);
       return;
     }
+    // Rapid hits on the same target merge into ONE ticking number (re-pops, upgrades to a crit).
+    if (!opts.follow && (kind === 'dmg' || kind === 'crit') && /^\d+$/.test(text)) {
+      // (r6: matched by the victim itself — knockback carried it out of the old 0.8 m radius, so
+      // successive swings stacked a tower of numbers over one slime)
+      const same = this.list.find((n) => (n.kind === 'dmg' || n.kind === 'crit') && !n.follow && (opts.track && n.track === opts.track ? n.age < 0.7 : n.age < 0.45 && n.pos.distanceToSquared(at) < 0.8 * 0.8));
+      if (same) {
+        same.qty += Number(text);
+        same.el.textContent = String(same.qty);
+        if (kind === 'crit' && same.kind !== 'crit') {
+          same.kind = 'crit';
+          same.el.className = 'hv-dmg crit';
+        }
+        if (!same.track) same.pos.lerp(at, 0.5);
+        same.age = 0.02;
+        return;
+      }
+      // At most 3 hit numbers on screen: the oldest one hurries out.
+      const live = this.list.filter((n) => (n.kind === 'dmg' || n.kind === 'crit') && !n.follow && n.age < n.life * 0.8);
+      for (let i = 0; i <= live.length - 3; i++) live[i]!.age = Math.max(live[i]!.age, live[i]!.life * 0.8);
+      // Different targets close together fan out sideways (alternating) instead of stacking.
+      const near = this.list.filter((n) => n.kind !== 'loot' && !n.follow && n.age < 0.6 && n.pos.distanceToSquared(at) < 2.2 * 2.2).length;
+      if (near) opts = { ...opts, dx: (opts.dx ?? 0) + (near % 2 ? 1 : -1) * (46 + 34 * Math.floor((near - 1) / 2)), dy: (opts.dy ?? 0) - 6 * near };
+      opts = { ...opts, dx: (opts.dx ?? 0) + (Math.random() - 0.5) * 22 };
+      this.push(at, text, kind, opts, text, Number(text));
+      return;
+    }
     // Numbers landing on the same spot within half a second stack upwards instead of overprinting.
     if (!opts.follow) {
       const near = this.list.filter((n) => n.kind !== 'loot' && !n.follow && n.age < 0.5 && n.pos.distanceToSquared(at) < 0.9 * 0.9).length;
@@ -270,7 +325,7 @@ export class DamageNumbers {
       follow: opts.follow ? at : null,
       off: opts.off?.clone() ?? new THREE.Vector3(),
       age: 0,
-      life: kind === 'loot' || kind === 'info' ? 1.3 : kind === 'crit' ? 1.1 : 0.95,
+      life: kind === 'loot' || kind === 'info' ? 1.3 : kind === 'crit' ? 1.0 : kind === 'player' ? 0.95 : 0.8,
       dx: kind === 'loot' ? 0 : (Math.random() - 0.5) * 12,
       sx: opts.dx ?? 0,
       sy: opts.dy ?? 0,
@@ -279,6 +334,8 @@ export class DamageNumbers {
       qty,
       ny: 0,
       nx: 0,
+      track: opts.track ?? null,
+      trackOff: opts.track ? at.clone().sub(opts.track) : new THREE.Vector3(),
     });
     if (this.list.length > 40) this.list.shift()!.el.remove();
   }
@@ -293,6 +350,7 @@ export class DamageNumbers {
       const n = this.list[i]!;
       if (!this.hold || n.age < n.life * 0.32) n.age += dt;
       const t = n.age / n.life;
+      if (n.track) n.pos.copy(n.track).add(n.trackOff);
       if (t >= 1) {
         n.el.remove();
         this.list.splice(i--, 1);
@@ -323,9 +381,10 @@ export class DamageNumbers {
           const cy = py + ty;
           const hit = this.boxes.find((b) => cx + hw > b.x0 && cx - hw < b.x1 && cy + hh > b.y0 && cy - hh < b.y1);
           if (!hit) break;
-          // Up by the overlap, with a small sideways step away from the box's centre.
-          ty -= cy + hh - hit.y0 + 2;
-          tx += cx >= (hit.x0 + hit.x1) / 2 ? 10 : -10;
+          // Sideways out of the box first (a row, not a tower), then up a little.
+          const right = cx >= (hit.x0 + hit.x1) / 2;
+          tx += right ? hit.x1 - (cx - hw) + 4 : hit.x0 - (cx + hw) - 4;
+          if (pass > 1) ty -= (cy + hh - hit.y0 + 2) * 0.5;
         }
         if (n.age <= dt * 1.5) {
           n.nx = tx;

@@ -12,6 +12,7 @@ import { ICONS, itemIcon, itemCategory, qualityStar, QUALITY_MULT } from './icon
 import { CROPS, daysToRipe, type CropId } from '../data/crops';
 import { Screen, el, frame, closeButton, tooltip, sfx, replay, escapeHtml } from './kit';
 import { slotInner, unitPrice, starRow, type StackView } from './itemtip';
+import { toolFactsHtml } from './toolinfo';
 import { menuTabs } from './menutabs';
 import { farmerAvatar } from './avatar';
 import { journal } from './profile';
@@ -196,7 +197,8 @@ export class InventoryScreen extends Screen {
         desc = desc || 'Plant in tilled soil and water daily.';
         meta = `${ICONS.sprout}<span>${daysToRipe(c)} days · ${c.seasons.map((x) => SEASON_NAME[x]).join(' / ')}${c.regrow ? ` · regrows` : ''}</span>`;
       }
-    } else if (d?.kind === 'produce' && !desc) desc = 'Fresh from the farm. Ship it, gift it, or cook with it.';
+    } else if (d?.kind === 'tool' && toolFactsHtml(s.id)) meta = toolFactsHtml(s.id);
+    else if (d?.kind === 'produce' && !desc) desc = 'Fresh from the farm. Ship it, gift it, or cook with it.';
     else if (d?.kind === 'resource' && !desc) desc = 'A useful crafting material.';
     const each = unitPrice(s);
     const val =

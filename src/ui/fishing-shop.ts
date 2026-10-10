@@ -57,7 +57,7 @@ export class TackleScreen extends Screen {
     const lo = FISHING_XP[lv]!;
     const hi = FISHING_XP[Math.min(FISHING_XP.length - 1, lv + 1)]!;
     const frac = hi > lo ? (xp - lo) / (hi - lo) : 1;
-    this.skill.innerHTML = `<div class="rod">${rodIcon(tier)}<div><b>${escapeHtml(ROD_TIERS[tier]!.name)}</b><small>Fishing Lv ${lv}${lv < 10 ? ` · ${Math.max(0, hi - xp)} XP to Lv ${lv + 1}` : ' · Master'}</small></div></div>
+    this.skill.innerHTML = `<div class="rod">${rodIcon(tier)}<div><b>${escapeHtml(ROD_TIERS[tier]!.name)}</b><small>Fishing Lv ${lv + 1}${lv < 10 ? ` · ${Math.max(0, hi - xp)} XP to Lv ${lv + 2}` : ' · Master'}</small></div></div>
       <div class="bar"><i style="width:${Math.round(frac * 100)}%"></i></div>`;
     const gold = this.game.services.economy?.gold() ?? 0;
     this.purse.innerHTML = `${ICONS.coin ?? ''}<span>${gold.toLocaleString()}</span><small>your purse</small>`;
@@ -74,7 +74,7 @@ export class TackleScreen extends Screen {
         'div',
         `hvf-tk-row ${state}`,
         `<div class="u-slot mini">${icon}</div>
-         <div class="nm"><b>${escapeHtml(name)}</b><small>${locked && !owned ? `Needs Fishing Lv ${g.level}` : escapeHtml(g.note)}</small></div>
+         <div class="nm"><b>${escapeHtml(name)}</b><small>${locked && !owned ? `Needs Fishing Lv ${g.level + 1}` : escapeHtml(g.note)}</small></div>
          <button class="u-btn small green buy${owned || locked || !afford ? ' disabled' : ''}" data-nav>${owned ? 'Owned' : `${ICONS.coin ?? ''}<span>${g.price.toLocaleString()}</span>`}</button>`,
       );
       row.style.animationDelay = `${i * 30}ms`;

@@ -6,11 +6,12 @@
 import { AudioGraph } from './graph';
 import { loadDucker } from './ducker';
 import { MusicDirector, scheduleTheme, MUSIC_LOOKAHEAD, MUSIC_SCHED, MUSIC_STATS } from './music';
-import { chooseTheme, STORM_OUTDOOR_LEVEL } from './select';
+import { chooseTheme, MENU_LEVEL, MENU_MUFFLE, MENU_TAU, PLAYLISTS, STORM_OUTDOOR_LEVEL } from './select';
 import { Ambience, type EnvState } from './ambience';
 import { Sfx, SFX_NAMES, VOICES } from './sfx';
 import { THEMES } from './themes';
 import { Composer, type TrackName } from './composer';
+import { INSERTS, INSTRUMENTS, type InstrumentName } from './instruments';
 export { critiquePiece, critiqueAll } from './critique';
 
 export interface Rendered {
@@ -21,6 +22,8 @@ export interface Rendered {
   frames: number;
   markers?: { name: string; t: number }[];
   notes?: number;
+  /** Theme renders: note-cache size and voice-budget diagnostics. */
+  stats?: { noteMb: number; peakVoices: number; dropped: number; stolen: number };
 }
 
 function encode(buf: AudioBuffer): string {
@@ -68,7 +71,12 @@ const MIX_ENV: Record<string, EnvState> = {
   mine: AMBIENCE_PRESETS.mine!,
   night: AMBIENCE_PRESETS['farm-summer-night']!,
   rain: AMBIENCE_PRESETS['farm-rain']!,
-  festival: ENV({ map: 'town', hour: 20, season: 'summer', night: 0.8, fountain: 0.5 }),
+  // Festivals play on their own grounds, under the festival crowd (round 5: was a quiet town evening).
+  festival: AMBIENCE_PRESETS['festival-crowd']!,
+  'festival-blossom': AMBIENCE_PRESETS['festival-crowd']!,
+  'festival-tide': ENV({ map: 'fest-summer', hour: 21, season: 'summer', night: 1, water: 1 }),
+  'festival-harvest': ENV({ map: 'fest-fall', hour: 13, season: 'fall' }),
+  'festival-starfall': ENV({ map: 'fest-winter', hour: 20, season: 'winter', night: 1 }),
   title: ENV({ hour: 18.7 }),
   inn: ENV({ map: 'town', hour: 18.5, fountain: 0.3 }),
   forest: AMBIENCE_PRESETS['forest-stream']!,
@@ -77,7 +85,7 @@ const MIX_ENV: Record<string, EnvState> = {
 };
 
 /** Render-wide options (set by the harness): `liveBudget` applies the game's 72-voice polyphony budget. */
-const renderOpts = { liveBudget: false };
+const renderOpts = { liveBudget: false, bypassLimiter: false };
 export function setRenderOptions(o: Partial<typeof renderOpts>): typeof renderOpts {
   Object.assign(renderOpts, o);
   return { ...renderOpts };
@@ -87,7 +95,7 @@ export function setRenderOptions(o: Partial<typeof renderOpts>): typeof renderOp
 async function offlineGraph(seconds: number, sr: number): Promise<{ ctx: OfflineAudioContext; g: AudioGraph }> {
   const ctx = new OfflineAudioContext(2, Math.ceil(sr * seconds), sr);
   const ok = await loadDucker(ctx);
-  const g = new AudioGraph(ctx, 1234, undefined, { worklet: ok, liveBudget: renderOpts.liveBudget });
+  const g = new AudioGraph(ctx, 1234, undefined, { worklet: ok, liveBudget: renderOpts.liveBudget, bypassLimiter: renderOpts.bypassLimiter });
   if (!ok) g.attachSidechain(false);
   return { ctx, g };
 }
@@ -105,13 +113,46 @@ function tickAmbience(g: AudioGraph, env: EnvState, seconds: number): void {
 
 export async function renderTheme(id: string, seconds = 30, sr = 44100, seed = 1, withAmbience = false, solo: TrackName | null = null): Promise<Rendered> {
   let notes = 0;
+  let graph: AudioGraph | null = null;
   const buf = await render(seconds, sr, (g) => {
+    graph = g;
     scheduleTheme(g, id, seconds, seed, solo);
     notes = new Composer(THEMES[id]!, seed).compose().events.filter((e) => e.t < seconds).length;
     const env = MIX_ENV[id] ?? MIX_ENV[id.split('-')[0]!] ?? MIX_ENV.spring!;
     if (withAmbience) tickAmbience(g, { ...env, key: THEMES[id]!.key }, seconds);
   });
-  return { name: solo ? `stem-${id}-${solo}` : withAmbience ? `mix-${id}` : `theme-${id}`, sampleRate: sr, data: encode(buf), frames: buf.length, notes };
+  const gs = graph as AudioGraph | null;
+  const stats = gs ? { noteMb: Math.round(gs.bufferMb * 10) / 10, peakVoices: gs.peakVoices, dropped: gs.dropped, stolen: gs.stolen } : undefined;
+  return { name: solo ? `stem-${id}-${solo}` : withAmbience ? `mix-${id}` : `theme-${id}`, sampleRate: sr, data: encode(buf), frames: buf.length, notes, stats };
+}
+
+/**
+ * Audition one instrument: `seq` is "midi:beats[:vel][~]" items played back to back at `bpm`
+ * (a trailing ~ slurs into the next note), through the instrument's track insert and the music bus.
+ */
+export async function renderNotes(inst: InstrumentName, seq: string, bpm = 90, sr = 44100): Promise<Rendered> {
+  const items = seq.split(',').map((x) => {
+    const slur = x.endsWith('~');
+    const [m, b, v] = x.replace('~', '').split(':').map(Number);
+    return { m: m!, beats: b ?? 1, vel: v ?? 0.8, slur };
+  });
+  const beat = 60 / bpm;
+  const seconds = items.reduce((a, x) => a + x.beats * beat, 0) + 2;
+  const buf = await render(seconds, sr, (g) => {
+    const tr = g.ctx.createGain();
+    tr.gain.value = 0.7;
+    tr.connect(g.musicBus);
+    const inp = INSERTS[inst]?.(g, tr) ?? tr;
+    let t = 0.3;
+    let prev: number | undefined;
+    for (const x of items) {
+      const dur = x.beats * beat * (x.slur ? 1.02 : 0.92);
+      INSTRUMENTS[inst](g, inp, t, x.m, dur, x.vel, prev !== undefined ? { art: 'legato', from: prev } : undefined);
+      prev = x.slur ? x.m : undefined;
+      t += x.beats * beat;
+    }
+  });
+  return { name: `notes-${inst}`, sampleRate: sr, data: encode(buf), frames: buf.length };
 }
 
 export async function renderAmbience(preset: string, seconds = 30, sr = 44100): Promise<Rendered> {
@@ -125,16 +166,19 @@ export async function renderAmbience(preset: string, seconds = 30, sr = 44100): 
 export async function renderSfxReel(sr = 44100, only: string[] | null = null): Promise<Rendered> {
   const markers: { name: string; t: number }[] = [];
   let t = 0.3;
-  const long: Record<string, number> = { treefall: 3.2, hall: 5, lantern: 3.5, catch: 2.4, 'catch:perfect': 2.6, water: 2, cast: 2.2, sleep: 2.4, thunder: 3 };
-  for (const n of only ?? SFX_NAMES) {
-    if (n === 'reel' || n === 'blip') continue;
+  const long: Record<string, number> = { passout: 3, lift: 2, 'mine:break': 2, treefall: 3.2, hall: 5, lantern: 3.5, catch: 2.4, 'catch:perfect': 2.6, water: 2, cast: 2.2, sleep: 2.4, thunder: 3 };
+  // `name@level` plays a variant (combat blows: @1 crit, @2 killing blow, @3 critical kill).
+  const extra = ['hit:slime@2', 'hit:crab@2', 'hit:bat@2', 'hit:wisp@2', 'hit:imp@2', 'hit:slime@1', 'mine:break@1'];
+  for (const n of only ?? [...SFX_NAMES, ...extra]) {
+    if (n === 'reel' || n === 'blip' || n.startsWith('voice')) continue;
     markers.push({ name: n, t });
-    t += long[n] ?? 1.3;
+    t += long[n.split('@')[0]!] ?? 1.3;
   }
-  if (!only) {
-    for (const v of Object.keys(VOICES)) {
+  // `--sfx voices` (or voice:<id>) puts the dialogue voices on a partial reel.
+  if (!only || only.some((n) => n.startsWith('voice'))) {
+    for (const v of Object.keys(VOICES).filter((v) => !only || only.includes('voices') || only.includes(`voice:${v}`))) {
       markers.push({ name: `voice:${v}`, t });
-      t += 2.6;
+      t += 5.2;
     }
   }
   if (!only || only.includes('reel')) {
@@ -148,19 +192,77 @@ export async function renderSfxReel(sr = 44100, only: string[] | null = null): P
     for (const m of markers) {
       if (m.name.startsWith('voice:')) {
         const voice = VOICES[m.name.slice(6)]!;
-        // Dialogue murmurs one "word" per typed word, paced like the typewriter (~28 chars/s).
-        const line = 'Well hello there, neighbour! Lovely morning, isn\'t it?';
+        // Dialogue murmurs one "word" per typed word, paced like the typewriter (~28 chars/s), with
+        // the game's line position (index / last: the falling line end). Round 18: two lines, so the
+        // voice-spread check measures a voice rather than one sentence's luckiest syllable.
         let tt = m.t;
-        for (const w of line.split(' ')) {
-          sfx.murmur(voice, w, { at: tt });
-          tt += Math.max(0.2, (w.length + 1) / 28);
+        for (const line of ['Well hello there, neighbour! Lovely morning, isn\'t it?', 'Careful on the bridge, the planks are wet.']) {
+          const words = line.split(' ');
+          words.forEach((w, i) => {
+            sfx.murmur(voice, w, { at: tt }, { index: i, last: i === words.length - 1 });
+            tt += Math.max(0.2, (w.length + 1) / 28);
+          });
+          tt += 0.35;
         }
       } else if (m.name === 'reel') {
         for (let tt = 0; tt < 1.5; tt += 0.06) sfx.play('reel', { at: m.t + tt, gain: 0.8 });
-      } else sfx.play(m.name, { at: m.t });
+      } else {
+        const [nm, lv] = m.name.split('@');
+        sfx.play(nm!, { at: m.t, level: lv ? Number(lv) : undefined });
+      }
     }
   });
   return { name: 'sfx-reel', sampleRate: sr, data: encode(buf), frames: buf.length, markers };
+}
+
+/**
+ * Blind-recognition takes (round 17, critic r6: "add blind recognition tests for villagers, surfaces
+ * and tools without visual context"): every named effect `takes` times, each from a fresh Sfx with
+ * its own seed (so the per-repeat pitch / level variation and the random grains differ), 1.6 s apart
+ * (3.4 s for long payoffs); `voice:<id>` speaks a different line per take. The analyser
+ * (scripts/audio-recognize.mjs) classifies each take by its nearest class without being told which
+ * it is: a design is recognisable when its own takes resemble each other more than any other's.
+ */
+export async function renderSfxTakes(names: string[], takes = 5, sr = 44100): Promise<Rendered> {
+  const LINES = [
+    'Well hello there, neighbour! Lovely morning, isn\'t it?',
+    'The bakery opens at nine, same as always.',
+    'Did you hear the bells last night? Strange business.',
+    'Careful on the bridge, the planks are wet.',
+    'I saved you some apples from the orchard!',
+    'Hmm. Come back when the lanterns are lit.',
+    'Your turnips are coming along nicely, you know.',
+  ];
+  const markers: { name: string; t: number; take: number }[] = [];
+  let t = 0.3;
+  const long = /^(treefall|rockbreak|water|lift|passout|mine:break|catch|cast|thunder|sleep|hall|lantern)$/;
+  for (let k = 0; k < takes; k++) {
+    for (const n of names) {
+      markers.push({ name: n, t, take: k });
+      t += n.startsWith('voice:') ? 3.4 : long.test(n) ? 3.4 : 1.6;
+    }
+  }
+  const seconds = t + 1;
+  const buf = await render(seconds, sr, (g) => {
+    for (const m of markers) {
+      // A fresh effect generator per take (seeded by take and name), as a new swing in a new place would be.
+      const sfx = new Sfx(g, 1000 + m.take * 7919 + (m.name.length * 131) % 997);
+      sfx.key = 62;
+      if (m.name.startsWith('voice:')) {
+        const voice = VOICES[m.name.slice(6)]!;
+        const line = LINES[(m.take + m.name.length) % LINES.length]!;
+        let tt = m.t;
+        const words = line.split(' ');
+        words.forEach((w, i) => {
+          sfx.murmur(voice, w, { at: tt }, { index: i, last: i === words.length - 1 });
+          tt += Math.max(0.2, (w.length + 1) / 28);
+        });
+      } else {
+        sfx.play(m.name, { at: m.t });
+      }
+    }
+  });
+  return { name: 'sfx-takes', sampleRate: sr, data: encode(buf), frames: buf.length, markers };
 }
 
 /**
@@ -376,12 +478,37 @@ export async function renderGameplay(part: 'full' | 'sfx' | 'bed', seconds = 20,
       sfx.key = THEMES[theme]!.key;
       for (const e of GAMEPLAY_SCRIPT) sfx.play(e.name, { at: e.t, gain: e.gain });
     }
+    // The menu opening at 17.8 s: the game's adapter steps the score back behind the page (−3 dB,
+    // ~2.6 kHz low-pass; systems/audio.ts MENU_PANELS) as the panel opens — the same in the bed.
+    if (part !== 'sfx') {
+      const open = GAMEPLAY_SCRIPT.find((e) => e.name === 'ui:open')!.t;
+      g.setMusicMuffle(MENU_MUFFLE, open, MENU_TAU);
+      const v = g.musicVol.gain.value;
+      g.musicVol.gain.setTargetAtTime(v * MENU_LEVEL, open, MENU_TAU);
+    }
   });
   return { name: `gameplay-${part}`, sampleRate: sr, data: encode(buf), frames: buf.length, markers: GAMEPLAY_SCRIPT.filter((e) => !e.aux).map((e) => ({ name: e.verb ? `${e.name}*` : e.name, t: e.t })) };
 }
 
 export function listThemes(): string[] {
   return Object.keys(THEMES);
+}
+
+/**
+ * Round 12 identity check: the first two chords each song SOUNDS (its intro if it has one in the
+ * form, else its A), its form and intro length, and the playlists — so the critic can flag songs in
+ * one rotation that open alike.
+ */
+export function openings(): { songs: Record<string, { pair: string; form: string; intro: number }>; playlists: Record<string, readonly string[]> } {
+  const songs: Record<string, { pair: string; form: string; intro: number }> = {};
+  for (const [id, th] of Object.entries(THEMES)) {
+    if (th.ambient) continue;
+    const hasIntro = th.form[0] === 'intro';
+    const bars = (hasIntro ? th.prog.intro ?? [th.prog.A[0]!, th.prog.A[0]!] : th.prog.A).join(' ').split(/\s+/);
+    const seq = hasIntro && bars.length < 2 ? [...bars, ...th.prog.A.join(' ').split(/\s+/)] : bars;
+    songs[id] = { pair: seq.slice(0, 2).join(' '), form: th.form.join('-'), intro: hasIntro ? (th.prog.intro?.length ?? 2) : 0 };
+  }
+  return { songs, playlists: PLAYLISTS };
 }
 
 /** Tracks a theme actually uses (for stem renders). */
@@ -401,10 +528,18 @@ export function describePiece(id: string, seed = 1): { theme: string; bars: numb
   return { theme: id, bars: p.bars, duration: p.duration, melody: mel };
 }
 
+/** A song's composed length, form and whether it loops seamlessly (whole-song renders, round 17). */
+export function songInfo(id: string, seed = 1): { duration: number; looping: boolean; form: string } {
+  const th = THEMES[id]!;
+  const p = new Composer(th, seed).compose();
+  return { duration: p.duration, looping: th.rest[1] === 0, form: th.form.join('-') };
+}
+
 /** Composed events + bar grid for piano-roll plots. */
-export function pieceData(id: string, seed = 1, seconds = 30): { events: { t: number; track: string; midi: number; dur: number; vel: number }[]; bars: { t: number; chords: string; section: string }[] } {
+export function pieceData(id: string, seed = 1, seconds = 30): { events: { t: number; track: string; midi: number; dur: number; vel: number }[]; bars: { t: number; chords: string; section: string }[]; bass: string | null } {
   const p = new Composer(THEMES[id]!, seed).compose();
   return {
+    bass: THEMES[id]!.bass?.pattern ?? null,
     events: p.events.filter((e) => e.t < seconds).map((e) => ({ t: e.t, track: e.track, midi: e.midi, dur: e.dur, vel: e.vel })),
     bars: (p.barInfo ?? []).filter((b) => b.t < seconds),
   };

@@ -38,10 +38,13 @@ export function produceFor(species: Livestock, variant: number): string {
   return LIVESTOCK[species].produce;
 }
 
+/** Animal names: never a villager's or a demo farmhand's name (Hazel, Juniper, Fennel, Saffron, Briar…):
+ *  a day-end line like "Juniper went hungry" must not read as a person. Buying also skips any name a
+ *  farmer on this farm goes by (AnimalSystem.add). */
 export const ANIMAL_NAMES = [
-  'Clover', 'Biscuit', 'Maple', 'Pudding', 'Hazel', 'Dumpling', 'Juniper', 'Pepper', 'Mochi', 'Bramble',
-  'Tansy', 'Waffles', 'Poppy', 'Nutmeg', 'Sorrel', 'Marzipan', 'Bluebell', 'Toffee', 'Fennel', 'Crumpet',
-  'Daisy', 'Pickle', 'Button', 'Saffron', 'Honey', 'Truffle', 'Oats', 'Buttercup', 'Muffin', 'Willow',
+  'Clover', 'Biscuit', 'Maple', 'Pudding', 'Cocoa', 'Dumpling', 'Pippin', 'Pepper', 'Mochi', 'Bramble',
+  'Tansy', 'Waffles', 'Poppy', 'Nutmeg', 'Sorrel', 'Marzipan', 'Bluebell', 'Toffee', 'Barley', 'Crumpet',
+  'Daisy', 'Pickle', 'Button', 'Turnip', 'Honey', 'Truffle', 'Oats', 'Buttercup', 'Muffin', 'Willow',
 ];
 
 export const PET_NAMES: Record<'dog' | 'cat', string> = { dog: 'Rufus', cat: 'Tuppence' };

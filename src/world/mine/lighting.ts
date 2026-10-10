@@ -21,7 +21,7 @@ import type { LightSpec } from './gen';
 const ACCENTS = 5;
 
 /** Live-tunable light levels (exposed as window.__caveTune for look-dev). */
-export const CAVE_TUNE = { key: 1.15, fill: 0.05, bounce: 0.3, accent: 1, hemi: 0.8, exposure: 1 };
+export const CAVE_TUNE = { key: 1.15, fill: 0.035, bounce: 0.3, accent: 1, hemi: 0.8, exposure: 1 };
 (globalThis as unknown as { __caveTune: typeof CAVE_TUNE }).__caveTune = CAVE_TUNE;
 
 export class CaveLighting {
@@ -46,7 +46,8 @@ export class CaveLighting {
 
   constructor(private game: Game) {
     this.group.name = 'cave-lights';
-    this.key = new THREE.SpotLight(0xffb46a, 30, 22, 0.95, 0.85, 1.25);
+    // (r6: wider, fully feathered cone — the pool read as a hard stage-light disc on the floor)
+    this.key = new THREE.SpotLight(0xffb46a, 30, 22, 1.05, 1.0, 1.25);
     this.key.castShadow = true;
     const q = game.rc.preset.shadowMapSize >= 4096 ? 2048 : 1024;
     this.key.shadow.mapSize.set(q, q);
@@ -60,7 +61,9 @@ export class CaveLighting {
     this.group.add(this.fill);
     this.bounce = new THREE.PointLight(0xffc890, 0, 15, 1.1);
     this.group.add(this.bounce);
-    this.rim = new THREE.PointLight(0x9ab8ff, 0, 3.2, 2);
+    // (short reach: at 3.2 m it washed the cliff face right behind a farmer standing at a wall
+    // — the arrival ladder — in a pale blue ghost strip)
+    this.rim = new THREE.PointLight(0x9ab8ff, 0, 2.1, 2);
     this.group.add(this.rim);
     for (let i = 0; i < ACCENTS; i++) {
       const l = new THREE.PointLight(0xffffff, 0, 7, 1.6);
@@ -114,7 +117,20 @@ export class CaveLighting {
       this.apply();
     };
     scene.onBeforeRender = this.hook;
+    // The farmer's invisible head shadow-proxy printed a hard, near-black rounded rectangle on the
+    // floor under the overhead lantern key (floor 37, r4): underground it casts nothing (the body,
+    // tool and contact blob still ground the farmer). Restored on the way out.
+    this.proxies.length = 0;
+    this.game.player.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.castShadow && (m.material as THREE.Material).name === 'player-shadow-proxy') {
+        m.castShadow = false;
+        this.proxies.push(m);
+      }
+    });
   }
+
+  private proxies: THREE.Mesh[] = [];
 
   deactivate(): void {
     if (!this.active) return;
@@ -125,6 +141,8 @@ export class CaveLighting {
     dn.sun.shadow.autoUpdate = true;
     if (scene.onBeforeRender === this.hook) scene.onBeforeRender = this.prevHook ?? (() => {});
     this.hook = null;
+    for (const m of this.proxies) m.castShadow = true;
+    this.proxies.length = 0;
   }
 
   /** Per-frame practicals (lantern follows the player, flicker). */
@@ -137,11 +155,13 @@ export class CaveLighting {
     this.key.position.set(player.x + 0.8, player.y + 6.2, player.z + 2.2);
     this.key.target.position.set(player.x, player.y, player.z - 0.4);
     this.key.intensity = def.lantern[1] * CAVE_TUNE.key * flick * this.lanternScale;
-    this.fill.position.set(player.x + 0.35, player.y + 1.25, player.z + 0.45);
+    // Belt-height lantern fill, off to the side: lights the swing and the floor at the feet without
+    // blowing out the face and hands at contact distance.
+    this.fill.position.set(player.x + 0.55, player.y + 0.62, player.z + 0.5);
     this.fill.intensity = def.lantern[1] * CAVE_TUNE.fill * flick * this.lanternScale;
     this.bounce.position.set(player.x, player.y + 5.5, player.z + 0.5);
     this.bounce.intensity = def.lantern[1] * CAVE_TUNE.bounce * this.lanternScale;
-    this.rim.position.set(player.x - 0.3, player.y + 1.9, player.z - 1.1);
+    this.rim.position.set(player.x - 0.3, player.y + 1.75, player.z - 0.75);
     this.rim.intensity = (def.id === 'lava' ? 5.5 : 4) * this.lanternScale;
     for (const a of this.accents) {
       const s = a.spec;

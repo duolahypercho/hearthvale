@@ -14,7 +14,7 @@ export interface DemoDef {
   time: number;
   season: Season;
   weather: Weather;
-  camera?: { yaw?: number; pitch?: number; distance?: number; offsetX?: number; offsetZ?: number };
+  camera?: { yaw?: number; pitch?: number; distance?: number; offsetX?: number; offsetY?: number; offsetZ?: number };
   ui?: string;
   /** Showcase content systems stage for the shot (e.g. 'field' = planted crop field). Default ['field']. */
   showcase?: string[];
@@ -34,13 +34,22 @@ const BEACH_SUNSET_CAM = { yaw: 100, pitch: 24, distance: 21, offsetX: -3, offse
 const BEACH_NIGHT_CAM = { yaw: 196, pitch: 34, distance: 28, offsetX: 4, offsetZ: 4 };
 /** Fishing from the pier walkway (cast west over the surf, the beach + groyne + dory in frame). */
 const FISH_CAM = { yaw: -14, pitch: 42, distance: 19, offsetX: -3.4, offsetZ: -2.0 };
-const FISH_CATCH_CAM = { yaw: -10, pitch: 31, distance: 12, offsetX: -0.6, offsetZ: -1.4 };
+const FISH_CATCH_CAM = { yaw: -10, pitch: 30, distance: 12.5, offsetX: 0.3, offsetZ: -1.6 };
 /** Mine floors: steep, close diorama framing so the lantern pool fills the frame. */
 const MINE_CAM = { yaw: 0, pitch: 42, distance: 17.5, offsetZ: -0.9 };
 /** Festival: same framing as TOWN_CAM, but the player stands in the ring east of the maypole. */
 const FESTIVAL_CAM = { ...TOWN_CAM, offsetX: -3.35, offsetZ: -10.3 };
 
+/** Kintara Exchange: the stall south-west of the fountain, keeper behind the counter. */
+const KINTARA_CAM = { yaw: 4, pitch: 33, distance: 15, offsetX: -2.6, offsetZ: -1.6 };
+
 export const DEMOS: Record<string, DemoDef> = {
+  // Kintara pod: the Exchange stall (`kintara`), its panel open (`ui-kintara`, `&ui=kintara:mint|collection|market`).
+  kintara: { map: 'town', x: 28.6, z: 35.2, facing: 'up', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, showcase: ['kintara'] },
+  'ui-kintara': { map: 'town', x: 28.6, z: 35.2, facing: 'up', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara', showcase: ['kintara'] },
+  'ui-kintara-mint': { map: 'town', x: 28.6, z: 35.2, facing: 'up', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara:mint', showcase: ['kintara'] },
+  'ui-kintara-collection': { map: 'town', x: 28.6, z: 35.2, facing: 'up', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara:collection', showcase: ['kintara'] },
+  'ui-kintara-market': { map: 'town', x: 28.6, z: 35.2, facing: 'up', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara:market', showcase: ['kintara'] },
   'farm-morning': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM },
   'farm-noon': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 12.5, season: 'summer', weather: 'sun', camera: { ...HOME_CAM, yaw: -8 } },
   'farm-evening': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 19, season: 'spring', weather: 'sun', camera: { ...HOME_CAM, yaw: 22, offsetX: -0.4 } },
@@ -53,26 +62,64 @@ export const DEMOS: Record<string, DemoDef> = {
   // Farming pod: hero harvest field (URL: &season=fall|spring, &act=harvest|hoe|wateringCan|scythe),
   // tool feel stills (&tool=hoe|wateringCan|scythe|axe|pickaxe|charge|harvest|sow, &tier=0-3,
   // &pose=<seconds> to freeze, -1 = live; &loop=<tool> repeats the action), giant crops, crows.
-  'farm-harvest': { map: 'farm', x: 20.5, z: 24.5, facing: 'down', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: 6, pitch: 44, distance: 17, offsetX: 2.0, offsetZ: 0.5 }, showcase: ['harvest'] },
-  'farm-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -46, pitch: 34, distance: 9.6, offsetX: -0.55, offsetZ: -1.3 }, showcase: ['tools'] },
-  'farm-giant': { map: 'farm', x: 21.2, z: 29.4, facing: 'left', time: 15.8, season: 'fall', weather: 'sun', camera: { yaw: 10, pitch: 44, distance: 14, offsetX: -2.4, offsetZ: -2.4 }, showcase: ['giant'] },
+  'farm-harvest': { map: 'farm', x: 20.5, z: 24.5, facing: 'down', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: 6, pitch: 44, distance: 13.8, offsetX: 1.0, offsetZ: 0.45 }, showcase: ['harvest'] },
+  // (r15: swung ~24° round and closer: the blade lands in front of the farmer's body, not under the hat.)
+  // (r17: pulled back to ~1.4x gameplay zoom — the whole farmer, hat to boots, the bed and the tool's arc in frame.)
+  // (r18: from the farmer's front-left (3/4, face and blade both to the lens) at ~1.3x gameplay zoom: the r17
+  // lens sat behind his shoulder and the swing read as a back and a hat.)
+  // (r30) 3/4 front-side lens (face + blade both read; r10 critic: shot from behind with a body-yaw snap).
+  'farm-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -46, pitch: 26, distance: 8.7, offsetX: -0.3, offsetY: 0.75, offsetZ: 0 }, showcase: ['tools'] },
+  'farm-giant': { map: 'farm', x: 20.6, z: 27.7, facing: 'left', time: 15.8, season: 'fall', weather: 'sun', camera: { yaw: -30, pitch: 37, distance: 10, offsetX: -0.75, offsetZ: 0.1 }, showcase: ['giant'] },
   'farm-crops': { map: 'farm', x: 28.6, z: 27.2, facing: 'left', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 12.2, offsetX: -4.6, offsetZ: -4.0 }, showcase: ['gallery'] },
-  'farm-crows': { map: 'farm', x: 30.5, z: 30.5, facing: 'left', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 42, distance: 7.2, offsetX: -5.0, offsetZ: 0.3 }, showcase: ['crows'] },
-  'farm-harvest-fall': { map: 'farm', x: 19.5, z: 24.5, facing: 'down', time: 10.4, season: 'fall', weather: 'sun', camera: { yaw: 18, pitch: 41, distance: 15.5, offsetX: 1.8, offsetZ: 1.4 }, showcase: ['harvest'] },
-  'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -46, pitch: 34, distance: 9.6, offsetX: -0.55, offsetZ: -1.3 }, showcase: ['tools', 'tool:wateringCan'] },
-  'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'spring', weather: 'sun', camera: { yaw: 14, pitch: 38, distance: 9.5, offsetX: -0.36, offsetZ: -1.45 }, showcase: ['tools', 'tool:harvest'] },
+  // (r30) Lensed from south of the raid, low: the raiders up front, the scarecrow's dashed reach crossing the
+  // bed between guarded and raided rows, the scarecrow itself at the back (r10 critic: no raid story).
+  'farm-crows': { map: 'farm', x: 30.5, z: 30.5, facing: 'left', time: 9.6, season: 'summer', weather: 'sun', camera: { yaw: 2, pitch: 34, distance: 10.6, offsetX: -5.6, offsetZ: -0.9 }, showcase: ['crows'] },
+  'farm-harvest-fall': { map: 'farm', x: 19.5, z: 24.5, facing: 'down', time: 15.9, season: 'fall', weather: 'sun', camera: { yaw: 16, pitch: 42, distance: 13.4, offsetX: 1.75, offsetZ: 0.75 }, showcase: ['harvest'] },
+  // (r16) Co-op on one beat: the host hoeing + three farmhands (hoe contact, mid-pour, catching a crop).
+  // (r17: pulled back + recentred so all four farmers and their tiles sit inside the frame.)
+  'farm-coop-tools': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.6, season: 'summer', weather: 'sun', camera: { yaw: -6, pitch: 42, distance: 13.1, offsetX: -1.05, offsetZ: 0.9 }, showcase: ['tools', 'crew'] },
+  'farm-water': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -34, pitch: 27, distance: 8.3, offsetX: -0.8, offsetY: 0.3, offsetZ: -0.5 }, showcase: ['tools', 'tool:wateringCan'] },
+  // (r15: 3/4 to the lens, the farmer standing in the bed with the pulled hole in front of the boots.)
+  'farm-pop': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'spring', weather: 'sun', camera: { yaw: 34, pitch: 40, distance: 8.2, offsetX: -0.2, offsetZ: -0.9 }, showcase: ['tools', 'tool:harvest'] },
   'farm-slam': { map: 'farm', x: 27.5, z: 20.5, facing: 'left', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -48, pitch: 32, distance: 9.6, offsetX: -0.7, offsetZ: -1.6 }, showcase: ['tools', 'tool:charge'] },
   'farm-wither': { map: 'farm', x: 19.4, z: 24.5, facing: 'down', time: 16.2, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 19.5, offsetX: 2.9, offsetZ: 0.3 }, showcase: ['wither'] },
+  // Farming r11: the two-hand "hooray" lift of a big crop (melon on the hat, arms up) and a close
+  // morning sprinkler turret soaking its square of the summer field (wet front spreading outward).
+  'farm-lift': { map: 'farm', x: 27.5, z: 20.5, facing: 'down', time: 10.2, season: 'summer', weather: 'sun', camera: { yaw: 14, pitch: 38, distance: 9.5, offsetX: -0.36, offsetZ: -1.45 }, showcase: ['tools', 'tool:harvest', 'crop=melon', 'pose=0.72'] },
+  'farm-sprinkler': { map: 'farm', x: 27.3, z: 19.45, facing: 'down', time: 7.4, season: 'summer', weather: 'sun', camera: { yaw: 16, pitch: 46, distance: 11, offsetX: -1.0, offsetZ: 2.1 }, showcase: ['harvest', 'act=none'] },
+  // Farming r12/r7: the full crop roster (all 18 crops × 6 growth stages, every season — greenhouse-style)
+  // in two blocks either side of the scarecrow / can-stump column, the farmer out of frame.
+  'farm-crops-all': { map: 'farm', x: 21.5, z: 23.4, facing: 'up', time: 10.5, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 54, distance: 18.6, offsetX: 0, offsetZ: 0.2 }, showcase: ['gallery', 'crops=all'] },
   // Town square (plaza, Lantern Hall, villagers).
-  'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 19.05, season: 'spring', weather: 'sun', camera: TOWN_CAM, showcase: ['npcs'] },
+  // (r7 blind judge: villagers too small to read, the hotbar over the fountain — a closer, lower lens
+  // with the Hall's rose window still at the top and the fountain clear of the toolbar)
+  'town-evening': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 20.1, season: 'spring', weather: 'sun', camera: { yaw: -26, pitch: 38, distance: 29, offsetX: 4.5, offsetZ: -5 }, showcase: ['npcs'] },
+  // r9: a farmer a year in — every heart-event answer remembered (`&mem=all|alt|a.b,…`): keepsakes in the square.
+  'town-memories': { map: 'town', x: 26.6, z: 25.6, facing: 'down', time: 16.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 33, distance: 20, offsetX: 0.6, offsetZ: -5.2 }, showcase: ['npcs'] },
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).
-  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 36, distance: 27, offsetX: -2.9, offsetZ: -3.6 }, showcase: ['npcs'] },
+  // r9: town-day establishes the town (plaza edge, bakery, market row, Kettle Bridge, river) with the town at
+  // work — `&live=1` runs it (walkers walk); `town-square` keeps the old plaza frame.
+  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -42, pitch: 33, distance: 27, offsetX: 9.5, offsetZ: 1.2 }, showcase: ['npcs'] },
+  // r18: one uninterrupted schedule change — 11:58, the square at work; at noon six villagers path (A*) to lunch spots (`&seq=10`).
+  'town-commute': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 11.95, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 28, distance: 28, offsetX: -2.9, offsetZ: -5.6 }, showcase: ['npcs'] },
+  // town r21: the lunch rush at 12:20 — the schedules' own noon peak on the plaza lens (no staging)
+  'town-noon': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 12.33, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 31, distance: 29, offsetX: -2.9, offsetZ: -4.6 }, showcase: ['npcs'] },
+  'town-square': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 28, distance: 28, offsetX: -2.9, offsetZ: -5.6 }, showcase: ['npcs'] },
+  // Town pod: co-op in the square, no server — Juniper chats with Bram, Pip gives Wren strawberries (host paths: talk lock, gift ledger, 'v.g').
+  'town-coop': { map: 'town', x: 32.4, z: 28.2, facing: 'up', time: 10.6, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 33, distance: 21, offsetX: -0.2, offsetZ: -4.2 }, showcase: ['npcs'] },
   'town-dialogue': { map: 'town', x: 31.2, z: 30.8, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 44, distance: 17, offsetX: -0.8, offsetZ: -1.2 }, showcase: ['npcs'], ui: 'dialogue:marigold' },
   // Town pod: `&event=<npc>-<2|4>&step=N` picks the heart event; `&npc=<id>&mood=<mood>|&gift=<item>|&ask=1` the dialogue.
   'town-heart-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
-  'town-winter': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 15.2, season: 'winter', weather: 'snow', camera: { yaw: 0, pitch: 38, distance: 29, offsetX: -2.9, offsetZ: -4.2 }, showcase: ['npcs'] },
-  'town-east': { map: 'town', x: 70.6, z: 26.4, facing: 'right', time: 17.4, season: 'summer', weather: 'sun', camera: { yaw: -4, pitch: 43, distance: 34, offsetX: 3.2, offsetZ: -2.4 }, showcase: ['npcs'] },
-  'town-cast': { map: 'town', x: 40.4, z: 29.6, facing: 'down', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 30, distance: 13, offsetX: -7.9, offsetZ: -1.2 }, showcase: ['npcs'] },
+  // (town pod r15) a co-op farmhand watching the host's heart event: host / yours heart rows, the host's choice locked (`&event=`, `&seq=8` plays the handoff)
+  'town-heart-spectator': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
+  // (r11: town-winter on the town-day establishing lens — bakery, market row, iced river, bridge)
+  'town-winter': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 14.6, season: 'winter', weather: 'sun', camera: { yaw: -42, pitch: 33, distance: 27, offsetX: 9.5, offsetZ: 1.2 }, showcase: ['npcs'] },
+  'town-winter-square': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 15.2, season: 'winter', weather: 'snow', camera: { yaw: 0, pitch: 29, distance: 27.6, offsetX: -2.9, offsetZ: -5.2 }, showcase: ['npcs'] },
+  // (r12, town pod) The east bank in one frame: Kettle Bridge in front, Flint & Ember forge left, The Copper Kettle inn right.
+  'town-establish': { map: 'town', x: 57.9, z: 33.9, facing: 'up', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: -90, pitch: 34, distance: 32, offsetX: 12.1, offsetZ: -6.5 }, showcase: ['npcs'] },
+  'town-river': { map: 'town', x: 69.2, z: 24.4, facing: 'left', time: 10.6, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 42, distance: 34, offsetX: -3.2, offsetZ: -3.0 }, showcase: ['npcs'] },
+  'town-east': { map: 'town', x: 70.6, z: 26.4, facing: 'right', time: 17.4, season: 'summer', weather: 'sun', camera: { yaw: -4, pitch: 43, distance: 32, offsetX: 3.2, offsetZ: -5.8 }, showcase: ['npcs'] },
+  'town-cast': { map: 'town', x: 40.6, z: 33.4, facing: 'down', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 22, distance: 12.6, offsetX: -9.35, offsetY: 0.85, offsetZ: -4.1 }, showcase: ['npcs'] },
   'town-rain': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 14, season: 'fall', weather: 'rain', camera: TOWN_CAM, showcase: ['npcs'] },
   // Town pod: Meadow Lane (schoolhouse + kitchen garden), the portrait model sheet (&ui=portraits:<id> = one villager in all
   // nine moods), the Hearthvale Folk social page, and a night-time conversation under the lamps.
@@ -85,7 +132,11 @@ export const DEMOS: Record<string, DemoDef> = {
   // Driftsand Beach + fishing (world/beach, systems/fishing). Fishing demos take URL params:
   // &fish=<fishId> (species on the line / in hand), &phase=cast|flight|wait|bite|reel|catch (override the phase).
   'beach-sunset': { map: 'beach', x: 48.9, z: 49.6, facing: 'left', time: 19.3, season: 'summer', weather: 'sun', camera: BEACH_SUNSET_CAM, showcase: ['beach', 'fishing-wait'] },
-  'beach-day': { map: 'beach', x: 51, z: 37.5, facing: 'down', time: 11.2, season: 'summer', weather: 'sun', camera: { yaw: -16, pitch: 50, distance: 46, offsetX: 9, offsetZ: 2.5 }, showcase: ['beach'] },
+  // Looking out to sea over the beach: dune grass + sand in front, the wet band + surf, turquoise
+  // shallows into deep blue, the pier and the horizon beyond (r5: the old top-down framing read as
+  // "lighthouse on a lawn"; r6: pulled back + lifted so the whole lighthouse and its wind-bent pines fit;
+  // r7b: 6° flatter so the true horizon, the sky wash and its cumulus banks read above the sea).
+  'beach-day': { map: 'beach', x: 44.4, z: 35.6, facing: 'up', time: 15.4, season: 'summer', weather: 'sun', camera: { yaw: 212, pitch: 13, distance: 42, offsetX: 5.2, offsetY: 4.5, offsetZ: 8.4 }, showcase: ['beach'] },
   'beach-night': { map: 'beach', x: 50, z: 38.5, facing: 'down', time: 22.4, season: 'summer', weather: 'sun', camera: BEACH_NIGHT_CAM, showcase: ['beach'] },
   'fishing-cast': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 16.8, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-cast'] },
   'fishing-wait': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 17.4, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-wait'] },
@@ -93,7 +144,9 @@ export const DEMOS: Record<string, DemoDef> = {
   'fishing-reel': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 17.8, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-reel'] },
   'fishing-pond': { map: 'farm', x: 19.2, z: 40.1, facing: 'left', time: 17.6, season: 'summer', weather: 'sun', camera: { yaw: -18, pitch: 50, distance: 14, offsetX: -2.6, offsetZ: -1.2 }, showcase: ['fishing-reel'] },
   'fishing-river': { map: 'town', x: 61.6, z: 31.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 8, pitch: 42, distance: 15, offsetX: 2.2, offsetZ: -0.4 }, showcase: ['fishing-wait'] },
-  'fishing-catch': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 18.2, season: 'summer', weather: 'sun', camera: FISH_CATCH_CAM, showcase: ['fishing-catch'] },
+  // Real-play check: the default walk camera at dusk, eased into the fishing view (&phase=… works).
+  'fishing-play': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 19.5, season: 'summer', weather: 'sun', showcase: ['fishing-reel', 'fishing-play'] },
+  'fishing-catch': { map: 'beach', x: 49.6, z: 52.4, facing: 'left', time: 18.2, season: 'summer', weather: 'sun', camera: FISH_CATCH_CAM, showcase: ['fishing-catch'] },
   'fishing-flight': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 16.9, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-flight'] },
   'beach-tidepools': { map: 'beach', x: 12, z: 40, facing: 'down', time: 10.6, season: 'summer', weather: 'sun', camera: { yaw: -8, pitch: 46, distance: 20, offsetX: 0, offsetZ: 4 }, showcase: ['beach'] },
   // Co-op: a second farmer fishing beside you, rendered from snapshots (&rphase=cast|wait|bite|reel|catch,
@@ -103,11 +156,15 @@ export const DEMOS: Record<string, DemoDef> = {
   // Cindergrove forest + weather showcases (world/forest, systems/weather). 'fog-morning' / 'rainbow'
   // also switch on the matching atmosphere (the weather system keys off the demo name).
   'forest-day': { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 10.4, season: 'summer', weather: 'sun', camera: FOREST_FALLS_CAM, showcase: ['fishing-wait'] },
+  // Old-growth under the crowns: a low lens between two giant elders (crowns roof the top of the
+  // frame), late sun raking warm shafts through the leaf gaps onto dappled pools on the trail.
+  'forest-canopy': { map: 'forest', x: 34.4, z: 28.4, facing: 'down', time: 16.0, season: 'summer', weather: 'sun', camera: { yaw: 15, pitch: 30, distance: 22 } },
   // Spring shower on the main trail: puddles on the path, wet bark, drips off the crowns.
-  'forest-rain': { map: 'forest', x: 38.5, z: 32.3, facing: 'down', time: 13.5, season: 'spring', weather: 'rain', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.2, offsetZ: -0.6 } },
+  // (The farmer stands IN the big path puddle: his legs mirror in it — render/heightfog.ts traces it.)
+  'forest-rain': { map: 'forest', x: 37.6, z: 31.1, facing: 'down', time: 13.5, season: 'spring', weather: 'rain', camera: { yaw: 8, pitch: 46, distance: 24, offsetX: 1.5, offsetZ: 2.5 } },
   // Low three-quarter view from the south: the ivy tower stands up as a silhouette and the flanking
   // crowns frame the glade from the sides instead of roofing over it (canopy < 40 % of the frame).
-  'forest-fall': { map: 'forest', x: 50.6, z: 23.8, facing: 'left', time: 16.4, season: 'fall', weather: 'sun', camera: { yaw: -8, pitch: 40, distance: 26, offsetX: 3.2, offsetZ: -7.2 } },
+  'forest-fall': { map: 'forest', x: 53.6, z: 18.4, facing: 'left', time: 16.4, season: 'fall', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 28, offsetX: 0.4, offsetZ: -5.4 } },
   // The Ember Glade up close: tower (roof, door, lit window, ivy), menhir ring and the ember altar.
   'forest-glade': { map: 'forest', x: 50.2, z: 22.6, facing: 'up', time: 17.2, season: 'summer', weather: 'sun', camera: { yaw: -12, pitch: 48, distance: 25, offsetX: 3.2, offsetZ: -5.4 } },
   'forest-night': { map: 'forest', x: 50.6, z: 23.8, facing: 'up', time: 22.2, season: 'summer', weather: 'sun', camera: { yaw: -8, pitch: 48, distance: 28, offsetX: 1.8, offsetZ: -6.2 } },
@@ -134,37 +191,66 @@ export const DEMOS: Record<string, DemoDef> = {
   'farm-storm': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 15, season: 'summer', weather: 'storm', camera: HOME_CAM },
   'farm-wind': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 10, season: 'spring', weather: 'wind', camera: HOME_CAM },
   // Audio pod: the farm at golden morning with a "now playing" banner. URL: &theme=<spring|spring-2|spring-3|summer|
-  // summer-2|summer-3|fall|fall-2|fall-3|winter|winter-2|winter-3|night|night-spring|night-fall|night-winter|town|beach|
+  // summer-2|summer-3|fall|fall-2|fall-3|winter|winter-2|winter-3|night|night-spring|night-summer|night-fall|night-winter|town|beach|
   // mine|mine-ice|mine-lava|rain|inn|forest|festival|festival-blossom|festival-tide|festival-harvest|festival-starfall|
   // title|none> or a playlist (farm:spring, night:fall ...), the now-playing card is pinned (&card=0 hides it; notes float out of it
   // in time with the tune once sound runs — press any key), &sfx=<name> repeats an SFX every 2.5 s, &audio=1 starts the
-  // AudioContext without a click where autoplay allows. audio-summer / audio-fall / audio-winter stage the other seasons.
+  // AudioContext without a click where autoplay allows. audio-summer / audio-fall / audio-winter stage the other seasons, audio-night a summer night.
   audio: { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 8.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
   'audio-summer': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 13.5, season: 'summer', weather: 'sun', camera: HOME_CAM },
   'audio-fall': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 15.5, season: 'fall', weather: 'sun', camera: HOME_CAM },
   'audio-winter': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 11, season: 'winter', weather: 'snow', camera: HOME_CAM },
+  // Audio pod: a summer night on the farm — the lullaby 'Firefly Meadow' (night-summer) under the crickets.
+  'audio-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.2, season: 'summer', weather: 'sun', camera: HOME_CAM },
+  // Audio pod r9: a winter morning in the square (town:winter → 'Market Morning (Frost)' / "Lamplighter's Waltz"),
+  // the square's evening (town:eve), a summer shower on the farm (rain:summer → 'Gutter Song' / 'Window Weather'),
+  // and a visible phantom farmhand whose steps, hoe, chat and watering pan around you (= audio&coop=1).
+  'audio-town': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 36, distance: 27, offsetX: -2.9, offsetZ: -3.6 }, showcase: ['npcs'] },
+  'audio-eve': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 18.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 36, distance: 27, offsetX: -2.9, offsetZ: -3.6 }, showcase: ['npcs'] },
+  'audio-rain': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 14, season: 'summer', weather: 'rain', camera: HOME_CAM },
+  'audio-coop': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 8.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
+  // Audio r7: a four-player farm — three phantom farmhands on their own paths, footfalls / tools / chat positional.
+  'audio-coop4': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 8.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
+  // Audio pod r5: the forest brook's babble (granular bubbles over the wash) by the falls, and the summer noon
+  // cicada chorus (swells in within ~3 s). Menu duck: `?demo=audio&ui=inventory` (score −3 dB + low-pass behind the page).
+  'audio-brook': { map: 'forest', x: 21.0, z: 23.4, facing: 'left', time: 10.4, season: 'spring', weather: 'sun', camera: FOREST_FALLS_CAM },
+  'audio-noon': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 12.5, season: 'summer', weather: 'sun', camera: HOME_CAM },
+  // Material foley + villager voices in turn (systems/audio.ts demoFoley; &only=axe,hoe · &voices=0).
+  'audio-foley': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 10, season: 'spring', weather: 'sun', camera: HOME_CAM },
+  // Audio pod: the event score in the square — `&event=<npc>-<2|4>` plays that heart event's cue, `&cue=event-tender|playful|wistful|mystery|sly|dawn` one directly.
+  // Audio pod: mine / combat sound on the main graph — `&floor=<n>` picks the floor (biome band: 1-9 earth, 10-19 ice, 20+ lava), `&fight=1` stages the auto-fight (sword, per-kind blows, kills, hurt).
+  'audio-mine': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 17, offsetZ: -0.7 }, showcase: [] },
+  'audio-event': { map: 'town', x: 57.6, z: 23.8, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', showcase: ['npcs'] },
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
-  'house-interior': { map: 'house', x: 5.3, z: 5.9, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 17.2, offsetZ: -0.35 }, showcase: ['interior'] },
-  'house-night': { map: 'house', x: 8.0, z: 6.35, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior'] },
+  // (r16: the farmer just inside the door, the room the subject — the chibi mid-floor outsized the armchairs)
+  'house-interior': { map: 'house', x: 5.45, z: 6.2, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.8, offsetX: 1.05, offsetZ: -1.45 }, showcase: ['interior'] },
+  'house-night': { map: 'house', x: 5.45, z: 6.2, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.8, offsetX: 1.05, offsetZ: -2.35 }, showcase: ['interior'] },
   // Bedtime: the "Go to bed for the night?" prompt beside the quilted bed / tucked in under the quilt, room dimmed, Zzz.
   'house-bedtime': { map: 'house', x: 9.6, z: 2.9, facing: 'right', time: 21.8, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-ask'] },
   'animals-dayend': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'animals', 'dayend'] },
   'house-asleep': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-lie'] },
-  'coop-interior': { map: 'coop', x: 4.75, z: 4.2, facing: 'left', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals'] },
+  'coop-interior': { map: 'coop', x: 5.65, z: 4.3, facing: 'left', time: 9.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 44, distance: 13.0, offsetX: -0.6, offsetZ: -0.6 }, showcase: ['animals'] },
   // Morning egg round: the farmer lifts a gold-star egg overhead from the nesting boxes (&nest=0..5).
   'coop-eggs': { map: 'coop', x: 3.35, z: 0.55, facing: 'left', time: 7.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals', 'eggs'] },
-  'barn-interior': { map: 'barn', x: 8.67, z: 5.05, facing: 'down', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 17.2, offsetZ: 0.1 }, showcase: ['animals'] },
-  'animals-pasture': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals'] },
+  'barn-interior': { map: 'barn', x: 6.5, z: 5.5, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 46, distance: 15.3, offsetX: 0.0, offsetZ: -1.5 }, showcase: ['animals'] },
+  // r24: the barn's cupola + the silo dome framed whole (the blind judge: "frame the barn and silo fully"); the farmer + goat a step north, clear of the hotbar
+  'animals-pasture': { map: 'farm', x: 41.0, z: 40.0, facing: 'right', time: 15.6, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 52, distance: 24, offsetX: 2.3, offsetZ: -4.1 }, showcase: ['animals'] },
   // Perf: the pasture with three co-op farmhands on the farm (DESIGN pillar 13/14: 4 players + a full herd).
-  'animals-coop': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21, offsetX: 1.8, offsetZ: -2.2 }, showcase: ['animals', 'coop'] },
+  'animals-coop': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 18.5, offsetX: 3.0, offsetZ: -2.6 }, showcase: ['animals', 'coop'] },
   // Petting close-up: crouch + reach, big heart pop with mini hearts, the animal's name + heart meter.
-  'animals-petting': { map: 'farm', x: 45.3, z: 40.2, facing: 'left', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: -4, pitch: 40, distance: 11, offsetX: -0.6, offsetZ: -0.6 }, showcase: ['animals', 'pet-close'] },
+  'animals-petting': { map: 'farm', x: 45.7, z: 39.05, facing: 'left', time: 10.8, season: 'spring', weather: 'sun', camera: { yaw: -4, pitch: 40, distance: 11, offsetX: -0.6, offsetZ: -0.6 }, showcase: ['animals', 'pet-close'] },
   // &pet=dog|cat picks the pet, &hearts=0 stops the staged petting hearts (all 'animals' showcases).
   'coop-night': { map: 'coop', x: 4.5, z: 4.6, facing: 'down', time: 21.2, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 13.2, offsetZ: 0.6 }, showcase: ['animals'] },
   'barn-night': { map: 'barn', x: 6.5, z: 5.6, facing: 'down', time: 21.4, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 16.8, offsetZ: 0.1 }, showcase: ['animals'] },
   // Close-up line-up of every species + coat (model review): &cam= to orbit.
   'animals-gallery': { map: 'farm', x: 50.2, z: 42.4, facing: 'left', time: 15.6, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 26, distance: 10.5, offsetX: -5.8, offsetZ: -2.4 }, showcase: ['animals'] },
+  // r12 action demos (animals pod): real input / weather / carpenter / sleep paths, nothing pinned, sim
+  // time running — shoot with --frames N --every ms (&act=0 holds the start). See AnimalSystem.stageAct.
+  'animals-live': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21.5, offsetX: 2.2, offsetZ: -3.5 }, showcase: ['animals', 'act'] },
+  'animals-rain': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 46, distance: 21.5, offsetX: 2.2, offsetZ: -4.4 }, showcase: ['animals', 'act'] },
+  'animals-chores': { map: 'coop', x: 1.6, z: 2.4, facing: 'up', time: 7.3, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 12.4, offsetZ: 0.3 }, showcase: ['animals', 'act'] },
+  'animals-overnight': { map: 'farm', x: 38.2, z: 36.2, facing: 'up', time: 19.2, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 46, distance: 17, offsetX: 1.2, offsetZ: -2.2 }, showcase: ['animals', 'act', 'no-coop'] },
   // 6 am in the coop: dawn light shafts, eggs in the nest boxes.
   'coop-dawn': { map: 'coop', x: 4.6, z: 4.1, facing: 'up', time: 6.1, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 47, distance: 13.2, offsetZ: 0.6 }, showcase: ['animals'] },
   'pet-yard': { map: 'farm', x: 36.5, z: 18.7, facing: 'left', time: 16.4, season: 'summer', weather: 'sun', camera: { yaw: -10, pitch: 44, distance: 13, offsetX: 0.4, offsetZ: -1.2 }, showcase: ['animals'] },
@@ -173,7 +259,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Mines (systems/mining + systems/combat, world/mine): the mountain entrance and one floor per biome band.
   // The floor demos pick a showcase spot on the seeded floor; &floor=N stages any floor (biome follows).
   mine: { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
-  'mine-entrance': { map: 'mine-entrance', x: 22.6, z: 14.4, facing: 'down', time: 17.2, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 40, distance: 25, offsetX: 0.4, offsetZ: -4.2 }, showcase: [] },
+  'mine-entrance': { map: 'mine-entrance', x: 22.6, z: 14.4, facing: 'down', time: 17.2, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 49, distance: 23.5, offsetX: 0.4, offsetZ: -2.2 }, showcase: [] },
   'mine-floor': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
   'mine-ice': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
   'mine-lava': { map: 'mine', x: 10, z: 10, facing: 'down', time: 12, season: 'spring', weather: 'sun', camera: MINE_CAM, showcase: [] },
@@ -183,13 +269,17 @@ export const DEMOS: Record<string, DemoDef> = {
   // Milestone treasure chest (floor 10; &floor=20|30): the farmer opens it, the sword is reforged (&open=0 keeps it shut).
   'mine-chest': { map: 'mine', x: 10, z: 10, facing: 'up', time: 12, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 15.5, offsetZ: -0.6 }, showcase: [] },
   // Seasonal festivals (systems/festivals.ts, world/festivals/*): each stages its showcase moment.
-  'fest-spring': { map: 'fest-spring', x: 25.2, z: 27.9, facing: 'right', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 31, offsetX: 6.6, offsetZ: -2.1 }, showcase: ['festival-show'] },
+  'fest-spring': { map: 'fest-spring', x: 27.6, z: 27.6, facing: 'right', time: 11.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 42, distance: 31, offsetX: 4.2, offsetZ: -1.8 }, showcase: ['festival-show'] },
   'fest-summer': { map: 'fest-summer', x: 32.6, z: 22.4, facing: 'up', time: 21.4, season: 'summer', weather: 'sun', camera: { yaw: 0, pitch: 11, distance: 26, offsetX: -1, offsetZ: -11 }, showcase: ['festival-show'] },
-  'fest-fall': { map: 'fest-fall', x: 32.6, z: 22.4, facing: 'up', time: 14.3, season: 'fall', weather: 'sun', camera: { yaw: 20, pitch: 40, distance: 32, offsetX: 2, offsetZ: -6 }, showcase: ['festival-show'] },
+  'fest-fall': { map: 'fest-fall', x: 32.6, z: 22.4, facing: 'up', time: 14.3, season: 'fall', weather: 'sun', camera: { yaw: 20, pitch: 42, distance: 34, offsetX: 5.4, offsetZ: -5.4 }, showcase: ['festival-show'] },
   // Starfall at the turn of dusk into night: the last afterglow over the treeline with the aurora rising
   // (it comes in from 18:30), lamps lit; `fest-winter-night` = full dark, aurora + lamplight on the ice.
-  'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 19.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 16, distance: 45, offsetX: -0.4, offsetZ: -10.5 }, showcase: ['festival-show'] },
-  'fest-winter-night': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.6, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 17, distance: 44, offsetX: -0.4, offsetZ: -10.5 }, showcase: ['festival-show'] },
+  // Both look from over the south bank across the skaters on the ice to the square — the fire + cocoa
+  // cluster (west), the gift circle round the Great Fir (centre), the ice sculptures (east) — with the
+  // Fir's star against the aurora over the treeline.
+  'fest-winter': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 20.3, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 12, distance: 40, offsetX: 0, offsetY: 5.5, offsetZ: -6 }, showcase: ['festival-show'] },
+  'fest-winter-night': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 21.2, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 12, distance: 40, offsetX: 0, offsetY: 5.5, offsetZ: -6 }, showcase: ['festival-show'] },
+  'fest-winter-dusk': { map: 'fest-winter', x: 32.4, z: 27.6, facing: 'up', time: 19.8, season: 'winter', weather: 'sun', camera: { yaw: 0, pitch: 12, distance: 40, offsetX: 0, offsetY: 5.5, offsetZ: -6 }, showcase: ['festival-show'] },
   // Festival mini-games (they play themselves while the demo is paused): Ribbon Dance, Lantern Release, Sack Race,
   // Produce Judging, Gift Exchange, Starlight Skate. Same as `?demo=fest-<season>&ui=festival:<activity>`.
   'fest-spring-dance': { map: 'fest-spring', x: 31.2, z: 37.2, facing: 'up', time: 12.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 38, distance: 19.5, offsetX: 0.4, offsetZ: -4.4 }, showcase: ['festival-show'], ui: 'festival:dance' },
@@ -238,13 +328,17 @@ export const DEMOS: Record<string, DemoDef> = {
   // (ui/demo-kit.ts). `ui-hud` = gameplay HUD with toasts; `?demo=farm-morning&ui=<screen>` works too.
   'ui-hud': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM },
   'ui-title': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.7, season: 'spring', weather: 'sun', ui: 'title', showcase: ['field'] },
+  // A returning player's title: Continue (with a journal summary) is the green hero, New Game a wood plank.
+  'ui-title-continue': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.7, season: 'spring', weather: 'sun', ui: 'title', showcase: ['field'] },
   'ui-inventory': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'inventory' },
   'ui-shop': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'shop' },
   'ui-shop-smith': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'shop:odessa' },
+  // Odessa's forge: the "Tool upgrades" shelf (next tier of hoe / can / pick for gold + ore) above her stock.
+  'ui-forge': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'shop:odessa' },
   'ui-placement': { map: 'farm', x: 34.4, z: 26.5, facing: 'right', time: 9, season: 'spring', weather: 'sun', camera: { yaw: -5, pitch: 50, distance: 13, offsetX: 1, offsetZ: 0.4 } },
   'ui-shop-carpenter': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'shop:rowan' },
   'ui-crafting': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'crafting' },
-  'ui-dayend': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 23.5, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'dayend' },
+  'ui-dayend': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 19.3, season: 'spring', weather: 'sun', camera: { yaw: -22, pitch: 36, distance: 30, offsetX: -1.2, offsetZ: -8.2 }, ui: 'dayend' },
   // The real night: a stocked shipping bin, then bed at dusk → overnight payout → the ledger over tonight's farm.
   'ui-sleep': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 20.2, season: 'spring', weather: 'sun', camera: HOME_CAM },
   'ui-dayend-quiet': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 23.5, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'dayend:quiet' },
@@ -261,13 +355,18 @@ export const DEMOS: Record<string, DemoDef> = {
   'ui-coop': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.2, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'coop:demo' },
   // Multiplayer pod (src/net, src/ui/coop*): three scripted farmhands on the host's farm (no server needed) — hoeing,
   // watering, chatting — with cabins, name tags, emote bubbles and the roster; the lobby / character creator.
-  'coop-farm': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 9.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 40, distance: 19, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop'] },
+  // Farming pod r15: the co-op work loop caught mid-action (Juniper's pick held up, Fennel's pour
+  // landing in the berry row — the replicated FX on screen); seeks the loop (~1.5 s before a still).
+  'coop-farm-work': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 16.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 20.5, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop', 't=2.4'] },
+  'coop-farm': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 16.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 20.5, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop'] },
   'coop-lobby': { map: 'farm', x: 31.5, z: 19.5, facing: 'down', time: 18.2, season: 'spring', weather: 'sun', camera: HOME_CAM, ui: 'coop:demo' },
   // Co-op night: the three farmhands are in bed, you're still up (holdout nudge + glowing roster sleepers) /
   // the day-end card with the "Farm today" row (every farmer's harvest, watering, tilling, sowing).
-  'coop-bedtime': { map: 'farm', x: 29.6, z: 22.2, facing: 'down', time: 22.6, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 42, distance: 17, offsetX: -0.6, offsetZ: -1.2 }, showcase: ['field', 'coop'] },
+  'coop-bedtime': { map: 'farm', x: 19.25, z: 22.35, facing: 'left', time: 22.6, season: 'spring', weather: 'sun', camera: { yaw: 22, pitch: 38, distance: 15.2, offsetX: -2.2, offsetZ: -3.4 }, showcase: ['field', 'coop'] },
   'coop-dayend': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 23.5, season: 'spring', weather: 'sun', camera: HOME_CAM, showcase: ['coop'], ui: 'dayend' },
   // Co-op social stills: the emote wheel open over the farm (&emote=<id>) / typing a chat line (&say=<text>).
-  'coop-emote': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 9.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 40, distance: 19, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop'] },
-  'coop-chat': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 9.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 40, distance: 19, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop'] },
+  'coop-emote': { map: 'farm', x: 39.5, z: 19.95, facing: 'down', time: 17.1, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 41, distance: 14.6, offsetX: -1.5, offsetZ: -0.75 }, showcase: ['field', 'coop'] },
+  'coop-chat': { map: 'farm', x: 19.4, z: 22.3, facing: 'left', time: 17.7, season: 'spring', weather: 'sun', camera: { yaw: 36, pitch: 44, distance: 13.5, offsetX: -1.0, offsetZ: -0.9 }, showcase: ['field', 'coop'] },
+  // Co-op r8: a friend joins — their cabin is raised in front of everyone (&raise=<s> holds the still, &live=1 loops).
+  'coop-cabin': { map: 'farm', x: 56.6, z: 24.0, facing: 'right', time: 16.9, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 42, distance: 17, offsetX: 0, offsetZ: 0 }, showcase: ['field', 'coop'] },
 };

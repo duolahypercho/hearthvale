@@ -207,9 +207,12 @@ export function buildPier(rng: Rng, groundAt: (x: number, z: number) => number):
   const posts: THREE.Vector3[][] = [[], []];
   const pilings: { x: number; z: number; r: number }[] = [];
   const piling = (x: number, z: number, up: number): void => {
-    const g = groundAt(x, z) - 0.4;
+    const g0 = groundAt(x, z) - 0.4;
     const r = 0.15 + rng.next() * 0.03;
-    if (g < -0.35) pilings.push({ x, z, r });
+    if (g0 < -0.35) pilings.push({ x, z, r });
+    // The pile stops 0.7 m under the surface (critic r5: in deep water its foot showed through the
+    // translucent sea as a detached ghost slab a body-length below each post).
+    const g = Math.max(g0, -0.7);
     b.add('woodDark', new THREE.CylinderGeometry(r * 0.94, r, deck + up - g, 9, 2), mat(x, (deck + up + g) / 2, z, 0, rng.next() * 6, (rng.next() - 0.5) * 0.02), { aoWorld: pilingAO, tint: 0xb09a86 });
     // Rope wrap near the top + barnacle rings at the tide line.
     if (up > 0.2) b.add('cloth', new THREE.TorusGeometry(r + 0.01, 0.025, 5, 12), mat(x, deck + up - 0.12, z, Math.PI / 2), { tint: 0xc8a86a });
@@ -382,47 +385,68 @@ function pierWoodMaterial(): THREE.MeshStandardMaterial {
 let signTex: THREE.CanvasTexture | null = null;
 function signMaterial(): THREE.MeshStandardMaterial {
   if (!signTex) {
+    // (r7: 1024 x 256 and the lettering measured to fit between the two fish, which sit in their own
+    // end panels — at 512 px the fish were painted over the B and the E: "AIT & TACKL", critic r6.)
     const c = document.createElement('canvas');
-    c.width = 512;
-    c.height = 128;
+    c.width = 1024;
+    c.height = 256;
     const g = c.getContext('2d')!;
-    const grad = g.createLinearGradient(0, 0, 0, 128);
-    grad.addColorStop(0, '#f2e6cc');
-    grad.addColorStop(1, '#d8c4a0');
+    const grad = g.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, '#f4e9d0');
+    grad.addColorStop(1, '#dcc8a2');
     g.fillStyle = grad;
-    g.fillRect(0, 0, 512, 128);
-    g.globalAlpha = 0.18;
-    for (let y = 6; y < 128; y += 9) {
+    g.fillRect(0, 0, 1024, 256);
+    g.globalAlpha = 0.16;
+    for (let y = 12; y < 256; y += 18) {
       g.fillStyle = '#8a6a4a';
-      g.fillRect(0, y + Math.sin(y) * 2, 512, 1.5);
+      g.fillRect(0, y + Math.sin(y) * 4, 1024, 3);
     }
     g.globalAlpha = 1;
     g.strokeStyle = '#2f5f6a';
-    g.lineWidth = 8;
-    g.strokeRect(8, 8, 496, 112);
+    g.lineWidth = 14;
+    g.strokeRect(14, 14, 996, 228);
+    // End panels for the fish, split off by thin rules.
+    g.lineWidth = 5;
+    for (const x of [176, 848]) {
+      g.beginPath();
+      g.moveTo(x, 34);
+      g.lineTo(x, 222);
+      g.stroke();
+    }
     g.fillStyle = '#2f5f6a';
-    g.font = 'bold 60px Georgia, serif';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillText('BAIT  &  TACKLE', 256, 58);
-    // little fish flourish
+    const label = 'BAIT & TACKLE';
+    // (r7b: tall condensed caps — the shrink-to-fit Georgia came out ~60 px tall, too small to read
+    // from the beach-day lens. Fixed 150 px height, squeezed horizontally into the 640 px panel.)
+    g.font = 'bold 150px Georgia, serif';
+    const sx = Math.min(1, 640 / g.measureText(label).width);
+    g.save();
+    g.setTransform(sx, 0, 0, 1, 512, 138);
+    g.fillStyle = 'rgba(40,30,20,0.25)';
+    g.fillText(label, 3 / sx, 5);
+    g.fillStyle = '#2f5f6a';
+    g.fillText(label, 0, 0);
+    g.restore();
+    // Little fish, one per end panel, nose to the lettering.
     g.fillStyle = '#c8483a';
-    g.beginPath();
-    g.ellipse(58, 64, 22, 11, 0, 0, Math.PI * 2);
-    g.fill();
-    g.beginPath();
-    g.moveTo(78, 64);
-    g.lineTo(94, 52);
-    g.lineTo(94, 76);
-    g.fill();
-    g.beginPath();
-    g.ellipse(454, 64, 22, 11, 0, 0, Math.PI * 2);
-    g.fill();
-    g.beginPath();
-    g.moveTo(434, 64);
-    g.lineTo(418, 52);
-    g.lineTo(418, 76);
-    g.fill();
+    const fish = (cx: number, dir: number): void => {
+      g.beginPath();
+      g.ellipse(cx, 128, 40, 21, 0, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.moveTo(cx - dir * 34, 128);
+      g.lineTo(cx - dir * 64, 104);
+      g.lineTo(cx - dir * 64, 152);
+      g.fill();
+      g.fillStyle = '#f4e9d0';
+      g.beginPath();
+      g.arc(cx + dir * 20, 122, 5, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#c8483a';
+    };
+    fish(104, 1);
+    fish(920, -1);
     signTex = new THREE.CanvasTexture(c);
     signTex.colorSpace = THREE.SRGBColorSpace;
     signTex.anisotropy = 4;
@@ -824,6 +848,46 @@ export function buildRowboat(rng: Rng, hull = 0x2f7a8a, stripe = 0xf2eee4): THRE
       pts.push(new THREE.Vector3(-L / 2 + s * L, depthAt(s) + 0.01, side * halfW(s)));
     }
     b.add('woodGrain', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, 0.035, 5, false), undefined, { tint: 0xd8b890 });
+  }
+  // Floorboards (r8): five fore-and-aft boards a hand above the keel. A moored hull rides with its
+  // bottom under the sea surface, and the (transparent) water drew over the bare inner skin, so
+  // from a steep dusk lens the dory read as an empty frame with the sea showing through its floor.
+  {
+    const pos: number[] = [];
+    const col: number[] = [];
+    const idx: number[] = [];
+    const NP = 5;
+    const NSF = 12;
+    const s0 = 0.05;
+    const s1 = 0.86;
+    const yF = 0.22;
+    const cB = new THREE.Color(0xb88a5c);
+    for (let p = 0; p < NP; p++) {
+      const base = pos.length / 3;
+      const sh = (p % 2 ? 0.84 : 0.97) * (0.96 + 0.04 * Math.sin(p * 2.3));
+      for (let i = 0; i <= NSF; i++) {
+        const s = s0 + ((s1 - s0) * i) / NSF;
+        const x = -L / 2 + s * L;
+        const hw = halfW(s) * 0.64;
+        for (const e of [p / NP, (p + 1) / NP]) {
+          pos.push(x, yF + (p % 2) * 0.004, (e * 2 - 1) * hw);
+          // Darker toward the board edges' seams and the bilge ends.
+          const end = Math.min(1, Math.min(i, NSF - i) / 2);
+          const k = sh * (0.78 + 0.22 * end);
+          col.push(cB.r * k, cB.g * k, cB.b * k);
+        }
+      }
+      for (let i = 0; i < NSF; i++) {
+        const a = base + i * 2;
+        idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
+      }
+    }
+    const fg = new THREE.BufferGeometry();
+    fg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    fg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    fg.setIndex(idx);
+    fg.computeVertexNormals();
+    b.add('woodGrain', fg);
   }
   // Thwarts (seats) + oars.
   for (const s of [0.28, 0.58]) b.add('woodGrain', roundedBox(0.28, 0.05, halfW(s) * 1.85, 0.015), mat(-L / 2 + s * L, depthAt(s) - 0.18, 0), { tint: 0xd8b890 });
@@ -1274,7 +1338,8 @@ export function addParasolVignette(b: MeshBuilder, rng: Rng, x: number, z: numbe
   const pos = cone.attributes.position as THREE.BufferAttribute;
   const col = new Float32Array(pos.count * 3);
   const A = new THREE.Color(0xe8584a);
-  const B = new THREE.Color(0xf6eedc);
+  // (Warm sand-cream, not paper white: a white canopy in noon sun blooms into a blob.)
+  const B = new THREE.Color(0xe4d6bc);
   for (let i = 0; i < pos.count; i += 3) {
     const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
     const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3;

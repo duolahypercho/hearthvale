@@ -41,7 +41,11 @@ export interface WeatherApi {
   /** Force a rainbow (0..1), or null for natural (after a shower clears). */
   setRainbow(v: number | null): void;
   /** Current effect levels (for debug / tests). */
-  state(): { weather: Weather; rain: number; snow: number; fog: number; rainbow: number; leaves: number; drips: number };
+  /**
+   * Current effect levels (for debug / tests / the HUD). `sky` is what the clock's sky dial should
+   * paint: 'storm' (dark clouds, no sun), 'overcast' (grey + rain streaks), 'snow', 'fog' or 'clear'.
+   */
+  state(): { weather: Weather; rain: number; snow: number; fog: number; rainbow: number; leaves: number; drips: number; sky: 'clear' | 'overcast' | 'storm' | 'snow' | 'fog' };
 }
 
 declare module '../core/game' {
@@ -64,12 +68,23 @@ const TARGETS: Record<Weather, { rain: number; snow: number }> = {
  */
 function flashEnvelope(t: number): number {
   if (t < 0) return 0;
-  if (t < 0.06) return 1;
-  if (t < 0.11) return 0.12;
-  if (t < 0.17) return 0.9;
-  if (t < 0.23) return 0.22;
-  if (t < 0.28) return 0.55;
-  return 0.55 * Math.exp(-(t - 0.28) * 10);
+  if (t < 0.055) return 1;
+  if (t < 0.1) return 0.14;
+  if (t < 0.17) return 0.88;
+  if (t < 0.22) return 0.2;
+  if (t < 0.27) return 0.5;
+  return 0.5 * Math.exp(-(t - 0.27) * 7);
+}
+
+/**
+ * Channel visibility: lit with the strokes, then a dim residual glow that lingers ~0.6 s (the eye
+ * keeps the channel's after-image), so a strike is SEEN, not just a blink between two frames.
+ */
+function channelAlpha(t: number): number {
+  if (t < 0 || t > 0.95) return 0;
+  const stroke = Math.min(1, flashEnvelope(t) * 1.4);
+  const after = t < 0.27 ? 0.45 : 0.45 * Math.exp(-(t - 0.27) * 4.2);
+  return Math.max(stroke, after);
 }
 
 const _buf = new THREE.Vector2();
@@ -182,7 +197,7 @@ export class WeatherSystem implements System, WeatherApi {
     const hit = ground.clone().setY(ground.y + 0.1);
     this.strikeFx.emit(hit, { color: 0xfff6dc, count: 11, speed: 7.5, size: 0.075, gravity: 14, life: 0.5, up: 1.3, spread: 0.25 });
     this.strikeFx.emit(hit, { color: 0xffa850, count: 9, speed: 3.2, size: 0.06, gravity: 9, life: 0.9, up: 1.2, spread: 0.4 });
-    this.strikeFx.emit(hit.clone().setY(hit.y + 0.3), { color: 0xaeb6c2, count: 5, speed: 0.35, size: 1.1, gravity: -0.45, life: 3.2, up: 1.0, spread: 0.25 });
+    this.strikeFx.emit(hit.clone().setY(hit.y + 0.3), { color: 0x8a929c, count: 4, speed: 0.35, size: 0.75, gravity: -0.45, life: 2.6, up: 1.0, spread: 0.25 });
     this.strikeT = 0;
     this.hold = hold;
     this.lastStrike = { x, z };
@@ -278,7 +293,8 @@ export class WeatherSystem implements System, WeatherApi {
   }
 
   state(): ReturnType<WeatherApi['state']> {
-    return { weather: this.weather, rain: this.rainAmt, snow: this.snowAmt, fog: this.fogAmt, rainbow: this.rainbowAmt, leaves: this.leafAmt, drips: this.dripAmt };
+    const sky = this.weather === 'storm' ? 'storm' : this.weather === 'rain' ? 'overcast' : this.weather === 'snow' ? 'snow' : this.fogAmt > 0.3 ? 'fog' : 'clear';
+    return { weather: this.weather, rain: this.rainAmt, snow: this.snowAmt, fog: this.fogAmt, rainbow: this.rainbowAmt, leaves: this.leafAmt, drips: this.dripAmt, sky };
   }
 
   // ───────────────────────────────────────────── staging
@@ -293,7 +309,8 @@ export class WeatherSystem implements System, WeatherApi {
   }
 
   private stageDemo(name: string): void {
-    this.fogOverride = name === 'fog-morning' || name === 'fog-bridge' ? 1 : null;
+    // (forest-canopy: a faint haze under the crowns, so the sun shafts have air to light.)
+    this.fogOverride = name === 'fog-morning' || name === 'fog-bridge' ? 1 : name === 'forest-canopy' ? 0.3 : null;
     this.rainbowOverride = name === 'rainbow' ? 1 : null;
     this.readUrl();
     // Demos jump the clock: settle the atmosphere now instead of fading in from the boot hour.
@@ -302,7 +319,7 @@ export class WeatherSystem implements System, WeatherApi {
       this.rainbowAmt = this.rainbowTarget();
       this.leafAmt = this.leafTarget();
     };
-    this.damp = name === 'rainbow' ? 0.8 : this.weather === 'rain' || this.weather === 'storm' ? 1 : 0;
+    this.damp = name === 'rainbow' ? 1 : this.weather === 'rain' || this.weather === 'storm' ? 1 : 0;
     snap();
     requestAnimationFrame(snap);
     const bolt = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('bolt') : null;
@@ -316,7 +333,7 @@ export class WeatherSystem implements System, WeatherApi {
         this.strike(spot ? { x: spot.x, z: spot.z } : undefined, true);
       });
     } else if (bolt === '1') requestAnimationFrame(() => this.strike(undefined, true));
-    if (name === 'snow-day' || name === 'snow-falls' || name === 'farm-winter' || name === 'winter-night' || name === 'town-winter') {
+    if (name === 'snow-day' || name === 'snow-falls' || name === 'farm-winter' || name === 'winter-night' || name.startsWith('town-winter')) {
       requestAnimationFrame(() => this.stampTrail());
     }
   }
@@ -332,8 +349,20 @@ export class WeatherSystem implements System, WeatherApi {
     let x = p.x;
     let z = p.z;
     let ang = Math.atan2(bx, bz);
+    // The last two steps sit right under the farmer's boots (left + right), so the trail runs up to
+    // his feet instead of stopping a metre behind him.
+    const fwd = ang + Math.PI;
+    for (const [side, back] of [[1, 0.05], [-1, 0.3]] as const) {
+      this.prints.stamp(p.x + Math.sin(ang) * back, this.snowTop(p.x, p.z), p.z + Math.cos(ang) * back, fwd, side, g.time);
+    }
+    this.printSide = 1;
+    x += Math.sin(ang) * 0.3;
+    z += Math.cos(ang) * 0.3;
+    // He came in on a curve (from up-screen and to one side), so the trail swings out from behind
+    // his body into view instead of hiding straight behind him.
+    const swing = hash01(p.x * 1.7 + p.z * 3.1) < 0.5 ? -1 : 1;
     for (let i = 0; i < 26; i++) {
-      ang += Math.sin(i * 0.45) * 0.09;
+      ang += Math.sin(i * 0.45) * 0.09 + (i < 9 ? swing * 0.075 : 0);
       const stride = 0.42 * (0.92 + hash01(i * 3.3 + 1) * 0.16);
       const nx = x + Math.sin(ang) * stride;
       const nz = z + Math.cos(ang) * stride;
@@ -595,20 +624,27 @@ export class WeatherSystem implements System, WeatherApi {
     if (this.strikeT >= 0) {
       if (this.hold && game.paused) {
         // Posed strike for stills: bolt fully lit, the world caught in the afterglow of the stroke.
+        // (No frame-wide exposure lift: the still keeps the storm's dark values; only the bolt and
+        // a tight pool round the impact are lit.)
         this.bolt.alpha = 1;
-        f = 0.05;
+        f = 0;
       } else {
         this.hold = false;
         this.strikeT += dt;
         f = flashEnvelope(this.strikeT);
-        this.bolt.alpha = Math.min(1, f * 1.4) * (this.strikeT < 0.55 ? 1 : 0);
-        if (this.strikeT > 0.9) this.strikeT = -1;
+        this.bolt.alpha = channelAlpha(this.strikeT);
+        if (this.strikeT > 1.0) this.strikeT = -1;
       }
     } else this.bolt.alpha = 0;
     const buf = game.rc.renderer.getDrawingBufferSize(_buf);
     this.bolt.setResolution(buf.x, buf.y);
     game.lighting.setFlash(f * (0.6 + 0.4 * this.rainAmt));
     this.flashNow = f;
+    // Local strike light (fog pass): a posed still keeps the afterglow pool around the impact.
+    const wmap = game.world.current;
+    const local = this.strikeT >= 0 && this.lastStrike && wmap ? (this.hold && game.paused ? 0.3 : Math.min(1, f * 1.3)) : 0;
+    if (local > 0 && this.lastStrike && wmap) atmosphere.strike.set(this.lastStrike.x, wmap.heightAt(this.lastStrike.x, this.lastStrike.z), this.lastStrike.z, local);
+    else atmosphere.strike.w = 0;
     for (let i = this.thunder.length - 1; i >= 0; i--) {
       const th = this.thunder[i]!;
       if (this.clock < th.at) continue;

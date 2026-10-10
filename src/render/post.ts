@@ -1,8 +1,9 @@
 /**
  * Post-processing pipeline:
- *   Render(HDR) → GTAO (subtle) → UnrealBloom (high threshold) → Output (ACES + sRGB)
+ *   Render(HDR) → GTAO (subtle) → UnrealBloom (high threshold) → Output (AO × + bloom +, ACES + sRGB)
  *   → SMAA → tilt-shift H → grade (+ tilt-shift V fused; lift/gamma/gain, saturation, contrast, vignette, grain)
- * GTAO runs at `aoScale` resolution and multiplies straight onto the read buffer.
+ * GTAO runs at `aoScale` resolution; its result and the bloom mips are applied inside the output pass
+ * (no separate full-res blends), and everything after tone mapping runs on 8-bit targets.
  * Each stage is toggled by the quality preset.
  */
 import * as THREE from 'three';
@@ -16,6 +17,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import type { Quality } from '../core/events';
 import { HeightFogPass } from './heightfog';
 import { StaticShadowCache } from './shadowcache';
+import { setDetailPass } from './batching';
 
 export interface QualityPreset {
   pixelRatioCap: number;
@@ -158,6 +160,15 @@ export const GradeShader = {
   `,
 };
 
+function fuseByUrl(key = 'postfuse'): boolean {
+  try {
+    const q = new URLSearchParams(location.search).get(key);
+    return !(q === '0' || q === 'false');
+  } catch {
+    return true;
+  }
+}
+
 export class PostPipeline {
   readonly composer: EffectComposer;
   readonly grade: ShaderPass;
@@ -176,6 +187,26 @@ export class PostPipeline {
   bloomEnabled = true;
   /** Governor multiplier on the preset's aoScale (1 = preset; <1 = cheaper AO targets when GPU-bound). */
   private aoScaleK = 1;
+  /**
+   * This frame's AO / bloom results for the fused output pass (reset every frame, so a pass that is
+   * disabled or skipped simply contributes nothing).
+   */
+  private fuse = { ao: 0, aoTex: null as THREE.Texture | null, bloomTex: null as THREE.Texture | null };
+  /** AO / bloom folded into the output pass (`?postfuse=0` or toggling this restores the separate blends, for A/B). */
+  fused = fuseByUrl();
+  /**
+   * Display-referred passes (SMAA, tilt-shift H, grade + tilt V) read and write 8-bit targets
+   * instead of the half-float HDR pair: half the bandwidth for five full-res passes, two of them
+   * 13-tap blurs. Their input is already tone-mapped + sRGB-encoded, i.e. exactly what the 8-bit
+   * canvas stores. `?postldr=0` / toggling this restores the HDR targets (A/B).
+   */
+  ldr = fuseByUrl('postldr');
+  private ldrA: THREE.WebGLRenderTarget;
+  private ldrB: THREE.WebGLRenderTarget;
+  private hdrRead: THREE.WebGLRenderTarget | null = null;
+  private hdrWrite: THREE.WebGLRenderTarget | null = null;
+  /** Walk the scene graph's matrices once per frame, not once per scene render (A/B switch). */
+  oneMatrixWalk = true;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -185,6 +216,8 @@ export class PostPipeline {
   ) {
     renderer.getDrawingBufferSize(this.size);
     this.shadowCache = new StaticShadowCache(renderer);
+    this.ldrA = new THREE.WebGLRenderTarget(this.size.x, this.size.y, { type: THREE.UnsignedByteType, depthBuffer: false });
+    this.ldrB = this.ldrA.clone();
     // Depth texture: the atmosphere pass (height fog + light shafts) reads the scene depth.
     const rt = new THREE.WebGLRenderTarget(this.size.x, this.size.y, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(this.size.x, this.size.y) });
     this.composer = new EffectComposer(renderer, rt);
@@ -262,7 +295,10 @@ export class PostPipeline {
         gp.needsSwap = false;
         if (gp._renderGBuffer) {
           g._overrideVisibility();
+          // Half-res AO: detail parts (moss, petals, beads under geom.ts DETAIL_R) skip the G-buffer.
+          setDetailPass(true);
           gp._renderOverride(r, gp.normalMaterial, gp.normalRenderTarget, 0x7777ff, 1.0);
+          setDetailPass(false);
           gp._restoreVisibility();
         }
         const u = gp.gtaoMaterial.uniforms;
@@ -274,17 +310,53 @@ export class PostPipeline {
         gp._renderPass(r, gp.gtaoMaterial, gp.gtaoRenderTarget, 0xffffff, 1.0);
         (gp.pdMaterial.uniforms.cameraProjectionMatrixInverse!.value as THREE.Matrix4).copy(camera.projectionMatrixInverse);
         gp._renderPass(r, gp.pdMaterial, gp.pdRenderTarget, 0xffffff, 1.0);
-        gp.blendMaterial.uniforms.intensity!.value = gp.blendIntensity;
-        gp.blendMaterial.uniforms.tDiffuse!.value = gp.pdRenderTarget.texture;
-        gp._renderPass(r, gp.blendMaterial, rb);
+        if (!this.fused) {
+          gp.blendMaterial.uniforms.intensity!.value = gp.blendIntensity;
+          gp.blendMaterial.uniforms.tDiffuse!.value = gp.pdRenderTarget.texture;
+          gp._renderPass(r, gp.blendMaterial, rb);
+          return;
+        }
+        // No blend pass: the output pass multiplies the AO in (and the bloom high-pass applies it
+        // before thresholding), saving a full-resolution read-modify-write of the HDR buffer.
+        this.fuse.ao = gp.blendIntensity;
+        this.fuse.aoTex = gp.pdRenderTarget.texture;
       };
       this.composer.addPass(this.gtao);
     }
     if (preset.bloom) {
       this.bloom = new UnrealBloomPass(new THREE.Vector2(this.size.x, this.size.y), 0.32, 0.55, 0.92);
+      const bp = this.bloom as unknown as {
+        _fsQuad: { material: THREE.Material; render: (r: THREE.WebGLRenderer) => void };
+        blendMaterial: THREE.Material;
+        materialHighPassFilter: THREE.ShaderMaterial;
+        renderTargetsHorizontal: THREE.WebGLRenderTarget[];
+        render: (r: THREE.WebGLRenderer, wb: THREE.WebGLRenderTarget, rb: THREE.WebGLRenderTarget, dt?: number, mask?: boolean) => void;
+        renderToScreen: boolean;
+      };
+      // The high-pass sees the AO-darkened scene, as when AO was blended before the bloom.
+      const hp = bp.materialHighPassFilter;
+      hp.uniforms.tAO = { value: null };
+      hp.uniforms.uAOK = { value: 0 };
+      hp.fragmentShader = hp.fragmentShader
+        .replace('uniform sampler2D tDiffuse;', 'uniform sampler2D tDiffuse;\nuniform sampler2D tAO;\nuniform float uAOK;')
+        .replace('vec4 texel = texture2D( tDiffuse, vUv );', 'vec4 texel = texture2D( tDiffuse, vUv );\nif ( uAOK > 0.0 ) texel.rgb *= mix( vec3( 1.0 ), texture2D( tAO, vUv ).rgb, uAOK );');
+      // Skip the final additive full-res blend: the output pass adds the composited mips itself.
+      const q = bp._fsQuad;
+      const baseQuad = q.render.bind(q);
+      q.render = (r) => {
+        if (this.fused && q.material === bp.blendMaterial && !bp.renderToScreen) return;
+        baseQuad(r);
+      };
+      const baseBloom = bp.render.bind(this.bloom);
+      bp.render = (r, wb, rb, dt, mask) => {
+        hp.uniforms.uAOK!.value = this.fuse.ao;
+        hp.uniforms.tAO!.value = this.fuse.aoTex;
+        baseBloom(r, wb, rb, dt, mask);
+        if (this.fused) this.fuse.bloomTex = bp.renderTargetsHorizontal[0]!.texture;
+      };
       this.composer.addPass(this.bloom);
     }
-    this.composer.addPass(new OutputPass());
+    this.composer.addPass(this.makeOutput());
     if (preset.smaa) {
       this.smaa = new SMAAPass();
       this.composer.addPass(this.smaa);
@@ -302,6 +374,53 @@ export class PostPipeline {
     this.grade.uniforms.uGrain!.value = preset.grain;
     this.composer.addPass(this.grade);
     this.setSize(this.size.x, this.size.y);
+  }
+
+  /**
+   * OutputPass (tone mapping + sRGB) that also multiplies in the GTAO result and adds the bloom
+   * mips: the two full-resolution blend passes those effects used to run onto the HDR buffer are
+   * folded into the one read the output pass does anyway (same maths, two fewer full-screen
+   * read-modify-writes; pillar 14).
+   */
+  private makeOutput(): OutputPass {
+    const out = new OutputPass();
+    const u = (out as unknown as { uniforms: Record<string, THREE.IUniform> }).uniforms;
+    const m = (out as unknown as { material: THREE.RawShaderMaterial }).material;
+    u.tAO = { value: null };
+    u.uAOK = { value: 0 };
+    u.tBloom = { value: null };
+    u.uBloomK = { value: 0 };
+    m.fragmentShader = m.fragmentShader
+      .replace('uniform sampler2D tDiffuse;', 'uniform sampler2D tDiffuse;\nuniform sampler2D tAO;\nuniform float uAOK;\nuniform sampler2D tBloom;\nuniform float uBloomK;')
+      .replace(
+        'gl_FragColor = texture2D( tDiffuse, vUv );',
+        'gl_FragColor = texture2D( tDiffuse, vUv );\n' +
+          'if ( uAOK > 0.0 ) gl_FragColor.rgb *= mix( vec3( 1.0 ), texture2D( tAO, vUv ).rgb, uAOK );\n' +
+          'if ( uBloomK > 0.0 ) gl_FragColor.rgb += texture2D( tBloom, vUv ).rgb;',
+      );
+    // (The bloom blend was premultiplied additive: ONE, ONE, i.e. a plain add of the composite.)
+    if (!m.fragmentShader.includes('uBloomK > 0.0')) throw new Error('post: OutputShader layout changed, cannot fuse AO / bloom');
+    const base = out.render.bind(out);
+    out.render = (r, wb, rb, dt, mask) => {
+      const f = this.fuse;
+      u.uAOK!.value = f.aoTex ? f.ao : 0;
+      u.tAO!.value = f.aoTex;
+      u.uBloomK!.value = f.bloomTex ? 1 : 0;
+      u.tBloom!.value = f.bloomTex;
+      if (this.ldr && !out.renderToScreen) {
+        // Tone-map into an 8-bit target; the composer runs the rest of the chain on the 8-bit pair
+        // (it swaps after this pass, so ldrA becomes the read buffer). render() restores the HDR pair.
+        const c = this.composer as unknown as { readBuffer: THREE.WebGLRenderTarget; writeBuffer: THREE.WebGLRenderTarget };
+        this.hdrRead = c.readBuffer;
+        this.hdrWrite = c.writeBuffer;
+        base(r, this.ldrA, rb, dt, mask);
+        c.writeBuffer = this.ldrA;
+        c.readBuffer = this.ldrB;
+        return;
+      }
+      base(r, wb, rb, dt, mask);
+    };
+    return out;
   }
 
   /** Tilt-shift parameters: focus (0 bottom..1 top), clear band half-height, blur strength px. */
@@ -324,6 +443,8 @@ export class PostPipeline {
     this.size.set(w, h);
     this.composer.setPixelRatio(1);
     this.composer.setSize(w, h);
+    this.ldrA.setSize(w, h);
+    this.ldrB.setSize(w, h);
     for (const p of [this.tiltH, this.grade]) {
       if (p) (p.uniforms.uResolution!.value as THREE.Vector2).set(w, h);
     }
@@ -361,11 +482,37 @@ export class PostPipeline {
     // Render shadow maps once per frame (the RenderPass), not again inside the GTAO pass.
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.needsUpdate = true;
-    this.composer.render();
+    const f = this.fuse;
+    f.ao = 0;
+    f.aoTex = null;
+    f.bloomTex = null;
+    // One scene-graph matrix walk per frame (pillar 14, perf r8c): the RenderPass and the GTAO
+    // G-buffer pass each call renderer.render(scene), and each re-walked all ~1.2k objects
+    // (~0.4 ms CPU per walk in town). Nothing moves between the two; billboards that turn in
+    // onBeforeRender update their own matrices.
+    const scene = this.scene;
+    const autoWalk = this.oneMatrixWalk && scene.matrixWorldAutoUpdate;
+    if (autoWalk) {
+      scene.updateMatrixWorld();
+      scene.matrixWorldAutoUpdate = false;
+    }
+    try {
+      this.composer.render();
+    } finally {
+      if (autoWalk) scene.matrixWorldAutoUpdate = true;
+      if (this.hdrRead) {
+        const c = this.composer as unknown as { readBuffer: THREE.WebGLRenderTarget; writeBuffer: THREE.WebGLRenderTarget };
+        c.readBuffer = this.hdrRead;
+        c.writeBuffer = this.hdrWrite!;
+        this.hdrRead = this.hdrWrite = null;
+      }
+    }
   }
 
   dispose(): void {
     this.shadowCache.dispose();
     this.composer.dispose();
+    this.ldrA.dispose();
+    this.ldrB.dispose();
   }
 }

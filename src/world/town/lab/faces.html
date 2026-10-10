@@ -1,0 +1,83 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Face lab</title>
+<style>
+body { margin: 0; background: #2a2018; font: 700 14px sans-serif; color: #fbefd6; }
+.grid { display: grid; grid-template-columns: repeat(var(--cols, 5), var(--s, 300px)); gap: 6px; padding: 6px; }
+.c { position: relative; width: var(--s, 300px); height: var(--s, 300px); border-radius: 8px; overflow: hidden; background: #6f8a5a; }
+.c canvas { width: 100%; height: 100%; display: block; }
+.c span { position: absolute; left: 6px; bottom: 6px; background: #0008; padding: 2px 6px; border-radius: 6px; }
+#tris { padding: 6px 10px; font: 600 13px monospace; white-space: pre; }
+</style></head>
+<body><div id="tris"></div><div class="grid" id="g"></div>
+<script type="module">
+// Face lab (town r21): the 3D villager faces as the talk / event lenses see them (~300 px a face), no game
+// boot — the critic's close-up crops (capsule brows, slab beards, blush wedges) as a gate.
+//   node scripts/shot.mjs --url "/src/world/town/lab/faces.html?npc=bram,odessa&moods=neutral,happy,angry&s=300&cols=5"
+//   ?yaw=<deg> turns the head off the lens (default 24), ?light=day|dusk, ?d=<m> lens distance.
+import * as THREE from 'three';
+import { Villager } from '/src/entities/villager.ts';
+import { NPCS, NPC_IDS, MOODS } from '/src/data/npcs.ts';
+const q = new URLSearchParams(location.search);
+const ids = q.get('npc') ? q.get('npc').split(',') : NPC_IDS;
+const moods = q.get('moods') ? q.get('moods').split(',') : MOODS;
+const S = Number(q.get('s') || 300);
+document.body.style.setProperty('--s', S + 'px');
+if (q.get('cols')) document.body.style.setProperty('--cols', q.get('cols'));
+const yawDeg = Number(q.get('yaw') ?? 24);
+const dusk = q.get('light') === 'dusk';
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+r.setPixelRatio(1);
+r.setSize(S * 2, S * 2, false);
+r.outputColorSpace = THREE.SRGBColorSpace;
+r.toneMapping = THREE.ACESFilmicToneMapping;
+r.toneMappingExposure = 1.0;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(dusk ? 0x3a3a5a : 0x8aa070);
+scene.add(new THREE.HemisphereLight(dusk ? 0x8a90d0 : 0xcfe4ff, dusk ? 0x302838 : 0x5a6a3a, dusk ? 1.0 : 1.35));
+const sun = new THREE.DirectionalLight(dusk ? 0xffb070 : 0xfff0d8, dusk ? 1.4 : 2.6);
+sun.position.set(-3, 6, 4);
+scene.add(sun);
+const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 60);
+const g = document.getElementById('g');
+const tri = [];
+for (const id of ids) {
+  const d = NPCS[id];
+  if (!d) continue;
+  const v = new Villager(d, { blob: false });
+  scene.add(v.root);
+  v.setPosition(0, 0, 0);
+  v.setYaw(THREE.MathUtils.degToRad(yawDeg));
+  let n = 0;
+  v.root.traverse((o) => { if (o.isMesh && o.visible && o.geometry.index) n = Math.max(n, o.geometry.index.count / 3); });
+  tri.push(`${id.padEnd(9)} ${Math.round(n)} tris (largest mesh)`);
+  for (const m of moods) {
+    v.setMood(m);
+    v.headLook = new THREE.Vector3(Math.sin(THREE.MathUtils.degToRad(yawDeg)) * 0.3, v.headTop * 0.8, 6);
+    for (let k = 0; k < 40; k++) v.update(0.05, () => 0, false);
+    v.root.updateMatrixWorld(true);
+    const hy = v.headTop * 0.74;
+    // the talk lens: a little above, ~2.1 m off for a face filling ~60 % of the cell
+    const dist = Number(q.get("d") || 2.6) * v.headTop / 1.9;
+    const pit = THREE.MathUtils.degToRad(Number(q.get('pitch') ?? 17));
+    cam.position.set(0, hy + dist * Math.sin(pit), dist * Math.cos(pit));
+    cam.lookAt(0, hy - 0.02, 0);
+    r.render(scene, cam);
+    const c = document.createElement('div');
+    c.className = 'c';
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = S * 2;
+    cv.getContext('2d').drawImage(r.domElement, 0, 0);
+    c.appendChild(cv);
+    const sp = document.createElement('span');
+    sp.textContent = `${id} · ${m}`;
+    c.appendChild(sp);
+    g.appendChild(c);
+  }
+  scene.remove(v.root);
+}
+// gate (r21): a villager's full-detail mesh stays under ~20k triangles (critic: Odessa 65.8k all passes)
+const fails = tri.filter((t) => Number(t.split(/\s+/)[1]) > 20000);
+document.getElementById('tris').textContent = tri.join('\n') + (fails.length ? '\nFAIL > 20k: ' + fails.join(', ') : '\nall under 20k');
+if (fails.length) console.error('[face-lab] triangle gate: ' + fails.join(', '));
+window.__game = { ready: async () => {}, info: () => ({ tris: tri, fails }) };
+</script></body></html>

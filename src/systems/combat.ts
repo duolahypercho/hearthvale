@@ -20,7 +20,7 @@ import type { Game } from '../core/game';
 import { MineMap } from '../world/mine';
 import { Crab, monsterColor, type Monster } from '../entities/monsters';
 import { mineActions, buildSword, SwordTrail, SlashArc, SWORD_TIP, SWORD_BASE, SWORD_TIERS, SWORD_REACH as REACH, SWORD_ARC_COS as ARC_COS, SWORD_CRIT as CRIT } from '../world/mine/actions';
-import { DamageNumbers, ScreenFx } from '../world/mine/hud';
+import { DamageNumbers, ScreenFx, syncToolbar } from '../world/mine/hud';
 import { mineSfx } from '../world/mine/sfx';
 import type { MonsterKind } from '../world/mine/biomes';
 import { itemDef } from '../data/items';
@@ -108,7 +108,8 @@ export class CombatSystem implements System, HealthApi {
       this.auto = null;
       const m = this.mine();
       if (m) m.pickups.magnetR = 2.5;
-      if (name === 'mine-combat') this.stageCombat();
+      // (audio-mine: the audio pod's combat soundcheck, `&fight=1` stages the same auto-fight.)
+      if (name === 'mine-combat' || (name === 'audio-mine' && new URLSearchParams(location.search).get('fight') === '1')) this.stageCombat(name);
     });
   }
 
@@ -148,6 +149,8 @@ export class CombatSystem implements System, HealthApi {
   }
 
   private swinging = false;
+  /** Seq-staged demo: force (true) / forbid (false) the crit roll; null = the normal chance. */
+  private forceCrit: boolean | null = null;
   /** Sword tier (0 = the Miner's Shortsword). */
   tier = 0;
 
@@ -216,37 +219,45 @@ export class CombatSystem implements System, HealthApi {
       const dx = mo.pos.x - p.x;
       const dz = mo.pos.z - p.z;
       const d = Math.hypot(dx, dz);
-      if (d < REACH + 0.9 && (!best || d < best.d)) best = { d, dx, dz };
+      if (d < REACH + 1.5 && (!best || d < best.d)) best = { d, dx, dz };
     }
     if (!best) return;
-    const side = Math.abs(best.dx) > Math.abs(best.dz) * 0.45;
+    // (r6: side-on unless the target is nearly straight above / below — a swing facing up hid the
+    // blade behind the farmer's back while the pack stood to the side)
+    const side = Math.abs(best.dx) > Math.abs(best.dz) * 0.35 || (best.dz < 0 && Math.abs(best.dx) > 0.25);
     const f = side ? (best.dx > 0 ? 'right' : 'left') : best.dz > 0 ? 'down' : 'up';
     if (f !== this.game.player.facing) this.game.player.setFacing(f);
   }
 
   // ───────────────────────────────────────────── sword
 
-  swing(): void {
+  swing(face?: 'left' | 'right'): void {
     if (this.passing) return;
     const player = this.game.player;
     const acts = mineActions(player);
     if (acts.active) return;
+    syncToolbar(this.game, 'sword');
     this.sword ??= buildSword(this.tier);
-    this.aim();
+    if (face) player.setFacing(face);
+    else this.aim();
     // Staged still: the stroke whose impact pose opens the chest to the camera — never the back of
     // the farmer's head. At the impact time the forehand's torso is still unwinding from its
     // wind-up (turned away from the lens when facing right), the backhand's is turned towards it;
     // mirrored when facing left. Plus a three-quarter twist so the face reads under the hat brim.
-    const staged = this.still && !!this.auto;
+    // (r8: the seq-staged fight too: every frame of the sequence is a staged beat)
+    const staged = (this.still && !!this.auto) || !!this.seq;
     const kind = staged ? (player.facing === 'left' ? 'slash' : 'backslash') : this.side ? 'backslash' : 'slash';
-    if (staged) acts.twist = player.facing === 'left' ? 0.75 : player.facing === 'right' ? -0.75 : 0;
+    if (staged) acts.twist = player.facing === 'left' ? 0.3 : player.facing === 'right' ? -0.3 : 0;
     this.side = !this.side;
     this.trail.reset();
-    mineSfx.whoosh();
+    // (The swing itself is voiced by tool:swing → 'sword' in systems/audio.ts.)
     this.game.events.emit('combat:swing', { x: player.position.x, z: player.position.z });
     this.game.events.emit('tool:swing', { tool: 'sword', tier: 0, charge: 0 });
     const origin = player.position.clone();
     const dir = FACE[player.facing]!.clone();
+    // The forehand (slash) sweeps the blade from the sword arm's side across the body (azimuth
+    // falling), the backhand the other way: the crescent's head travels with it.
+    const sweep = kind === 'slash' ? -1 : 1;
     let arcFired = false;
     acts.start(kind, this.sword, {
       speed: 1.05,
@@ -257,27 +268,37 @@ export class CombatSystem implements System, HealthApi {
           acts.toolPoint(SWORD_BASE, this.base);
           this.trail.push(this.tip, this.base);
         }
-        // The crescent sweeps in with the blade so it is full length on the impact frame.
+        // The crescent opens at the end of the wind-up and its head rides the blade tip.
         if (!arcFired && t >= 0.085) {
           arcFired = true;
-          this.arc.fire(player.position, dir, kind === 'slash' ? 1 : -1);
+          this.arc.fire(player.position, dir, sweep);
         }
+        if (arcFired && t < 0.3) this.arc.follow(this.bladeRel(dir));
       },
       onImpact: () => {
         if (!arcFired) {
           arcFired = true;
-          this.arc.fire(player.position, dir, kind === 'slash' ? 1 : -1);
+          this.arc.fire(player.position, dir, sweep);
+          this.arc.follow(this.bladeRel(dir));
         }
         this.resolve(origin, dir);
       },
     });
   }
 
+  /** Blade tip azimuth relative to `dir` (radians, atan2(x, z)), from this frame's pose. */
+  private bladeRel(dir: THREE.Vector3): number {
+    const p = this.game.player.position;
+    mineActions(this.game.player).toolPoint(SWORD_TIP, this.tip);
+    const rel = Math.atan2(this.tip.x - p.x, this.tip.z - p.z) - Math.atan2(dir.x, dir.z);
+    return Math.atan2(Math.sin(rel), Math.cos(rel));
+  }
+
   private resolve(origin: THREE.Vector3, dir: THREE.Vector3): void {
     const m = this.mine();
     if (!m) return;
     const acts = mineActions(this.game.player);
-    const hits = m.strike(origin, dir, REACH + this.tier * 0.12, ARC_COS, SWORD_TIERS[this.tier]!.dmg, CRIT);
+    const hits = m.strike(origin, dir, REACH + this.tier * 0.12, ARC_COS, SWORD_TIERS[this.tier]!.dmg, this.forceCrit === null ? CRIT : this.forceCrit ? 1 : 0);
     this.arc.impact(hits.some((h) => h.crit), hits.length > 0);
     this.game.events.emit('combat:strike', { x: origin.x, z: origin.z, dx: dir.x, dz: dir.z, tier: this.tier, hits: hits.length });
     if (!hits.length) return;
@@ -315,24 +336,23 @@ export class CombatSystem implements System, HealthApi {
       this.held = true;
     }
     this.game.rc.rig.addShake(crit ? 0.3 : kill ? 0.22 : 0.14);
-    m.lighting.flash = Math.max(m.lighting.flash, crit ? 0.35 : 0.15);
+    m.lighting.flash = Math.max(m.lighting.flash, crit ? 0.14 : 0.05);
   }
 
   /**
-   * Damage number AT the hit point: on the monster's body, on the side the blade came from
-   * (between the monster centre and the swing origin), popped 1.4 → 1 and rising ~40 px.
+   * Damage number on the victim's head (tracking it through the knockback), popped 1.4 → 1 and
+   * kicked up ~40 px.
    */
   popHit(mo: Monster, damage: number, crit: boolean, from: THREE.Vector3, i = 0): void {
     const at = new THREE.Vector3();
     mo.headPos(at);
-    at.y -= mo.kind === 'bat' || mo.kind === 'wisp' ? 0.25 : 0.45;
-    // On the far side of the monster from the swing (never over the farmer's own hat).
+    // Just over the victim's head (it rides the knockback with it), a touch to the far side.
+    at.y += mo.kind === 'bat' || mo.kind === 'wisp' ? 0.1 : 0.0;
     const dx = mo.pos.x - from.x;
     const dz = mo.pos.z - from.z;
     const d = Math.hypot(dx, dz) || 1;
-    at.x += (dx / d) * mo.radius * 0.6;
-    at.z += (dz / d) * mo.radius * 0.3;
-    this.numbers.pop(at, String(damage), crit ? 'crit' : 'dmg', { dy: -i * 30, dx: (i % 2 ? 1 : -1) * i * 12 });
+    at.x += (dx / d) * mo.radius * 0.35;
+    this.numbers.pop(at, String(damage), crit ? 'crit' : 'dmg', { dy: -i * 6, dx: (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 44, track: mo.pos });
   }
 
   /** Kill: a radial goo / scorch splat decal where it died (fades over ~6 s). */
@@ -472,7 +492,9 @@ export class CombatSystem implements System, HealthApi {
       const dim = !this.auto && !this.held && this.iframes > 0 && Math.floor(this.iframes * 14) % 2 === 1;
       this.blink(dim ? 0.35 : 1);
     } else if (this.blinking) this.blink(1);
-    if (!player.root.visible && !this.passing) player.root.visible = true;
+    // Only in the mines (combat's own turf): elsewhere other systems hide the farmer on purpose
+    // (a co-op farmhand asleep in a cabin, a farmhand spectating the host's heart event).
+    if (m && !player.root.visible && !this.passing) player.root.visible = true;
     if (this.push.lengthSq() > 1e-4) {
       const grid = game.world.current?.grid;
       const p = player.position;
@@ -532,7 +554,7 @@ export class CombatSystem implements System, HealthApi {
 
   // ───────────────────────────────────────────── demo
 
-  private stageCombat(): void {
+  private stageCombat(name = 'mine-combat'): void {
     const m = this.mine();
     if (!m) return;
     this.grantSword();
@@ -552,12 +574,164 @@ export class CombatSystem implements System, HealthApi {
     // The staged farmer never walks: loot streams in from anywhere in the arena (no gel carpet).
     m.pickups.magnetR = 9;
     const p = this.game.player.position;
+    this.dodgeTangents(m);
     if (this.still && this.stageStill(m)) {
       this.auto = { t: 0.3, min: 62, home: new THREE.Vector2(p.x, p.z) };
       return;
     }
     this.populate(m, true);
     this.auto = { t: 0.9, min: 62, home: new THREE.Vector2(p.x, p.z) };
+    // (r8) shot.mjs --frames N: every still lands on a beat of ONE staged exchange (see seqFrame).
+    if (name === 'mine-combat') {
+      this.seq = null;
+      this.seqHome = p.clone();
+      this.game.seqHook = (i, n) => this.seqFrame(i, n);
+    }
+  }
+
+  // ───────────────────────────────────────────── seq-staged fight (shot.mjs --frames)
+
+  /** Sim-time beats of the staged exchange: [seconds from the first swing, label]. */
+  private static readonly SEQ_PLAN: [number, string][] = [
+    [0.06, 'wind-up'],
+    [0.15, 'crescent at full sweep'],
+    [0.2, 'hit flash + knockback'],
+    [0.78, 'second swing: crit kill'],
+    [1.08, 'death puff'],
+    [1.7, 'loot'],
+  ];
+  private seq: { t: number; s1: boolean; s2: boolean; a: Monster | null; b: Monster | null; watchers: Monster[] } | null = null;
+  private seqHome: THREE.Vector3 | null = null;
+
+  /**
+   * Frame i of n: frame 0 restages the arena from rest (rAF loop held, autopilot off) — a bat to
+   * one side, a slime to the other, two watchers — and every frame steps the sim by hand to its
+   * planned beat: wind-up, the crescent at full sweep, the hit flash + knockback on the bat, the
+   * crit that kills the slime, its death puff, the loot on the floor.
+   */
+  private seqFrame(i: number, n: number): string {
+    const m = this.mine();
+    if (!m) return 'no-mine';
+    if (i === 0 || !this.seq) this.seqStart(m);
+    const seq = this.seq!;
+    const plan = CombatSystem.SEQ_PLAN;
+    const u = n > 1 ? i / (n - 1) : 0;
+    const f = u * (plan.length - 1);
+    const k0 = Math.floor(f);
+    const k1 = Math.min(plan.length - 1, k0 + 1);
+    const T = plan[k0]![0] + (plan[k1]![0] - plan[k0]![0]) * (f - k0);
+    let guard = 0;
+    while (seq.t < T - 1e-4 && guard++ < 400) {
+      this.seqTick(m, seq);
+      const dt = Math.min(1 / 60, T - seq.t);
+      this.game.step(dt);
+      seq.t += dt;
+    }
+    return plan[Math.round(f)]![1];
+  }
+
+  private seqStart(m: MineMap): void {
+    const g = this.game;
+    g.holdLoop = true;
+    this.auto = null;
+    this.held = false;
+    const acts = mineActions(g.player);
+    acts.cancel();
+    acts.frozen = false;
+    acts.hitStop = 0;
+    this.trail.reset();
+    this.numbers.clear();
+    this.numbers.hold = false;
+    this.push.set(0, 0, 0);
+    this.iframes = 0;
+    this.blink(1);
+    this.forceCrit = null;
+    m.freezeAI = false;
+    m.freezeFx = false;
+    m.live = true;
+    m.pickups.clear();
+    // Loot settles where it fell (the beat shows it bobbing on the floor, not already in the bag).
+    m.pickups.magnetR = 0.5;
+    const home = this.seqHome ?? g.player.position.clone();
+    this.seqHome = home;
+    g.player.teleport(home.x, home.z);
+    this.set(MAX_HP * 0.78);
+    for (const x of [...m.monsters]) if (Math.hypot(x.pos.x - home.x, x.pos.z - home.z) < 10) m.removeMonster(x);
+    m.playerTargetable = false;
+    const biome = m.layout.biome;
+    const fly = (k: MonsterKind): boolean => k === 'bat' || k === 'wisp';
+    const place = (kind: MonsterKind, spots: [number, number][]): Monster | null => {
+      for (const [ox, oz] of spots) {
+        const x = home.x + ox;
+        const z = home.z + oz;
+        if (!m.grid.isWalkable(Math.floor(x), Math.floor(z)) || !m.clearAt(x, z, 0.5, fly(kind))) continue;
+        if (m.monsters.some((o) => o.alive && Math.hypot(o.pos.x - x, o.pos.z - z) < 1.3)) continue;
+        const mo = m.addMonster(kind, x, z);
+        if (fly(kind)) mo.pos.y += 1.1;
+        mo.root.rotation.y = Math.atan2(home.x - x, home.z - z);
+        return mo;
+      }
+      return null;
+    };
+    // The kill goes to the side with open floor beyond it (the knockback + goo + loot need room).
+    const side = [1, -1].find((sx) => [1, 2, 3].every((d) => m.grid.isWalkable(Math.floor(home.x + sx * d), Math.floor(home.z)))) ?? 1;
+    const o = -side;
+    const killKind: MonsterKind = biome === 'ice' ? 'wisp' : biome === 'lava' ? 'imp' : 'slime';
+    const b = place(killKind, [[side * 1.15, 0.1], [side * 1.1, 0.35], [side * 1.2, -0.15]]);
+    const a = place('bat', [[o * 1.25, -0.1], [o * 1.3, 0.3], [o * 1.2, -0.4]]);
+    const watchers: Monster[] = [];
+    // Watchers well clear of the bottom 12 % of the frame and the hotbar (behind / beside, never below).
+    for (const [kind, spots] of [
+      [biome === 'lava' ? 'imp' : 'slime', [[o * 2.6, -1.6], [side * 2.4, -2.0], [o * 3.0, -0.8]]],
+      [biome === 'earth' ? 'crab' : 'bat', [[side * 3.0, -1.2], [o * 2.2, -2.6], [side * 2.0, -2.8]]],
+    ] as [MonsterKind, [number, number][]][]) {
+      const w = place(kind, spots);
+      if (w) {
+        if (w instanceof Crab) w.wake();
+        watchers.push(w);
+      }
+    }
+    this.seq = { t: 0, s1: false, s2: false, a, b, watchers };
+    for (let k = 0; k < 3; k++) g.step(1 / 60);
+  }
+
+  private seqTick(m: MineMap, seq: NonNullable<CombatSystem['seq']>): void {
+    void m;
+    // Everyone holds their mark until the blade reaches them (idle jiggle / flaps keep playing).
+    for (const w of seq.watchers) if (w.alive) w.hold(0.2);
+    if (!seq.s1 && seq.a?.alive) seq.a.hold(0.2);
+    if (!seq.s2 && seq.b?.alive) seq.b.hold(0.2);
+    const toward = (mo: Monster | null): 'left' | 'right' => (mo && mo.pos.x < this.game.player.position.x ? 'left' : 'right');
+    if (!seq.s1 && seq.t >= 0) {
+      seq.s1 = true;
+      if (seq.a) seq.a.hp = Math.max(seq.a.hp, 999);
+      this.forceCrit = false;
+      this.swing(toward(seq.a));
+    }
+    if (!seq.s2 && seq.t >= 0.6) {
+      seq.s2 = true;
+      if (seq.b) seq.b.hp = 1;
+      this.forceCrit = true;
+      this.swing(toward(seq.b));
+    }
+  }
+
+  /**
+   * (r6) Staged arena: a tall crystal cluster 0.5–3.5 m straight behind the farmer projects right
+   * onto the hat from the demo lens (it read as a feather in the hat band) — step the farmer a
+   * tile or two sideways until the head line is clear.
+   */
+  private dodgeTangents(m: MineMap): void {
+    const p = this.game.player.position;
+    const blocked = (x: number, z: number): boolean => m.layout.crystals.some((c) => Math.abs(c.x - x) < 1.0 && c.z < z - 0.4 && c.z > z - 3.6);
+    if (!blocked(p.x, p.z)) return;
+    for (const dx of [1, -1, 2, -2]) {
+      const x = p.x + dx;
+      if (!m.grid.isWalkable(Math.floor(x), Math.floor(p.z)) || !m.clearAt(x, p.z, 0.5, false) || blocked(x, p.z)) continue;
+      p.x = x;
+      p.y = m.heightAt(p.x, p.z);
+      return;
+    }
   }
 
   /**
@@ -594,7 +768,8 @@ export class CombatSystem implements System, HealthApi {
     if (!v) return false;
     const o = -side;
     place(biome === 'lava' ? 'imp' : 'slime', [[o * 2.3, 0.9], [o * 2.1, 1.5], [o * 2.6, 0.2]]);
-    place('bat', [[o * 1.6, -1.8], [o * 2.4, -1.2], [side * 2.6, -1.6]]);
+    // (bat well clear of the farmer's head line — it read as a hat ornament at 1.6 / -1.8)
+    place('bat', [[o * 2.7, -2.4], [o * 3.0, -1.4], [side * 2.8, -2.2]]);
     if (biome === 'earth') {
       const c = place('crab', [[side * 2.4, 1.9], [o * 1.0, 2.4], [side * 1.4, 2.5]]);
       if (c instanceof Crab) c.wake();

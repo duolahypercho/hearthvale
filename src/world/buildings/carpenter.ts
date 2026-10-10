@@ -21,21 +21,36 @@ type Tab = 'build' | 'animals' | 'supplies';
 
 /** Painted blueprint elevations (80×56). */
 const BLUEPRINT: Record<BuildingKind, string> = {
-  coop: `<svg viewBox="0 0 80 56"><rect x="8" y="46" width="64" height="5" rx="2" fill="#9a8c7a"/>
-    <rect x="14" y="24" width="52" height="23" fill="#c0503c" stroke="#5a2418" stroke-width="2"/>
-    <path d="M8 26 L40 8 L72 26 Z" fill="#4f6a60" stroke="#26342e" stroke-width="2" stroke-linejoin="round"/>
-    <rect x="34" y="30" width="12" height="17" fill="#f3ecdc" stroke="#5a2418" stroke-width="1.6"/>
-    <path d="M34 30 L46 47 M46 30 L34 47" stroke="#c0503c" stroke-width="1.6"/>
-    <rect x="19" y="30" width="9" height="8" fill="#ffe7a8" stroke="#f3ecdc" stroke-width="2"/>
-    <rect x="52" y="39" width="7" height="6" rx="3" fill="#3a2418"/>
-    <path d="M40 8 V2 M37 3 H43" stroke="#2e2a28" stroke-width="1.4"/></svg>`,
-  barn: `<svg viewBox="0 0 80 56"><rect x="4" y="47" width="72" height="5" rx="2" fill="#9a8c7a"/>
-    <path d="M10 48 V24 L18 12 L40 5 L62 12 L70 24 V48 Z" fill="#b8402e" stroke="#4a1a10" stroke-width="2" stroke-linejoin="round"/>
-    <path d="M6 25 L18 11 L40 3 L62 11 L74 25" fill="none" stroke="#3a3a44" stroke-width="4" stroke-linejoin="round"/>
-    <rect x="28" y="28" width="24" height="20" fill="#f3ecdc" stroke="#4a1a10" stroke-width="1.6"/>
-    <path d="M28 28 L40 48 L52 28 M28 48 L40 28 L52 48" stroke="#b8402e" stroke-width="1.6" fill="none"/>
-    <rect x="35" y="12" width="10" height="9" fill="#f3ecdc" stroke="#4a1a10" stroke-width="1.4"/>
-    <path d="M35 12 L45 21 M45 12 L35 21" stroke="#b8402e" stroke-width="1.2"/></svg>`,
+  // Drawn to the built silhouettes (models.ts): the coop is a limewashed half-timbered henhouse on a
+  // fieldstone plinth under terracotta pantiles, sage door, flower box; the barn a red gable barn with
+  // white trim, slate shingles, X-braced doors and a hay hood.
+  coop: `<svg viewBox="0 0 80 56"><rect x="6" y="48" width="68" height="4" rx="2" fill="#9a8c7a"/>
+    <path d="M13 42 h54 v7 h-54 z" fill="#a8a294" stroke="#4a4038" stroke-width="1.6"/>
+    <path d="M16 45 h6 M25 44 h8 M37 46 h7 M48 44 h6 M58 46 h6" stroke="#7a7266" stroke-width="1.4"/>
+    <rect x="15" y="23" width="50" height="19" fill="#f4ead2" stroke="#4a2c1a" stroke-width="2"/>
+    <path d="M15 32 H65 M27 23 V42 M53 23 V42 M15 23 L27 32 M65 23 L53 32" stroke="#6a3e22" stroke-width="2.2" fill="none"/>
+    <path d="M6 25 L40 7 L74 25 Z" fill="#c8643a" stroke="#5a2414" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M14 21 L66 21 M22 16.5 L58 16.5 M30 12 L50 12" stroke="#9a4426" stroke-width="1.5"/>
+    <path d="M18 24 v-4 M26 24 v-6 M34 24 v-8 M46 24 v-8 M54 24 v-6 M62 24 v-4" stroke="#9a4426" stroke-width="1"/>
+    <rect x="34" y="28" width="12" height="14" rx="1.5" fill="#8fae94" stroke="#2e4a36" stroke-width="1.6"/>
+    <path d="M36 35 h8" stroke="#2e4a36" stroke-width="1.2"/><circle cx="43.5" cy="36.5" r="0.9" fill="#d8b060"/>
+    <rect x="18.5" y="26" width="6" height="5" fill="#ffe7a8" stroke="#6a3e22" stroke-width="1.4"/>
+    <rect x="17.5" y="31.5" width="8" height="2.6" rx="1" fill="#7a4a2a"/>
+    <circle cx="19" cy="30.8" r="1.3" fill="#e86a8a"/><circle cx="21.5" cy="30.4" r="1.3" fill="#f4c040"/><circle cx="24" cy="30.8" r="1.3" fill="#a070d0"/>
+    <rect x="56" y="36" width="6" height="6" fill="#4a2c1a"/><path d="M55 42 l9 5" stroke="#8a5a34" stroke-width="1.6"/>
+    <path d="M40 7 V2 M37 3 H43" stroke="#2e2a28" stroke-width="1.4"/></svg>`,
+  barn: `<svg viewBox="0 0 80 56"><rect x="4" y="48" width="72" height="4" rx="2" fill="#9a8c7a"/>
+    <rect x="12" y="44" width="56" height="5" fill="#a8a294" stroke="#4a4038" stroke-width="1.4"/>
+    <path d="M14 45 V24 L40 8 L66 24 V45 Z" fill="#b83a2e" stroke="#4a1a10" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M18 27 V44 M24 23 V44 M56 23 V44 M62 27 V44" stroke="#8a2a20" stroke-width="1"/>
+    <path d="M8 27 L40 6 L72 27" fill="none" stroke="#4a4c58" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M14 24 L40 8 L66 24" fill="none" stroke="#f3ecdc" stroke-width="1.6" stroke-linejoin="round"/>
+    <rect x="28" y="28" width="24" height="17" fill="#f3ecdc" stroke="#4a1a10" stroke-width="1.6"/>
+    <path d="M40 28 V45 M28 28 L40 45 L52 28 M28 45 L40 28 L52 45" stroke="#b83a2e" stroke-width="1.6" fill="none"/>
+    <rect x="35" y="14" width="10" height="9" fill="#3a2418" stroke="#f3ecdc" stroke-width="1.6"/>
+    <path d="M40 9 v5" stroke="#f3ecdc" stroke-width="1.6"/><path d="M33 13 h14" stroke="#f3ecdc" stroke-width="2"/>
+    <rect x="17" y="30" width="7" height="6" fill="#ffe7a8" stroke="#f3ecdc" stroke-width="1.6"/>
+    <rect x="56" y="30" width="7" height="6" fill="#ffe7a8" stroke="#f3ecdc" stroke-width="1.6"/></svg>`,
 };
 
 /** Little portrait medallions per species (64×64). */
@@ -333,6 +348,6 @@ export class CarpenterPanel extends Screen {
 
 /** Mirror of the build costs (system.ts owns the authoritative table; kept in sync by COSTS import there). */
 export const COSTS_VIEW: Record<BuildingKind, { gold: number; wood: number; stone: number; name: string; blurb: string; houses: string }> = {
-  coop: { gold: 3600, wood: 240, stone: 80, name: 'Coop', blurb: 'A snug red henhouse with nesting boxes, a roost ladder and a feed trough.', houses: 'chickens · ducks' },
-  barn: { gold: 5800, wood: 320, stone: 120, name: 'Barn', blurb: 'A tall gambrel barn with straw stalls, a hay loft and a long feed trough.', houses: 'cows · goats · sheep · pigs' },
+  coop: { gold: 3600, wood: 240, stone: 80, name: 'Coop', blurb: 'Whitewashed and half-timbered under terracotta tiles: nest boxes, a roost ladder, a dust bath.', houses: 'chickens · ducks' },
+  barn: { gold: 5800, wood: 320, stone: 120, name: 'Barn', blurb: 'A tall red barn with a hay hood, straw stalls with name plates, a loft and a long manger.', houses: 'cows · goats · sheep · pigs' },
 };

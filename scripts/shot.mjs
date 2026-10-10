@@ -138,6 +138,12 @@ async function main() {
     const stem = outBase.slice(0, outBase.length - ext.length);
     for (let i = 0; i < n; i++) {
       const path = n === 1 ? outBase : `${stem}_${String(i).padStart(3, '0')}${ext}`;
+      if (n > 1) {
+        // Sequence hook: a staged one-shot action demo steps itself to frame i's moment (every
+        // frame of the sequence belongs to the same swing / pour, whatever the capture timing).
+        const seq = await page.evaluate(([a, b]) => window.__game.seqFrame?.(a, b) ?? false, [i, n]);
+        if (typeof seq === 'string') console.log(`[shot] seq ${i + 1}/${n}: ${seq}`);
+      }
       await page.screenshot({ path, type: 'png', timeout: args.timeout });
       console.log(`[shot] wrote ${path}`);
       if (i < n - 1) await page.waitForTimeout(args.every);
@@ -145,6 +151,10 @@ async function main() {
     const info = await page.evaluate(() => window.__game.info());
     console.log(`[shot] info ${JSON.stringify(info)}`);
     const perf = info?.perf;
+    if (perf?.frame && perf.frameOk === false) {
+      // Frame-time half of pillar 14 (contended machines read slow: confirm with `npm run perf`).
+      console.warn(`[shot] WARNING frame time: ${perf.frame.fps} fps, p95 ${perf.frame.frameP95Ms} ms (want >= 58 fps, p95 <= 20 ms)`);
+    }
     if (perf && !perf.ok) {
       console.warn(
         `[shot] WARNING render budget exceeded: ${perf.drawCalls} draw calls (budget ${perf.budget.drawCalls}), ` +
@@ -158,8 +168,11 @@ async function main() {
     for (const e of consoleErrors) console.error(`[console.error] ${e}`);
     for (const e of pageErrors) console.error(`[pageerror] ${e}`);
     if (pageErrors.length) exitCode = exitCode || 1;
-    if (browser) await browser.close().catch(() => {});
-    await server.close().catch(() => {});
+    // (animals r18: a teardown that never settles — a page still stepping a sequence, a dev-server socket
+    // held open — must not hang the run until the outer timeout: each close gets 8 s, then we exit anyway)
+    const bounded = (p) => Promise.race([p.catch(() => {}), new Promise((r) => setTimeout(r, 8000).unref())]);
+    if (browser) await bounded(browser.close());
+    await bounded(server.close());
     try {
       rmSync(cacheDir, { recursive: true, force: true });
     } catch {

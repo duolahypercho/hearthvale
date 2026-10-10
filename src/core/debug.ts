@@ -26,13 +26,28 @@ export interface DebugApi {
   ready(): Promise<void>;
   pause(p?: boolean): void;
   quality(q: Quality): void;
-  camera(opts: { yaw?: number; pitch?: number; distance?: number; offsetX?: number; offsetZ?: number }): void;
+  camera(opts: { yaw?: number; pitch?: number; distance?: number; offsetX?: number; offsetY?: number; offsetZ?: number }): void;
   save(slot?: string): boolean;
   load(slot?: string): boolean;
   /** Advance N frames synchronously (dt each) — for deterministic tests. */
   step(frames?: number, dt?: number): void;
+  /**
+   * Frame-sequence capture: shot.mjs calls this before frame i of n. A staged action demo steps its
+   * one-shot action to the frame's moment and returns the phase label; false = no sequence hook.
+   */
+  seqFrame(i: number, n: number): string | boolean;
   info(): Record<string, unknown>;
   demos: string[];
+  /** Kintara (simulated $KIN): state / debug grants / earn rules / mint, see README. */
+  kin: {
+    state(): unknown;
+    grant(n: number): void;
+    earn(source: string, amount: number, once?: string): number;
+    mint(itemId: string, quality?: number): unknown;
+    convert(kin: number): unknown;
+    donate(kin: number): unknown;
+    verify(): unknown;
+  };
 }
 
 declare global {
@@ -54,7 +69,12 @@ export function installDebugApi(game: Game): DebugApi {
       if (!WEATHERS.includes(w)) throw new Error(`bad weather ${w}`);
       game.calendar.setWeather(w);
     },
-    teleport: (map, x, z) => game.teleport(map, x, z),
+    // (beach r7b, critic r6: a demo's custom camera outlived the teleport, so staged real play
+    // looked at open sea.) A scripted teleport hands the camera back to the follow-camera defaults.
+    teleport: async (map, x, z) => {
+      await game.teleport(map, x, z);
+      api.camera({});
+    },
     facing: (d) => game.player.setFacing(d),
     openUI: (name) => {
       const base = name.split(':')[0]!;
@@ -70,6 +90,8 @@ export function installDebugApi(game: Game): DebugApi {
       const d = DEMOS[name];
       if (!d) throw new Error(`unknown demo "${name}" (known: ${Object.keys(DEMOS).join(', ')})`);
       game.events.emit('ui:open', { name: 'none' });
+      game.seqHook = null;
+      game.holdLoop = false;
       let map = d.map;
       if (!game.world.has(map)) {
         console.warn(`[demo] map "${map}" not implemented yet; staging on farm`);
@@ -85,7 +107,9 @@ export function installDebugApi(game: Game): DebugApi {
       game.player.setFacing(d.facing);
       api.camera(d.camera ?? {});
       game.setPaused(true);
-      if (d.ui) api.openUI(d.ui);
+      // (a dialogue demo given its own &npc= has already opened that villager's box while staging: the
+      // default box on top of it flashed the wrong speaker's line for the first frames)
+      if (d.ui && !(d.ui.startsWith('dialogue') && new URLSearchParams(window.location.search).get('npc'))) api.openUI(d.ui);
       game.followPlayer(true);
     },
     ready: () => game.ready(),
@@ -96,7 +120,7 @@ export function installDebugApi(game: Game): DebugApi {
       rig.yaw = o.yaw ?? 0;
       rig.pitch = o.pitch ?? 50;
       rig.distance = o.distance ?? 24;
-      rig.lookOffset.set(o.offsetX ?? 0, 0, o.offsetZ ?? 0);
+      rig.lookOffset.set(o.offsetX ?? 0, o.offsetY ?? 0, o.offsetZ ?? 0);
       rig.snap();
     },
     save: (slot) => game.saves.save(slot),
@@ -104,8 +128,22 @@ export function installDebugApi(game: Game): DebugApi {
     step: (frames = 1, dt = 1 / 60) => {
       for (let i = 0; i < frames; i++) game.step(dt);
     },
+    seqFrame: (i, n) => {
+      const h = game.seqHook;
+      if (!h) return false;
+      return h(i, n) ?? true;
+    },
     info: () => ({
-      perf: game.perf(),
+      // `frame`: fps, mean / p95 frame time and the audio system's main-thread ms per second.
+      perf: ((): object => {
+        const geo = game.perf();
+        const frame = game.services.audio?.perf();
+        // (farming r19) `ok` alone only checks the geometry budget; `frameOk` is the frame-time half of
+        // pillar 14 (≥ 58 fps mean and p95 ≤ 20 ms over the recent window; null = no samples yet).
+        // `npm run perf` stays the real gate (avg / p95 / p99 under controlled load).
+        const frameOk = frame && frame.fps > 0 ? frame.fps >= 58 && frame.frameP95Ms <= 20 : null;
+        return { ...geo, frame, frameOk, budgetOk: geo.ok };
+      })(),
       map: game.world.current?.id,
       player: { x: game.player.position.x, z: game.player.position.z, facing: game.player.facing },
       calendar: game.calendar.serialize(),
@@ -117,8 +155,24 @@ export function installDebugApi(game: Game): DebugApi {
       drawCalls: game.rc.renderer.info.render.calls,
       triangles: game.rc.renderer.info.render.triangles,
       audio: game.services.audio?.state(),
+      // (town pod r15) the seeded town RNG: active seed, draws per named stream, the capture sequence
+      town: game.services.npcs?.debugState?.(),
+      kin: game.services.kintara?.balance() ?? 0,
     }),
     demos: Object.keys(DEMOS),
+    kin: {
+      state: () => {
+        const k = game.services.kintara;
+        if (!k) return null;
+        return { balance: k.balance(), address: k.address(), supply: k.supply(), today: k.today(), lifetime: k.lifetime(), fund: k.fund(), deeds: k.deeds().length, verify: k.verify(), network: k.network() };
+      },
+      grant: (n) => game.services.kintara?.debugGrant(n),
+      earn: (s, n, once) => game.services.kintara?.debugEarn(s as never, n, once) ?? 0,
+      mint: (id, q = 0) => game.services.kintara?.mint(id, q),
+      convert: (n) => game.services.kintara?.convert(n),
+      donate: (n) => game.services.kintara?.donate(n),
+      verify: () => game.services.kintara?.verify(),
+    },
   };
   window.__game = api;
   return api;
@@ -133,7 +187,8 @@ export async function applyUrlParams(api: DebugApi, params: URLSearchParams): Pr
   const z = params.get('z');
   if (map || x || z) {
     const cur = api.game.world.current;
-    await api.teleport(map ?? cur?.id ?? 'farm', x ? Number(x) : (cur?.spawn.x ?? 32), z ? Number(z) : (cur?.spawn.z ?? 20));
+    // (game.teleport, not api.teleport: a ?demo= camera survives an &x= / &z= nudge.)
+    await api.game.teleport(map ?? cur?.id ?? 'farm', x ? Number(x) : (cur?.spawn.x ?? 32), z ? Number(z) : (cur?.spawn.z ?? 20));
   }
   const season = params.get('season') as Season | null;
   if (season) {
@@ -151,6 +206,8 @@ export async function applyUrlParams(api: DebugApi, params: URLSearchParams): Pr
   if (time) api.setTime(Number(time));
   const gold = params.get('gold');
   if (gold) api.setGold(Number(gold));
+  const kin = params.get('kin');
+  if (kin) api.kin.grant(Number(kin));
   const facing = params.get('facing') as Facing | null;
   if (facing) api.facing(facing);
   if (params.get('pause') === '1') api.pause(true);

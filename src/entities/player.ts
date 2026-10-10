@@ -9,6 +9,7 @@ import type { Game } from '../core/game';
 import type { Facing } from '../core/events';
 import { MeshBuilder, roundedBox, mat, lumpySphere, sphericalNormals } from '../world/geom';
 import { applyWorldFx } from '../render/worldfx';
+import { patchMaterial } from '../render/patch';
 import { globalUniforms } from '../render/uniforms';
 import { Rng } from '../core/rng';
 
@@ -39,12 +40,16 @@ export interface ActionPose {
 // Original palette: oatmeal shirt, sage overalls, terracotta neckerchief, slate hat band.
 const SKIN = 0xecb48e;
 const HAIR = 0x8a4a2a;
-const SHIRT = 0xf0e4c8;
+// (Farming r20) A shade deeper: the near-white oatmeal clipped under the noon sun and bloomed into a
+// glowing shoulder patch in every tool shot.
+const SHIRT = 0xe0d0ae;
 const OVERALLS = 0x5f8a5c;
 const BOOTS = 0x6a4128;
 const HAT = 0xe6c275;
 const HATBAND = 0x3d6f8f;
 const SCARF = 0xe07a5f;
+
+const HAIR_C = new THREE.Vector3();
 
 function toonish(color: number, rough = 0.75): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ color, roughness: rough, vertexColors: true });
@@ -60,6 +65,30 @@ function sharedMat(): THREE.MeshStandardMaterial {
     shared = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72 });
     shared.name = 'player';
     applyWorldFx(shared, { snow: false, clouds: true, wet: true });
+    // The chibi's bumpy hair / big round head hit the shadow-terminator problem: the head's own
+    // shadow crawled up over sun-facing hair as jagged dark smudges. Sample the shadow map from
+    // further out along the normal (8× the sun's normal bias) for the player only.
+    patchMaterial(shared, 'player-shadow-bias', (shader) => {
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <shadowmap_vertex>',
+        THREE.ShaderChunk.shadowmap_vertex
+          .replace(/shadowWorldNormal \* directionalLightShadows\[ i \]\.shadowNormalBias/g, 'shadowWorldNormal * directionalLightShadows[ i ].shadowNormalBias * 8.0')
+          // Cascaded sun lights apply the normal offset in the fragment shader: scale the normal.
+          .replace('vSunShadowWorldNormal = shadowWorldNormal;', 'vSunShadowWorldNormal = shadowWorldNormal * 8.0;'),
+      );
+    });
+    // (Farming r20) Soft highlight knee on the farmer's cloth / skin: sunlit pale sleeves and shoulders
+    // ran past the bloom threshold (0.92) and glowed as a white haze in every tool shot.
+    patchMaterial(shared, 'farmer-highlight-knee', (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <opaque_fragment>',
+        `{
+          float hvKL = dot(outgoingLight, vec3(0.2126, 0.7152, 0.0722));
+          if (hvKL > 0.78) outgoingLight *= (0.78 + (hvKL - 0.78) * 0.12) / hvKL;
+        }
+        #include <opaque_fragment>`,
+      );
+    });
   }
   return shared;
 }
@@ -146,6 +175,7 @@ export class Player {
     const straw = toonish(HAT, 0.9);
     const band = toonish(HATBAND, 0.7);
     const dark = toonish(0x1d1612, 0.3);
+    const lip = toonish(0x7a3e30, 0.5);
     const white = toonish(0xffffff, 0.3);
     const blush = toonish(0xf5a38c, 0.6);
     const metal = toonish(0xb7bcc2, 0.35);
@@ -241,25 +271,34 @@ export class Player {
         for (const [a, r, len, roll] of locks) {
           const lock = lumpySphere(r, 2, 0.08, rng, 1.2);
           lock.scale(len, 0.55, 0.62);
-          sphericalNormals(lock, new THREE.Vector3(), 0.35);
-          b.add(hair, lock, mat(Math.sin(a) * headR * 0.72, headR * 1.34, Math.cos(a) * headR * 0.72, 0.55, a, roll));
+          // Shaded as one smooth mass about the head's centre (lock-local normals left dark,
+          // hard-edged "burn mark" terminators between the overlapping locks on the crown).
+          lock.applyMatrix4(mat(Math.sin(a) * headR * 0.72, headR * 1.34, Math.cos(a) * headR * 0.72, 0.55, a, roll));
+          sphericalNormals(lock, HAIR_C.set(0, headR * 0.92, 0), 0.65);
+          b.add(hair, lock);
         }
         for (const sx of [-1, 1]) {
           const side = lumpySphere(0.1, 1, 0.12, rng);
           side.scale(0.55, 1.1, 0.8);
-          b.add(hair, side, mat(sx * headR * 0.94, headR * 0.95, headR * 0.28, 0, 0, sx * 0.15));
+          side.applyMatrix4(mat(sx * headR * 0.94, headR * 0.95, headR * 0.28, 0, 0, sx * 0.15));
+          sphericalNormals(side, HAIR_C.set(0, headR * 0.92, 0), 0.5);
+          b.add(hair, side);
         }
         for (let i = 0; i < 6; i++) {
           const a = Math.PI * 0.55 + (i / 5) * Math.PI * 0.9;
           const tuft = lumpySphere(0.13, 1, 0.2, rng);
-          b.add(hair, tuft, mat(Math.sin(a) * headR * 0.85, headR * 0.72 + rng.next() * 0.08, Math.cos(a) * headR * 0.82));
+          tuft.applyMatrix4(mat(Math.sin(a) * headR * 0.85, headR * 0.72 + rng.next() * 0.08, Math.cos(a) * headR * 0.82));
+          sphericalNormals(tuft, HAIR_C.set(0, headR * 0.92, 0), 0.55);
+          b.add(hair, tuft);
         }
         // Brows, blush, smile (merged into the head: one draw call).
         for (const sx of [-1, 1]) {
           b.add(hair, new THREE.CapsuleGeometry(0.013, 0.055, 3, 6), mat(sx * 0.12, headR * 1.14, headR * 0.94, 0, 0, Math.PI / 2 + sx * 0.18));
           b.add(blush, new THREE.CircleGeometry(0.05, 14), mat(sx * 0.19, headR * 0.76, headR * 0.875, 0, sx * 0.55, 0));
         }
-        b.add(dark, new THREE.TorusGeometry(0.045, 0.011, 6, 14, Math.PI), mat(0, headR * 0.6, headR * 0.955, 0, 0, Math.PI));
+        // Smile: a short warm-brown arc lifted toward the cheeks (a long near-black one read as a
+        // moustache from the high farming camera).
+        b.add(lip, new THREE.TorusGeometry(0.034, 0.0085, 6, 14, Math.PI), mat(0, headR * 0.665, headR * 0.962, -0.12, 0, Math.PI));
       }, 'head'),
     );
     // Eyes (separate so they can blink); brows, mouth and blush are one static face part.
@@ -304,6 +343,24 @@ export class Player {
         o.receiveShadow = true;
       }
     });
+    // Shadow proxy: the lumpy hair locks and the hat self-shadowed into dark, blotchy "burn marks"
+    // on the crown from the high camera. The head casts through a smooth, invisible stand-in sitting
+    // just inside it instead (same shadow on the body / ground, none on itself); head and hat still
+    // RECEIVE shadows (trees, roofs) as before.
+    const proxyMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+    proxyMat.name = 'player-shadow-proxy';
+    for (const g of [this.head.children[0], this.hat.children[0]]) g?.traverse((o) => ((o as THREE.Mesh).isMesh ? (o.castShadow = false) : undefined));
+    // Proxies sit just INSIDE the visible surfaces (a receiver outside its caster stays lit).
+    const headProxy = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.92, 14, 10), proxyMat);
+    headProxy.position.set(0, headR * 0.92, 0);
+    // The hat casts nothing at all: from the high noon-ish sun its shadow only ever fell across the
+    // lumpy hair as a jagged dark smudge (the ground keeps the head's shadow + the contact blob).
+    headProxy.castShadow = true;
+    headProxy.receiveShadow = false;
+    this.head.add(headProxy);
+    // The arms don't cast either: a raised arm (harvest show-off, wind-ups) threw a dark blotch
+    // across the hair. (Held tools keep their shadows — they carry the swing on the ground.)
+    for (const arm of [this.armL, this.armR]) for (const c of arm.children) if (c !== this.tool) c.traverse((o) => ((o as THREE.Mesh).isMesh ? (o.castShadow = false) : undefined));
   }
 
   get rig(): PlayerRig {
@@ -407,12 +464,12 @@ export class Player {
       }
     }
 
-    if (canMove && input.pressed('use')) {
+    if (canMove && input.takeFixed('use')) {
       const t = this.targetTile();
       this.swing();
       this.game.events.emit('player:use', { x: t.x, z: t.z, slot: this.game.toolbarSlot, itemId: null });
     }
-    if (canMove && input.pressed('interact')) {
+    if (canMove && input.takeFixed('interact')) {
       const t = this.targetTile();
       this.game.events.emit('player:interact', { x: t.x, z: t.z });
     }

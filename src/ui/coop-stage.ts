@@ -59,6 +59,9 @@ void main() {
   c = (c - 0.5) * 1.12 + 0.5;
   vec3 sep = vec3(dot(c, vec3(0.393, 0.769, 0.189)), dot(c, vec3(0.349, 0.686, 0.168)), dot(c, vec3(0.272, 0.534, 0.131)));
   c = mix(c, sep, 0.06) * 0.98;
+  // (r7) lifted + warmed: a golden-hour farm read as a muddy olive-brown blur behind the lobby
+  c = c * 1.16 + vec3(0.05, 0.035, 0.0);
+  c = mix(c, c * vec3(1.06, 1.0, 0.86), 0.5);
   gl_FragColor = vec4(mix(texture2D(tSharp, vUv).rgb, clamp(c, 0.0, 1.0), uK), 1.0);
 }`;
 

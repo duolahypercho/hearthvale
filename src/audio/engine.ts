@@ -24,6 +24,8 @@ export class AudioEngine {
     this.music = new MusicDirector(this.graph, seed, pieces);
     this.amb = new Ambience(this.graph, seed + 1);
     this.sfx = new Sfx(this.graph, seed + 2);
+    // A chime whose cached note isn't here: ask the worker (the SFX plays a synthesized stand-in).
+    if (pieces?.hasWorker) this.sfx.onMissing = (inst, midi) => pieces.urgent(inst, midi);
   }
 
   /** Music update failures: total, consecutive, the last error, and how often the director was reset. */

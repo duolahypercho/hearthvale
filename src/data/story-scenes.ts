@@ -28,7 +28,8 @@ export type Ease = 'inOut' | 'out' | 'in' | 'linear';
 export type PropKind = 'lantern' | 'clipboard' | 'paperLantern';
 
 export type Cmd =
-  | { do: 'fade'; to: 'black' | 'clear'; dur?: number }
+  /** `wait: false` lets the scene carry on while the fade runs (a cut that starts moving as it opens). */
+  | { do: 'fade'; to: 'black' | 'clear'; dur?: number; wait?: boolean }
   | { do: 'letterbox'; on: boolean }
   | { do: 'map'; map: string; x: number; z: number; facing?: Facing }
   | { do: 'time'; hour: number; day?: number; season?: Season }
@@ -45,7 +46,7 @@ export type Cmd =
   | { do: 'choice'; who: string; text: string; options: { label: string; hint?: string; flag: string; value: string; then?: string }[] }
   | { do: 'wait'; t: number }
   /** `low`: narration set along the bottom of the frame (keeps the action visible) instead of a centred title. */
-  | { do: 'caption'; text: string; sub?: string; dur?: number; low?: boolean }
+  | { do: 'caption'; text: string; sub?: string; dur?: number; low?: boolean; wait?: boolean }
   | { do: 'letter'; id: string }
   | { do: 'cue'; cue: string; arg?: string; t?: number }
   | { do: 'player'; visible: boolean }
@@ -94,8 +95,16 @@ const STEPS = { x: 32, z: 14.9 };
 const STORE = { x: 21.2, z: 21.3 };
 
 /** Intro blocking at the coach stop: the farmer by the coach door, Hollis up the lane. */
-const ARR_P: P2 = [STOP.x - 0.5, STOP.z + 0.85];
-const ARR_H: P2 = [STOP.x + 2.35, STOP.z + 0.2];
+const ARR_P: P2 = [STOP.x - 0.2, STOP.z + 1.6];
+const ARR_H: P2 = [STOP.x + 1.95, STOP.z + 1.15];
+/**
+ * The arrival two-shot: a low frontal from the south verge — the farmer (left, coach and its lamps
+ * behind) and Hollis with his lantern (right), both three-quarter to the lens, the lane rising to the
+ * square between them.
+ */
+const ARR_CAM: CamKey = { x: STOP.x + 0.75, z: STOP.z + 1.3, y: 1.15, yaw: -6, pitch: 17, dist: 8.8 };
+/** The coach's door (its fold-down step) when parked at the stop (story-world COACH_PARK + the door offset). */
+const COACH_DOOR: P2 = [STOP.x - 2.2 + 0.8, STOP.z - 0.7 + 1.2];
 /** The farmhouse porch. */
 const FARM_P: P2 = [30.4, 21.3];
 const FARM_H: P2 = [32.5, 20.5];
@@ -114,7 +123,7 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'letterbox', on: true },
     // Load the valley behind the painted coach window while the letter is read.
     { do: 'map', map: 'town', x: STOP.x - 1, z: STOP.z + 1.4 },
-    { do: 'time', hour: 19.15, day: 1, season: 'spring' },
+    { do: 'time', hour: 19.45, day: 1, season: 'spring' },
     { do: 'player', visible: false },
     { do: 'cue', cue: 'coach:place', arg: 'offstage' },
     { do: 'backdrop', kind: 'coach' },
@@ -138,12 +147,15 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'mark', id: 'establish' },
     // Two-shot, near side-on: the farmer three-quarter from behind on the left, Hollis three-quarter to
     // the lens on the right, clear air between them.
-    { do: 'cam', to: ots(ARR_P, ARR_H, { side: 1, off: 30, dist: 11, pitch: 34, y: 1.0 }), dur: 2.8, ease: 'inOut', wait: false },
+    { do: 'cam', to: ARR_CAM, dur: 2.8, ease: 'inOut', wait: false },
     { do: 'player', visible: true },
-    { do: 'walk', id: 'player', path: [[STOP.x - 1, STOP.z + 1.4], ARR_P], facing: 'right' },
+    // Down the coach's fold-down step and out onto the verge.
+    { do: 'walk', id: 'player', path: [[COACH_DOOR[0], COACH_DOOR[1] + 0.55], [COACH_DOOR[0] + 0.5, COACH_DOOR[1] + 1.1], ARR_P], facing: 'right' },
     { do: 'emote', id: 'hollis', emote: 'exclaim' },
     { do: 'walk', id: 'hollis', path: [ARR_H], speed: 1.3 },
-    { do: 'face', id: 'hollis', toward: 'player' },
+    // Stage-cheat both towards the lens: they face each other, turned three-quarter to the audience.
+    { do: 'face', id: 'hollis', at: [ARR_P[0] + 0.2, ARR_P[1] + 2.4] },
+    { do: 'face', id: 'player', at: [ARR_H[0], ARR_H[1] + 2.0] },
     { do: 'mark', id: 'arrival' },
     { do: 'say', who: 'hollis', text: 'There you are! The evening coach — right on time. Well. Forty minutes late, which for the evening coach is right on time.' },
     { do: 'say', who: 'hollis', text: "Hollis Pennyroyal. Mayor of Hearthvale. Also treasurer, and the fellow who winds the clock. It's a small town." },
@@ -164,8 +176,10 @@ export const SCENES: Record<string, Cmd[]> = {
     { do: 'fade', to: 'clear', dur: 1.2 },
     { do: 'walk', id: 'player', path: [FARM_P], facing: 'right', wait: false },
     { do: 'walk', id: 'hollis', path: [FARM_H], speed: 1.3 },
-    { do: 'face', id: 'hollis', toward: 'player' },
-    { do: 'cam', to: ots(FARM_P, FARM_H, { side: 1, off: 36, dist: 11.5, pitch: 28 }), dur: 2.4, ease: 'inOut', wait: false },
+    // Frontal two-shot with the old farmhouse behind them, both turned three-quarter to the lens.
+    { do: 'face', id: 'hollis', at: [FARM_P[0] + 0.4, FARM_P[1] + 2.6] },
+    { do: 'face', id: 'player', at: [FARM_P[0] + 1.6, FARM_P[1] + 2.4] },
+    { do: 'cam', to: { x: (FARM_P[0] + FARM_H[0]) / 2, z: (FARM_P[1] + FARM_H[1]) / 2 + 0.2, y: 1.25, yaw: -8, pitch: 19, dist: 10.5 }, dur: 2.4, ease: 'inOut', wait: false },
     { do: 'mark', id: 'farm' },
     { do: 'say', who: 'hollis', text: "Here we are. She's, ah... she's got good bones." },
     { do: 'emote', id: 'hollis', emote: 'sweat' },
@@ -526,13 +540,17 @@ function finaleScene(glimmer: boolean): Cmd[] {
         { do: 'say', who: 'hollis', text: 'Would you do the honours?' },
       ];
   const crowd = [...(glimmer ? CROWD_W.slice(0, 3) : CROWD_W), ...(glimmer ? CROWD_E.slice(2, 4) : CROWD_E), ...(glimmer ? [] : ['sterling'])];
-  // The farmer and three friends on the west edge of the square, backs to the lens, the lit lane ahead.
-  const SIL: P2 = [19.8, 25.9];
+  // The last shot: the farmer and four friends on the south lane, a shallow arc facing the lens.
+  const END_P: P2 = [32.1, 30.55];
+  const END_H: P2 = [31.0, 30.15];
+  const END_M: P2 = [29.9, 30.75];
+  const END_K: P2 = [33.2, 30.2];
+  const END_J: P2 = [34.3, 30.85];
   return [
     { do: 'hud', on: false },
     { do: 'fade', to: 'black', dur: 0.8 },
     { do: 'letterbox', on: true },
-    { do: 'map', map: 'town', x: STEPS.x - 3.3, z: STEPS.z + 4.1, facing: 'up' },
+    { do: 'map', map: 'town', x: STEPS.x - 2.2, z: STEPS.z + 6.6, facing: 'up' },
     { do: 'time', hour: 19.9 },
     { do: 'cue', cue: glimmer ? 'festival:onGlimmer' : 'festival:on' },
     // The square's own festoons would string across the lens in every shot of the steps.
@@ -561,37 +579,45 @@ function finaleScene(glimmer: boolean): Cmd[] {
     { do: 'mark', id: 'sky' },
     { do: 'caption', text: 'The lanterns go up over the Hall.', sub: 'And down in the valley, one by one, the lane lights answer.', dur: 3.6, low: true },
     { do: 'fade', to: 'black', dur: 1.0 },
-    // The whole valley: a crane from over the square out along the west lane as its lanterns light
-    // outward from the Hall, settling low behind the farmer and friends in silhouette.
+    // The whole valley, then the people in it: a high crane over the square as the lanes light outward
+    // from the Hall (west lane, plaza ring, the Hall approach, the south and east lanes), settling to a
+    // low three-quarter in front of the farmer and friends on the south lane — faces warm in their own
+    // lanterns, breath in the cold, neighbours filling the lit square behind them up to the Hall.
     ...crowd.map((id): Cmd => ({ do: 'remove', id })),
     { do: 'remove', id: 'hollis' },
-    { do: 'map', map: 'town', x: SIL[0], z: SIL[1], facing: 'left' },
+    { do: 'map', map: 'town', x: END_P[0], z: END_P[1], facing: 'down' },
     { do: 'time', hour: 21.2 },
-    { do: 'actor', id: 'hollis', x: SIL[0] + 0.3, z: SIL[1] - 1.2, yaw: -100, prop: 'lantern' },
-    { do: 'actor', id: 'marigold', x: SIL[0] + 0.4, z: SIL[1] + 1.25, yaw: -80, prop: 'paperLantern' },
-    { do: 'actor', id: 'kit', x: SIL[0] - 0.3, z: SIL[1] + 0.75, yaw: -95, prop: 'paperLantern' },
-    { do: 'cam', to: { x: 25.5, z: 24.6, y: 1.2, yaw: 58, pitch: 34, dist: 16 }, dur: 0 },
-    { do: 'fade', to: 'clear', dur: 0.9 },
+    { do: 'hide', names: ['finale-strings'] },
+    { do: 'actor', id: 'hollis', x: END_H[0], z: END_H[1], yaw: 14, prop: 'lantern' },
+    { do: 'actor', id: 'marigold', x: END_M[0], z: END_M[1], yaw: 28, prop: 'paperLantern' },
+    { do: 'actor', id: 'kit', x: END_K[0], z: END_K[1], yaw: -14, prop: 'paperLantern' },
+    { do: 'actor', id: 'june', x: END_J[0], z: END_J[1], yaw: -30, prop: 'paperLantern' },
+    // Neighbours up the lane and round the fountain, lanterns raised to the sky.
+    { do: 'crowd', ids: glimmer ? ['bram'] : ['bram', 'odessa'], x: 32, z: 24.9, radius: 4.2, a0: -118, a1: -92, face: { x: 32, z: 14 }, prop: 'paperLantern' },
+    { do: 'crowd', ids: glimmer ? ['tobias'] : ['tobias', 'sterling'], x: 32, z: 24.9, radius: 4.2, a0: 92, a1: 118, face: { x: 32, z: 14 }, prop: 'paperLantern' },
+    { do: 'cue', cue: 'festival:close', arg: [END_P, END_H, END_M, END_K, END_J].map((q) => q.join(',')).join(';') },
+    { do: 'cam', to: { x: 32, z: 21.4, y: 1.0, yaw: 14, pitch: 58, dist: 36 }, dur: 0 },
+    { do: 'fade', to: 'clear', dur: 0.8 },
     { do: 'cue', cue: 'festival:valley', t: 0.4 },
+    { do: 'mark', id: 'crane' },
     {
       do: 'rail',
       keys: [
-        { x: 25.5, z: 24.6, y: 1.2, yaw: 58, pitch: 34, dist: 16 },
-        { x: 18.5, z: 25.6, y: 1.0, yaw: 72, pitch: 40, dist: 26 },
-        // Settle high behind the farmer and friends (the lens stays up over the lane posts, never
-        // among them): the lit lane recedes up the frame towards the farm.
-        { x: 15.0, z: 25.9, y: 1.0, yaw: 86, pitch: 35, dist: 22 },
-        { x: 14.0, z: 25.6, y: 1.0, yaw: 96, pitch: 33, dist: 21 },
+        { x: 32, z: 21.4, y: 1.0, yaw: 14, pitch: 58, dist: 36 },
+        { x: 32, z: 24, y: 1.0, yaw: 8, pitch: 40, dist: 30 },
+        { x: 32, z: 27.5, y: 2.0, yaw: 4, pitch: 14, dist: 17 },
+        { x: 32.1, z: 27.8, y: 2.8, yaw: 4, pitch: 3, dist: 11.5 },
       ],
-      dur: 8.5,
+      dur: 9,
     },
+    { do: 'emote', id: 'kit', emote: 'sparkle', wait: false },
+    { do: 'emote', id: 'player', emote: 'heart', wait: false },
     { do: 'mark', id: 'valley' },
     { do: 'caption', text: 'For one night, the whole valley glows like a hearth.', dur: 4.5, low: true },
     { do: 'wait', t: 1.2 },
     { do: 'fade', to: 'black', dur: 2 },
-    { do: 'remove', id: 'hollis' },
-    { do: 'remove', id: 'marigold' },
-    { do: 'remove', id: 'kit' },
+    ...(['hollis', 'marigold', 'kit', 'june', ...(glimmer ? ['bram', 'tobias'] : ['bram', 'odessa', 'tobias', 'sterling'])].map((id): Cmd => ({ do: 'remove', id }))),
+    { do: 'cue', cue: 'festival:closeOff' },
     { do: 'flag', key: 'festival', value: 'done' },
     { do: 'caption', text: 'Thank you for playing', sub: 'The valley keeps going. So can you.', dur: 3.5 },
     { do: 'letterbox', on: false },
@@ -616,58 +642,66 @@ const PEEKERS: Record<string, [string, string]> = {
 };
 
 /**
- * Room restored — a hero composition, not a security-camera view:
- *   1. wide on thirds: the dark lantern on the left third, the farmer and two villagers on the right
- *      third, all 1.4–2.6 m from the plinth and turned *to* it (three-quarter faces to the lens);
- *   2. the lantern ignites while the lens dollies in from 9 m to 5.5 m over 2.5 s;
- *   3. a reaction shot from beside the lantern: their faces in its new light;
- *   then out to the valley to see what came back.
+ * Room restored — staged for faces, not backs:
+ *   1. the cast walk in from the arch to a shallow arc *behind* the dark lantern (the lens side is the
+ *      room's open front), every mark >= 1.2 m from the next, all turned to the lantern — so from the
+ *      front-quarter lens they read three-quarter to camera with the cage in the foreground;
+ *   2. the lantern ignites while the lens eases in;
+ *   3. a reaction cut: a close two-shot of the farmer and a neighbour, faces in the new light, a heart
+ *      and a sparkle; then a 0.6 s dip through black (letterbox held, the chime and the restoration's
+ *      title already playing) out to the valley to see what came back.
+ * Marks were picked against every room's furniture footprints (the cider table, the tanks, the loom).
  */
 export function roomScene(room: RoomDef, town: { x: number; z: number; y?: number; yaw: number; pitch: number; dist: number }): Cmd[] {
   // `s` = direction from the room's outer wall towards the nave (+1 west wing, -1 east wing).
   const s = room.x < 15 ? 1 : -1;
   const L: P2 = [room.x + s * 0.4, room.z - 0.6];
-  const archX = s > 0 ? 11.55 : 18.45;
+  const at = (u: number, v: number): P2 => [L[0] + s * u, L[1] + v];
+  const archX = s > 0 ? 11.4 : 18.6;
   const [a, b] = PEEKERS[room.id] ?? ['hazel', 'kit'];
-  const PL: P2 = [L[0] + s * 1.45, L[1] + 1.05];
-  const A: P2 = [L[0] + s * 2.55, L[1] + 0.05];
-  const B: P2 = [L[0] + s * 2.35, L[1] + 1.95];
-  // Look between the lantern and the faces; the lens sits out front on the lantern's side (yaw ±48°):
-  // lantern on one third, three faces turned to it on the other.
-  const look = { x: L[0] + s * 1.35, z: L[1] + 0.75, y: 1.15 };
-  // Lenses sit far enough back (>= 10 m at the 35° lens) that the chibi rigs stay in the lower two thirds of the frame
-  // with the room around them: at 5–6 m their heads filled the frame edge to edge.
-  const wide: CamKey = { ...look, yaw: -s * 44, pitch: 36, dist: 13 };
-  const push: CamKey = { ...look, x: look.x - s * 0.1, yaw: -s * 50, pitch: 33, dist: 10.5 };
-  // Reaction: from beyond the lantern (off its shoulder, high enough to see over it), the faces lit.
-  const react: CamKey = { x: L[0] + s * 1.9, z: L[1] + 0.9, y: 1.2, yaw: -s * 70, pitch: 30, dist: 11 };
+  // The arc behind the lantern: B upstage-left of it, the farmer and A to its nave side.
+  const PL = at(1.3, -0.95);
+  const A = at(2.3, -0.2);
+  const B = at(-0.5, -1.2);
+  const look = { x: L[0] + s * 0.75, z: L[1] - 0.45, y: 1.15 };
+  // Front quarter from the outer-wall side: the cage on the left third, three faces turned to it.
+  const wide: CamKey = { ...look, yaw: -s * 25, pitch: 31, dist: 10.5 };
+  const push: CamKey = { ...look, yaw: -s * 22, pitch: 29, dist: 8.4 };
+  // Reaction: close two-shot on the farmer and A, the lantern burning just off the left of frame.
+  const mid = { x: (PL[0] + A[0]) / 2, z: (PL[1] + A[1]) / 2 };
+  const react: CamKey = { x: mid.x, z: mid.z, y: 1.35, yaw: -s * 38, pitch: 21, dist: 7.6 };
   return [
     { do: 'hud', on: false },
     { do: 'letterbox', on: true },
-    { do: 'actor', id: a, x: archX, z: L[1] - 0.2, facing: s > 0 ? 'left' : 'right' },
-    { do: 'actor', id: b, x: archX + s * 0.5, z: L[1] + 1.6, facing: s > 0 ? 'left' : 'right' },
+    { do: 'actor', id: a, x: archX, z: room.z - 0.4, facing: s > 0 ? 'left' : 'right' },
+    { do: 'actor', id: b, x: archX, z: room.z + 0.8, facing: s > 0 ? 'left' : 'right' },
     { do: 'cam', to: wide, dur: 1.4, ease: 'inOut', wait: false },
-    { do: 'walk', id: 'player', path: [PL], speed: 2.2, wait: false },
+    { do: 'walk', id: 'player', path: [at(2.1, -1.05), PL], speed: 2.2, wait: false },
     { do: 'walk', id: a, path: [A], speed: 1.6, wait: false },
-    { do: 'walk', id: b, path: [B], speed: 1.6 },
+    { do: 'walk', id: b, path: [at(2.6, -2.3), at(0.8, -2.1), B], speed: 1.9 },
     { do: 'face', id: 'player', at: L },
     { do: 'face', id: a, at: L },
     { do: 'face', id: b, at: L },
-    { do: 'wait', t: 0.3 },
+    { do: 'wait', t: 0.35 },
     { do: 'cue', cue: 'hall:ignite', arg: room.id },
     { do: 'cue', cue: 'sfx', arg: 'hall' },
     { do: 'cam', to: push, dur: 2.5, ease: 'out', wait: false },
-    { do: 'wait', t: 0.9 },
+    { do: 'wait', t: 0.7 },
     { do: 'emote', id: a, emote: 'exclaim', wait: false },
     { do: 'mark', id: 'ignite' },
-    { do: 'caption', text: `${room.name} is restored`, sub: `The ${room.lantern} burns again.`, dur: 2.6, low: true },
+    { do: 'caption', text: `${room.name} is restored`, sub: `The ${room.lantern} burns again.`, dur: 2.4, low: true },
+    // Reaction cut: still turned to the lantern, their faces in its light.
     { do: 'cam', to: react, dur: 0 },
-    { do: 'emote', id: b, emote: 'heart', wait: false },
+    { do: 'emote', id: a, emote: 'heart', wait: false },
     { do: 'emote', id: 'player', emote: 'sparkle', wait: false },
-    { do: 'cam', to: { ...react, dist: 10, yaw: react.yaw + s * 6 }, dur: 2.6, ease: 'out', wait: false },
+    { do: 'emote', id: b, emote: 'note', wait: false },
+    { do: 'cam', to: { ...react, dist: 6.8, yaw: react.yaw + s * 5 }, dur: 2.6, ease: 'out', wait: false },
     { do: 'mark', id: 'react' },
-    { do: 'wait', t: 2.2 },
-    { do: 'fade', to: 'black', dur: 0.9 },
+    { do: 'wait', t: 2.0 },
+    // Out to the valley: a 0.6 s dip through black with the bars held and the restoration's title and
+    // chime already playing over it (the town is built behind the altar, so the cut never hitches).
+    { do: 'fade', to: 'black', dur: 0.6 },
+    { do: 'caption', text: room.restores.title, sub: room.restores.text, dur: 4.2, low: true, wait: false },
     { do: 'remove', id: a },
     { do: 'remove', id: b },
     { do: 'map', map: 'town', x: 32, z: 29.4, facing: 'up' },
@@ -676,17 +710,20 @@ export function roomScene(room: RoomDef, town: { x: number; z: number; y?: numbe
     { do: 'hide', names: ['festoon-bulbs', 'festoon-cords'] },
     { do: 'cue', cue: 'town:restore', arg: room.id },
     { do: 'cam', to: { y: 1.2, ...town }, dur: 0 },
-    { do: 'fade', to: 'clear', dur: 1 },
+    { do: 'fade', to: 'clear', dur: 0.7, wait: false },
     { do: 'cam', to: { y: 1.2, ...town, dist: town.dist * 0.82 }, dur: 4, ease: 'out', wait: false },
-    { do: 'cue', cue: 'town:reveal', arg: room.id, t: 1.8 },
+    { do: 'cue', cue: 'town:reveal', arg: room.id, t: 1.6 },
     { do: 'mark', id: 'reveal' },
-    { do: 'caption', text: room.restores.title, sub: room.restores.text, dur: 3, low: true },
-    { do: 'fade', to: 'black', dur: 0.9 },
+    { do: 'wait', t: 2.6 },
+    { do: 'fade', to: 'black', dur: 0.6 },
     { do: 'map', map: 'hall', x: PL[0], z: PL[1] + 0.6, facing: 'up' },
+    // Back in on the gameplay framing (the lens was still parked at the town pose: the fade opened on
+    // the Hall's empty lawn for a beat before the follow camera swung home).
+    { do: 'cam', to: { x: PL[0], z: PL[1] + 0.6, y: 0.8, yaw: 0, pitch: 50, dist: 24 }, dur: 0 },
     { do: 'player', visible: true },
     { do: 'letterbox', on: false },
     { do: 'hud', on: true },
-    { do: 'fade', to: 'clear', dur: 0.8 },
+    { do: 'fade', to: 'clear', dur: 0.7 },
   ];
 }
 
@@ -694,8 +731,9 @@ export function roomScene(room: RoomDef, town: { x: number; z: number; y?: numbe
 export const RESTORE_SHOTS: Record<string, { x: number; z: number; y?: number; yaw: number; pitch: number; dist: number }> = {
   seed: { x: 32, z: 14.6, y: 2.75, yaw: 14, pitch: 18, dist: 16 },
   sun: { x: 40.5, z: 27.5, yaw: -18, pitch: 34, dist: 15 },
-  // High over the rooftops, looking down the lane the lanterns now line.
-  harvest: { x: 12.5, z: 26.2, yaw: -6, pitch: 50, dist: 19 },
+  // Up the lane from the farm end: the new lanterns lead in pairs towards the square (a straight
+  // top-down read as a map, with a tree crown blotting out the top of the frame).
+  harvest: { x: 16, z: 26.4, yaw: -84, pitch: 34, dist: 18 },
   // Up on the roofline, so the smoking chimney is in shot.
   hearth: { x: 34, z: 9.6, y: 4.4, yaw: -10, pitch: 13, dist: 21 },
   // Close on one plaza lamp and its basket (the other three read in the background).

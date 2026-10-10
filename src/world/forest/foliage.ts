@@ -534,7 +534,12 @@ export const seeThrough = {
    */
   uOccVP: { value: new THREE.Matrix4() },
   uOccBuf: { value: new THREE.Vector2(1920, 1080) },
+  /** Farmer-sized body window (trunks): centre (buffer px, mid-body) + radii (px, from his projected height). */
+  uOccBodyC: { value: new THREE.Vector2(-1e4, -1e4) },
+  uOccBodyR: { value: new THREE.Vector2(1, 1) },
 };
+const _f = new THREE.Vector3();
+const _h = new THREE.Vector3();
 
 const _v = new THREE.Vector3();
 /**
@@ -549,6 +554,12 @@ export function updateSeeThrough(camera: THREE.Camera, player: THREE.Vector3, bu
   seeThrough.uOccPlayer.value.copy(player);
   seeThrough.uOccVP.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   seeThrough.uOccBuf.value.set(bufW, bufH);
+  // Body window: feet → hat top projected, so it fits the farmer at any zoom (hat included).
+  _f.copy(player).project(camera);
+  _h.copy(player).add(new THREE.Vector3(0, 2.05, 0)).project(camera);
+  const hpx = Math.max(24, Math.abs(_h.y - _f.y) * 0.5 * bufH);
+  seeThrough.uOccBodyC.value.set(((_f.x + _h.x) * 0.25 + 0.5) * bufW, ((_f.y + _h.y) * 0.25 + 0.5) * bufH);
+  seeThrough.uOccBodyR.value.set(hpx * 0.42, hpx * 0.66);
 }
 
 const IGN = 'float hvIgn(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }';
@@ -560,11 +571,11 @@ const IGN = 'float hvIgn(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0
  * wide ~44 px feather, so the canopy parts into leafy clumps instead of a pixel screen door.
  * Trunks never use this (they stay solid). `keepExpr` (GLSL) can force fragments solid.
  */
-export function applySeeThrough<M extends THREE.Material>(m: M, near = 3, nearRange = 5, keepExpr = '0.0'): M {
-  return patchMaterial(m, `hv-see-through2:${near}:${nearRange}:${keepExpr}`, (shader) => {
+export function applySeeThrough<M extends THREE.Material>(m: M, near = 3, nearRange = 5, keepExpr = '0.0', bodyWindow = false): M {
+  return patchMaterial(m, `hv-see-through2:${near}:${nearRange}:${keepExpr}:${bodyWindow ? 1 : 0}`, (shader) => {
     Object.assign(shader.uniforms, seeThrough);
     let fs = shader.fragmentShader;
-    fs = before(fs, 'void main() {', `uniform vec2 uOccCenter;\nuniform float uOccRadius;\nuniform float uOccDepth;\nuniform vec3 uOccPlayer;\nuniform mat4 uOccVP;\nuniform vec2 uOccBuf;\n${IGN}`);
+    fs = before(fs, 'void main() {', `uniform vec2 uOccCenter;\nuniform float uOccRadius;\nuniform float uOccDepth;\nuniform vec3 uOccPlayer;\nuniform mat4 uOccVP;\nuniform vec2 uOccBuf;\nuniform vec2 uOccBodyC;\nuniform vec2 uOccBodyR;\nfloat hvCutRim = 0.0;\n${IGN}`);
     fs = after(
       fs,
       'void main() {',
@@ -586,6 +597,17 @@ export function applySeeThrough<M extends THREE.Material>(m: M, near = 3, nearRa
         float hvNear = (1.0 - smoothstep(0.75, 1.25, length(vHvWorldPos.xz - uOccPlayer.xz))) * (1.0 - smoothstep(1.7, 2.3, vHvWorldPos.y - uOccPlayer.y));
         hvHole = max(hvHole, hvNear * smoothstep(uOccDepth + 0.8, uOccDepth - 0.3, hvCamD));
         hvKeep = min(hvKeep, max(1.0 - hvHole, clamp(${keepExpr}, 0.0, 1.0)));
+        ${bodyWindow ? `
+        // Solid trunks still open a clean, farmer-sized oval window when they stand between the lens
+        // and the farmer (never lose the player behind a 2 m bole): a crisp cut with a soft dark lip
+        // (reads as a deliberate cut-away, not a screen door), only for bark nearer than the farmer.
+        {
+          float hvBodyD = length((hvScr - uOccBodyC) / uOccBodyR);
+          float hvCutR = 0.97 + 0.06 * hvNoise(vHvWorldPos.xz * 2.3 + vHvWorldPos.y * 1.7);
+          float hvBodyFront = smoothstep(uOccDepth - 0.5, uOccDepth - 1.2, hvCamD);
+          if (hvBodyD < hvCutR && hvBodyFront > 0.5) discard;
+          hvCutRim = (1.0 - smoothstep(hvCutR, hvCutR + 0.16, hvBodyD)) * hvBodyFront;
+        }` : ''}
         if (hvKeep < 0.999) {
           vec3 hvQ = vHvWorldPos * 3.1;
           // Pure world-space erosion (no per-pixel noise: that is what read as a screen-door hatch).
@@ -594,6 +616,7 @@ export function applySeeThrough<M extends THREE.Material>(m: M, near = 3, nearRa
         }
       }`,
     );
+    if (bodyWindow) fs = after(fs, '#include <color_fragment>', 'diffuseColor.rgb *= 1.0 - 0.5 * hvCutRim;');
     shader.fragmentShader = fs;
   });
 }

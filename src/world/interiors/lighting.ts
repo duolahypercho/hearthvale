@@ -26,7 +26,7 @@ export function installInteriorLighting(game: Game): void {
   const prevBefore = scene.onBeforeRender;
   const prevAfter = scene.onAfterRender;
   const hidden: THREE.Object3D[] = [];
-  let saved: { wet: number; snow: number; rain: number; bias: number; normalBias: number } | null = null;
+  let saved: { wet: number; snow: number; rain: number; bias: number; normalBias: number; shadowK: number } | null = null;
   const center = new THREE.Vector3();
 
   scene.onBeforeRender = function (...args) {
@@ -37,6 +37,9 @@ export function installInteriorLighting(game: Game): void {
     for (const o of scene.children) {
       if (!o.visible || o === room.root || o === game.player.root || (o as THREE.Light).isLight || o === game.rc.camera) continue;
       if (o.userData.indoors) continue;
+      // Co-op: other farmers in this room render too (r10: they were hidden with the outdoor world —
+      // the host saw only a floating name pill where the farmhand stood in the coop).
+      if (o.name === 'remote-farmer') continue;
       if ((o as THREE.Object3D).type === 'Object3D' && o.children.length === 0) continue; // light targets
       o.visible = false;
       hidden.push(o);
@@ -80,10 +83,16 @@ export function installInteriorLighting(game: Game): void {
     g.uVignette!.value = L.vignette;
     game.rc.post.setBloom(L.bloom, 0.9);
     // 3. Outdoor-only shader globals.
-    if (!saved) saved = { wet: globalUniforms.uWet.value, snow: globalUniforms.uSnow.value, rain: globalUniforms.uRain.value, bias: sun.shadow.bias, normalBias: sun.shadow.normalBias };
+    if (!saved) saved = { wet: globalUniforms.uWet.value, snow: globalUniforms.uSnow.value, rain: globalUniforms.uRain.value, bias: sun.shadow.bias, normalBias: sun.shadow.normalBias, shadowK: sun.shadow.intensity };
     // Grazing window light: push the lookup off the surface along the normal (hat brims, animal backs).
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.035;
+    // (r8: moonlight is a soft fill, not a key — at full strength the farmer threw a black wedge from the
+    // back windows across the lamp-lit floor straight at the lens; the shadow fades to 40 % by night)
+    // (r13: 20 % by night — the farmer's moon shadow still lay across the foreground floor as a big wedge)
+    // (r24: 8 % — at 20 % the farmer's moon shadow still ran as a long dark wedge from their feet to the
+    // sofa in house-night; the lamps don't cast, so the moon's shadow was the only one and read as a stain)
+    sun.shadow.intensity = THREE.MathUtils.lerp(0.8, 0.08, L.night);
     globalUniforms.uWet.value = 0;
     globalUniforms.uSnow.value = 0;
     globalUniforms.uRain.value = 0;
@@ -105,6 +114,7 @@ export function installInteriorLighting(game: Game): void {
       globalUniforms.uRain.value = saved.rain;
       game.lighting.sun.shadow.bias = saved.bias;
       game.lighting.sun.shadow.normalBias = saved.normalBias;
+      game.lighting.sun.shadow.intensity = saved.shadowK;
       saved = null;
     }
   };

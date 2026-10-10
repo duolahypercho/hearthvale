@@ -192,7 +192,8 @@ export class GroundScatter {
     });
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = true;
-    this.mesh.userData.noAO = true;
+    // Petals / leaves take the contact shade (they sat on the grass as glowing white specks).
+    this.mesh.userData.noAO = kind === 'confetti';
     this.mesh.name = `scatter-${kind}`;
     this.mesh.computeBoundingSphere();
   }
@@ -449,7 +450,9 @@ export class Fireworks {
                 a *= (1.0 - tr / LT) * step(0.0, tbRaw) * 1.25;
                 // Streaks belong to the fast opening only: once the stars slow and fall they are
                 // glitter points (long vertical tails on falling stars read as rain on the water).
-                a *= 1.0 - smoothstep(0.12, 0.3, f);
+                // (r8: kept on longer — every trailing star is a short motion-stretched streak, not a
+                // round dot; by the time they droop they move slowly, so the streak is short.)
+                a *= 1.0 - smoothstep(0.42, 0.78, f);
                 col = base * 1.25;
                 #else
                 size *= 0.8;
@@ -615,6 +618,8 @@ export interface LanternOptions {
   rng: Rng;
   /** Optional explicit base points (x, z). */
   points?: [number, number][];
+  /** Emissive / halo strength (1 = full; lower keeps the paper's warm gradient out of the white). */
+  glow?: number;
 }
 
 export class Lanterns {
@@ -635,12 +640,12 @@ export class Lanterns {
     }
     const aBase = new THREE.InstancedBufferAttribute(base, 4);
     g.setAttribute('aBase', aBase);
-    const U = { uSeaY: { value: o.seaY }, uMode: { value: o.mode === 'float' ? 0 : 1 }, uArea: { value: o.area.clone() } };
+    const U = { uSeaY: { value: o.seaY }, uMode: { value: o.mode === 'float' ? 0 : 1 }, uArea: { value: o.area.clone() }, uGlowK: { value: o.glow ?? 1 } };
     const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.65, side: THREE.DoubleSide });
     m.name = `lantern-${o.mode}`;
     patchMaterial(m, `lanterns-${o.mode}`, (shader) => {
       Object.assign(shader.uniforms, U, { uTime: globalUniforms.uTime, uLamps: globalUniforms.uLamps });
-      let vs = before(shader.vertexShader, 'void main() {', `attribute vec4 aBase; attribute float aGlow; varying float vGlow; uniform float uTime; uniform float uSeaY; uniform float uMode; uniform vec4 uArea;\n${LANTERN_MOTION}`);
+      let vs = before(shader.vertexShader, 'void main() {', `attribute vec4 aBase; attribute float aGlow; varying float vGlow; varying float vLy; uniform float uTime; uniform float uSeaY; uniform float uMode; uniform vec4 uArea;\n${LANTERN_MOTION}`);
       vs = after(
         vs,
         '#include <begin_vertex>',
@@ -651,11 +656,14 @@ export class Lanterns {
           float sw = sin(uTime * 1.1 + aBase.z * 20.0) * (uMode > 0.5 ? 0.12 : 0.06);
           transformed = vec3(transformed.x * cos(sw) - transformed.y * sin(sw), transformed.x * sin(sw) + transformed.y * cos(sw), transformed.z) * f + lp;
           vGlow = aGlow * (0.85 + 0.15 * sin(uTime * 9.0 + aBase.z * 50.0) * sin(uTime * 13.0 + aBase.w * 30.0));
+          vLy = position.y;
         }`,
       );
       shader.vertexShader = vs;
-      let fs = before(shader.fragmentShader, 'void main() {', 'varying float vGlow; uniform float uLamps;');
-      fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += diffuseColor.rgb * diffuseColor.rgb * vGlow * (0.6 + uLamps * 2.2);');
+      let fs = before(shader.fragmentShader, 'void main() {', 'varying float vGlow; varying float vLy; uniform float uLamps; uniform float uGlowK;');
+      // Candle-lit paper: hottest just above the flame at the foot, falling off up the shade, so the
+      // lantern keeps a warm amber gradient instead of one clipped white blob.
+      fs = after(fs, '#include <emissivemap_fragment>', 'totalEmissiveRadiance += diffuseColor.rgb * diffuseColor.rgb * vGlow * (0.6 + uLamps * 2.2) * uGlowK * mix(1.25, 0.55, smoothstep(0.02, 0.3, vLy));');
       shader.fragmentShader = fs;
     });
     const mesh = new THREE.Mesh(g, m);
@@ -708,7 +716,7 @@ export class Lanterns {
             ${FOG_V}
           }`,
         fragmentShader: /* glsl */ `
-          uniform float uLamps; uniform float uStreak;
+          uniform float uLamps; uniform float uStreak; uniform float uGlowK;
           varying vec2 vUv; varying float vF; varying float vFl;
           ${FOG_PARS_F}
           void main() {
@@ -722,7 +730,7 @@ export class Lanterns {
               float r = length(d) * 2.0;
               a = exp(-r * r * 5.0) * 0.55 + exp(-r * r * 30.0) * 0.4;
             }
-            vec3 c = vec3(1.0, 0.5, 0.18) * a * vF * vFl * (0.15 + uLamps * (uStreak > 0.5 ? 1.1 : 0.55));
+            vec3 c = vec3(1.0, 0.5, 0.18) * a * vF * vFl * (0.15 + uLamps * (uStreak > 0.5 ? 1.1 : 0.55)) * uGlowK;
             gl_FragColor = vec4(c, 1.0);
             #ifdef USE_FOG
               float fogDepth2 = vFogDepth;
@@ -1377,6 +1385,16 @@ export interface NightSkyOptions {
   stars?: number;
   /** Zenith colour at dusk (blended toward `zenith` as night falls); default = zenith. */
   zenithDusk?: number;
+  /**
+   * Elevation (sin) where the horizon haze has given way to the night zenith (default 0.5). A low
+   * camera that sees only a thin band of sky over a ridge wants it low (~0.18): deep blue-black
+   * with stars right down to the treeline, not a band of fog colour.
+   */
+  band?: number;
+  /** Aurora brightness multiplier (default 1). */
+  auroraGain?: number;
+  /** Horizon brightness relative to the scene fog colour (default 1). */
+  horizonK?: number;
 }
 
 /**
@@ -1410,6 +1428,9 @@ export class NightSky {
         uAurora: this.aurora,
         uStars: { value: o.stars ?? 1 },
         uStrength: this.strength,
+        uBand: { value: o.band ?? 0.5 },
+        uAuGain: { value: o.auroraGain ?? 1 },
+        uHzK: { value: o.horizonK ?? 1 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -1421,6 +1442,7 @@ export class NightSky {
       fragmentShader: /* glsl */ `
         uniform float uTime; uniform float uNight; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec3 uZenithDusk; uniform vec3 uGlow;
         uniform vec3 uMoon; uniform float uHasMoon; uniform float uAurora; uniform float uStars; uniform float uStrength;
+        uniform float uBand; uniform float uAuGain; uniform float uHzK;
         varying vec3 vDir;
         ${NOISE_GLSL}
         float curtain(float a, float e, float k, float t, out float vv) {
@@ -1428,25 +1450,30 @@ export class NightSky {
           float aa = a + 0.07 * sin(a * 4.0 - t * 0.35 + k * 2.1) + 0.03 * sin(a * 11.0 + t * 0.6 + k);
           // Hems hang low (1–5° up) so the curtains rise straight out of the treeline — the diorama
           // camera only ever sees a thin band of sky.
-          float hem = 0.018 + k * 0.022 + 0.02 * sin(aa * 2.2 + k * 1.7 + t * 0.05) + 0.012 * hvNoise(vec2(aa * 7.0 - t * 0.08, k * 3.0));
-          float H = 0.22 + 0.06 * hvNoise(vec2(aa * 3.0 + k * 5.0, t * 0.02));
+          // The hem rides clear of the treeline (5–11° up) and swings in big S-folds, so the bright
+          // green ribbon edge reads as a curtain — not just rays rising out of the trees.
+          // (r6: hems drop to 2–8° and the veils stand taller, so even the 16° Starfall postcard sees
+          // the curtains' bright lower edge and rays standing over the fir line.)
+          float hem = 0.036 + k * 0.02 + 0.03 * sin(aa * 3.1 + k * 1.7 + t * 0.05) + 0.016 * sin(aa * 7.3 - t * 0.11 + k) + 0.01 * hvNoise(vec2(aa * 7.0 - t * 0.08, k * 3.0));
+          float H = 0.26 + 0.07 * hvNoise(vec2(aa * 3.0 + k * 5.0, t * 0.02));
           float v = (e - hem) / H;
           vv = v;
           if (v < -0.08 || v > 1.0) return 0.0;
           float fold = hvNoise(vec2(aa * 10.0 - t * 0.12 + k * 7.0, 0.3));
           fold = 0.15 + 0.85 * smoothstep(0.25, 0.8, fold);
-          float rays = 0.4 + 0.6 * pow(hvNoise(vec2(aa * 140.0 + t * 0.25 + k * 31.0, k + v * 0.5)), 1.5);
+          float rays = 0.3 + 0.7 * pow(hvNoise(vec2(aa * 140.0 + t * 0.25 + k * 31.0, k + v * 0.5)), 1.6) + 0.35 * pow(hvNoise(vec2(aa * 42.0 - t * 0.1 + k * 13.0, 0.7)), 3.0);
           float lower = smoothstep(-0.08, 0.02, v);
-          float body = lower * (pow(1.0 - v, 1.6) * 0.7 + 1.6 * exp(-max(v, 0.0) * 9.0));
+          // A hot, crisp hem line + a soft glow just under it, then the veil fading upward.
+          float body = lower * (pow(1.0 - v, 1.8) * 0.55 + 2.2 * exp(-max(v, 0.0) * 14.0)) + 0.35 * exp(-abs(v + 0.03) * 40.0);
           float ends = smoothstep(-1.35, -0.85, a) * (1.0 - smoothstep(0.85, 1.35, a));
           return body * fold * rays * ends;
         }
         void main() {
           vec3 d = normalize(vDir);
           float e = d.y;
-          float up = smoothstep(-0.02, 0.5, e);
+          float up = smoothstep(-0.02, uBand, e);
           vec3 zen = mix(uZenithDusk, uZenith, smoothstep(0.2, 0.85, uNight));
-          vec3 col = mix(uHorizon, zen, pow(up, 0.7));
+          vec3 col = mix(uHorizon * uHzK, zen, pow(up, 0.7));
           // Afterglow band hugging the horizon.
           col += uGlow * exp(-max(e, 0.0) * 14.0) * smoothstep(-0.03, 0.01, e) * 0.9;
           // Stars (spherical cells), fading into the haze near the horizon.
@@ -1459,7 +1486,7 @@ export class NightSky {
           float r = length(f - off);
           float bright = step(1.0 - 0.14 * uStars, h) * (0.35 + 0.65 * hvHash12(cell + 7.7));
           float tw = 0.65 + 0.35 * sin(uTime * (1.5 + h * 3.0) + h * 40.0);
-          float star = bright * tw * smoothstep(0.22, 0.02, r) * smoothstep(0.03, 0.2, e) * smoothstep(0.25, 0.8, uNight);
+          float star = bright * tw * smoothstep(0.22, 0.02, r) * smoothstep(0.01, uBand * 0.4, e) * smoothstep(0.25, 0.8, uNight);
           vec3 starCol = mix(vec3(0.75, 0.85, 1.0), vec3(1.0, 0.9, 0.75), hvHash12(cell + 1.3));
           // Aurora curtains (three, nested).
           float t = uTime;
@@ -1468,7 +1495,10 @@ export class NightSky {
             for (int i = 0; i < 3; i++) {
               float k = float(i);
               float vv;
-              float c = curtain(az + k * 0.35 - 0.3, e, k, t, vv);
+              // Three separate curtains spread across the northern sky (west, centre, east), each its
+              // own width and hem height, so they read as distinct hanging veils — not one band.
+              float ck = k < 0.5 ? -0.62 : k < 1.5 ? 0.12 : 0.78;
+              float c = curtain((az - ck) * (1.7 + k * 0.25), e, k, t, vv);
               vec3 green = vec3(0.18, 1.0, 0.5);
               vec3 teal = vec3(0.12, 0.8, 0.78);
               vec3 violet = vec3(0.6, 0.25, 0.95);
@@ -1477,7 +1507,9 @@ export class NightSky {
               acol += cc * c * (1.0 - k * 0.22);
               au += c;
             }
-            acol *= uAurora * 0.55;
+            acol *= uAurora * 1.9 * uAuGain;
+            // (A gained-down aurora also keeps its colour: no channel past the bloom knee.)
+            if (uAuGain < 0.99) acol = min(acol, vec3(0.22, 0.95, 0.55));
             au *= uAurora;
           }
           star *= 1.0 - clamp(au * 0.9, 0.0, 0.85);
@@ -1488,8 +1520,11 @@ export class NightSky {
             float md = dot(d, uMoon);
             float disc = smoothstep(0.99984, 0.99991, md);
             float spots = 0.85 + 0.15 * hvNoise(d.xy * 900.0);
-            col = mix(col, vec3(1.0, 0.96, 0.86) * 0.95 * spots, disc);
-            col += vec3(0.5, 0.58, 0.8) * (pow(max(md, 0.0), 900.0) * 0.16 + pow(max(md, 0.0), 5000.0) * 0.3);
+            // (r8: a crisp disc held under the bloom knee — maria + a soft terminator — with a small
+            // tight halo, not a blown-out blur.)
+            float maria = smoothstep(0.45, 0.75, hvNoise(d.xz * 2600.0 + 3.0)) * 0.22;
+            col = mix(col, vec3(0.96, 0.93, 0.84) * 0.7 * (spots - maria), disc);
+            col += vec3(0.5, 0.58, 0.8) * (pow(max(md, 0.0), 2600.0) * 0.1 + pow(max(md, 0.0), 300.0) * 0.035) * (1.0 - disc);
           }
           gl_FragColor = vec4(col * uStrength, 1.0);
         }`,
