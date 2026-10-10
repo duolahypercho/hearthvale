@@ -494,11 +494,17 @@ export class Slime extends Monster {
       p.setY(i, yy + 0.18);
     }
     smoothNormals(geo);
-    const gelMat = monsterMat(pal.slime, { rough: 0.16, clearcoat: true, emissive: pal.slime, emissiveI: biome === 'lava' ? 0.5 : 0.12, rim: 0.9 });
+    const gelMat = monsterMat(pal.slime, { rough: 0.16, clearcoat: true, emissive: pal.slime, emissiveI: biome === 'lava' ? 0.5 : 0.28, rim: 1.3 });
     this.mats.push(gelMat);
     this.gel = new THREE.Mesh(geo, gelMat);
     this.gel.castShadow = true;
     this.body.add(this.gel);
+    // Ink outline: a dark inverted hull so the slime reads against any floor.
+    const hull = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.slimeCore).multiplyScalar(0.22), side: THREE.BackSide }));
+    hull.scale.setScalar(1.075);
+    hull.position.y = -0.03;
+    hull.userData.noAO = true;
+    this.body.add(hull);
     // Inner core shadow (seen through the glossy top as a darker belly band).
     const core = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 10), monsterMat(pal.slimeCore, { rough: 0.3, emissive: pal.slimeCore, emissiveI: biome === 'lava' ? 1.2 : 0.2, rim: 0.2 }));
     core.position.set(0, 0.2, -0.12);

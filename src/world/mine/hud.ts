@@ -43,8 +43,8 @@ const CSS = /* css */ `
 .hv-dmg-layer { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
 .hv-dmg { position:absolute; left:0; top:0; font-family: var(--font-head, 'Fredoka', system-ui); font-weight:700; font-size:42px; line-height:1; color:#fff;
   -webkit-text-stroke: 6px #3a1a0a; paint-order: stroke fill; text-shadow: 0 4px 0 rgba(40,15,5,.6); will-change: transform, opacity; white-space:nowrap; }
-.hv-dmg.crit { color:#ffd84a; font-size:56px; -webkit-text-stroke:7px #3a1a0a; text-shadow: 0 4px 0 rgba(40,15,5,.6), 0 0 18px rgba(255,190,40,.65); }
-.hv-dmg.player { color:#ff6a58; font-size:34px; -webkit-text-stroke:4px #2a0604; text-shadow: 0 3px 0 rgba(20,2,0,.7), 0 0 14px rgba(0,0,0,.55); }
+.hv-dmg.crit { color:#ffd84a; font-size:56px; -webkit-text-stroke:6px #3a1a0a; text-shadow: 0 4px 0 rgba(40,15,5,.6), 0 0 18px rgba(255,190,40,.65); }
+.hv-dmg.player { color:#ff6a58; font-size:40px; -webkit-text-stroke:6px #3a1a0a; text-shadow: 0 4px 0 rgba(40,15,5,.6), 0 0 14px rgba(0,0,0,.45); }
 .hv-dmg.loot { color:#fff4dc; font-size:22px; -webkit-text-stroke:3px #2a1a0c; text-shadow: 0 2px 0 rgba(20,10,4,.7); }
 .hv-dmg.info { color:#ffe9c4; font-size:22px; -webkit-text-stroke:4px #3a2410; }
 

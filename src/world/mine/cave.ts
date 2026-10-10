@@ -91,6 +91,9 @@ vec3 hvWallSlab(vec2 tp) {
 }
 `;
 
+/** Lantern (farmer) world position, written each frame by CaveLighting: the floor shader darkens and cools with distance from it. */
+export const caveLantern = { value: new THREE.Vector3(1e4, 0, 1e4) };
+
 export interface CaveBuild {
   group: THREE.Group;
   /** Walkable surface height (floor / ice / puddle surface). */
@@ -323,6 +326,7 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
     shader.uniforms.uCrack = uCrack;
     shader.uniforms.uFloorRough = uFloorRough;
     shader.uniforms.uRimCol = uRimCol;
+    shader.uniforms.uLantern = caveLantern;
     let vs = shader.vertexShader;
     vs = before(vs, 'void main() {', 'attribute float aWall; attribute float aVoid; attribute float aLava; attribute float aCrest;\nvarying float vWall; varying float vVoid; varying float vLava; varying float vCrest; varying vec3 vCW; varying vec3 vCN;');
     vs = after(vs, '#include <project_vertex>', 'vWall = aWall; vVoid = aVoid; vLava = aLava; vCrest = aCrest; vCW = (modelMatrix * vec4(transformed, 1.0)).xyz; vCN = normalize(mat3(modelMatrix) * objectNormal);');
@@ -331,7 +335,7 @@ export function buildCave(L: FloorLayout, rng: Rng): CaveBuild {
     fs = before(
       fs,
       'void main() {',
-      `uniform float uTime; uniform vec3 uGlint; uniform float uCrack; uniform float uFloorRough; uniform vec3 uRimCol;
+      `uniform float uTime; uniform vec3 uGlint; uniform float uCrack; uniform float uFloorRough; uniform vec3 uRimCol; uniform vec3 uLantern;
 varying float vWall; varying float vVoid; varying float vLava; varying float vCrest; varying vec3 vCW; varying vec3 vCN;
 ${NOISE_GLSL}
 ${CAVE_GLSL}`,
@@ -413,6 +417,18 @@ ${CAVE_GLSL}`,
         diffuseColor.rgb *= mix(1.0, sl.x, onWall * steep);
         diffuseColor.rgb *= 1.0 - sl.z * steep * onWall * 0.08;
         hvWallH = sl.y * onWall * steep;
+      }
+      {
+        // Cave mood: the floor falls off into cool, desaturated dark away from the lantern (and its
+        // wall feet), with slow mottled damp patches so it never reads as one flat orange plane.
+        float ld = length(vCW.xz - uLantern.xz);
+        float pool = exp(-ld * ld / 70.0);
+        float mott = hvFbm(vCW.xz * 0.35 + 21.0);
+        float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+        vec3 cool = vec3(lum) * vec3(0.78, 0.86, 1.04);
+        float farK = (1.0 - pool) * onFloor;
+        diffuseColor.rgb = mix(diffuseColor.rgb, cool * 0.62, farK * 0.62);
+        diffuseColor.rgb *= 1.0 - onFloor * smoothstep(0.45, 0.75, mott) * 0.22;
       }
       `,
     );
@@ -690,17 +706,23 @@ ${CAVE_GLSL}`,
       const foot = s > 0.05 && s < 0.5;
       const rim = s > 0.75 && s < 1.5;
       if (!foot && !rim) continue;
-      if (r.next() > (foot ? 0.42 : 0.28)) continue;
+      // Clustered, not a ring: a slow noise field gates density so rocks bunch into piles with gaps.
+      const cl = noise.fbm(x * 0.32 + 40, z * 0.32, 2) * 0.5 + 0.5;
+      const dens = (foot ? 0.5 : 0.34) * (0.1 + 1.9 * smoothstep(0.38, 0.68, cl));
+      if (r.next() > dens) continue;
       // Foreground rims (rock between the camera and the floor): keep them sparse so dark boulder
       // silhouettes never clutter the bottom of the frame.
       if (rim && sampleArr(sd, x, z - 1.4) < 0 && r.next() < 0.7) continue;
       const h = sampleArr(hArr, x, z);
-      const rad = foot ? 0.28 + r.next() * 0.42 : 0.35 + r.next() * 0.5;
+      // Heavy-tailed sizes: mostly small stones, a few big slabs / pillars.
+      const big = r.next();
+      const rad = (foot ? 0.2 + r.next() * 0.3 : 0.28 + r.next() * 0.35) * (big > 0.9 ? 1.9 : big > 0.7 ? 1.3 : 1);
+      const stretch = r.next();
       const band = strata[Math.floor(r.next() * 3)]!.clone().multiplyScalar((foot ? 1.0 : 0.85) * Math.min(1, def.wallValue * 1.2));
       // Soft-cut stone (smooth normals with a hint of facet, lumpy, crevice AO, a few cleaved faces)
       // under the shared procedural stone surface: no more flat-shaded low-poly blobs on the rims.
       const g = facetRock(r, rad, band.getHex(), { chunky: true, squash: 0.62 + r.next() * 0.3, cap: capCol, capAmt, rim: 0.6, detail: 2, smooth: 0.72, lumps: 0.2, crevice: 0.5, cleave: r.next() < 0.45 });
-      const m = new THREE.Matrix4().compose(new THREE.Vector3(x, (foot ? floorBase(x, z) : h) - rad * 0.15, z), new THREE.Quaternion().setFromEuler(new THREE.Euler((r.next() - 0.5) * 0.3, r.next() * 6, (r.next() - 0.5) * 0.3)), new THREE.Vector3(1, 1, 1));
+      const m = new THREE.Matrix4().compose(new THREE.Vector3(x, (foot ? floorBase(x, z) : h) - rad * 0.15, z), new THREE.Quaternion().setFromEuler(new THREE.Euler((r.next() - 0.5) * 0.3, r.next() * 6, (r.next() - 0.5) * 0.3)), new THREE.Vector3(stretch < 0.25 ? 1.6 : stretch < 0.45 ? 0.7 : 1, stretch > 0.88 ? 2.1 : 0.85 + r.next() * 0.5, stretch < 0.25 ? 0.7 : stretch < 0.45 ? 1.5 : 1));
       g.applyMatrix4(m);
       geos.push(g);
     }

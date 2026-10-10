@@ -85,7 +85,7 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     name: 'Earthen Hollows',
     strata: [0x5a3d2b, 0x7a5236, 0x94673f, 0x6e4a33, 0xa8794a, 0x80573a],
     wallValue: 0.68,
-    floor: [0x9c7a56, 0x84643f, 0x4e3828],
+    floor: [0x8a7258, 0x73603f, 0x3c2e28],
     // Cool grey breakables on warm dirt: the classic read (rocks never melt into the floor).
     rock: [0xa29c94, 0x938d86, 0xb0aaa0],
     crystals: [0x3fe0c8, 0xffb347, 0x6fd8ff, 0x3fe0c8],

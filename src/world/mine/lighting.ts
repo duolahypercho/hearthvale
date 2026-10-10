@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import type { Game } from '../../core/game';
 import { globalUniforms } from '../../render/uniforms';
 import { nightGlow } from '../../render/materials';
+import { caveLantern } from './cave';
 import type { BiomeDef } from './biomes';
 import type { LightSpec } from './gen';
 
@@ -126,6 +127,7 @@ export class CaveLighting {
     const def = this.def;
     if (!def) return;
     this.flash = Math.max(0, this.flash - dt * 4);
+    caveLantern.value.copy(player);
     const flick = 0.93 + 0.045 * Math.sin(time * 11.3) + 0.025 * Math.sin(time * 27.1 + 1.3);
     this.key.position.set(player.x + 0.8, player.y + 6.2, player.z + 2.2);
     this.key.target.position.set(player.x, player.y, player.z - 0.4);
