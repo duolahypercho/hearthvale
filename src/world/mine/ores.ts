@@ -9,7 +9,7 @@ import type { Rng } from '../../core/rng';
 import { BatchPool, InstancedSet } from '../props/instanced';
 import type { FloorLayout, RockSpec } from './gen';
 import { BIOMES, ORE_STYLE, type Biome, type OreId } from './biomes';
-import { facetRock, crystalPrism, knob } from './rockgeo';
+import { facetRock, crystalPrism, knob, contactShadow } from './rockgeo';
 import { patchMaterial, after, before } from '../../render/patch';
 import { globalUniforms } from '../../render/uniforms';
 import { crystalMaterial } from './props';
@@ -197,6 +197,7 @@ function kitFor(biome: Biome, r: Rng): Kit {
 }
 
 export interface MineRock {
+  shadowId?: number;
   spec: RockSpec;
   set: InstancedSet;
   id: number;
@@ -277,6 +278,24 @@ export class RockField {
       this.rocks.push(rock);
       this.byTile.set(s.z * L.w + s.x, rock);
     }
+    // Contact shadows: one instanced soft-blob decal per rock (hidden when the rock breaks).
+    if (this.rocks.length) {
+      const cs = contactShadow();
+      const im = new THREE.InstancedMesh(cs.geo, cs.mat, this.rocks.length);
+      const mm = new THREE.Matrix4();
+      this.rocks.forEach((rk, i) => {
+        const rr = 0.78 * rk.scale * Math.max(rk.shape.x, rk.shape.z);
+        mm.compose(new THREE.Vector3(rk.pos.x + 0.05, rk.pos.y + 0.03, rk.pos.z + 0.08), new THREE.Quaternion(), new THREE.Vector3(rr, 1, rr));
+        im.setMatrixAt(i, mm);
+        rk.shadowId = i;
+      });
+      im.renderOrder = 1;
+      im.frustumCulled = false;
+      im.userData.noAO = true;
+      im.userData.perfTag = 'mine-rocks';
+      this.shadows = im;
+      this.group.add(im);
+    }
     for (const mesh of this.pool.meshes) mesh.userData.perfTag = 'mine-rocks';
     // Rubble skirt: 1–3 small pebbles around each rock so clusters read as scree, not a grid.
     const pr = rngFrom((L.floor * 7919) ^ 0x5bd1);
@@ -308,6 +327,7 @@ export class RockField {
   }
 
   private rubble: THREE.Mesh | null = null;
+  private shadows: THREE.InstancedMesh | null = null;
 
   at(x: number, z: number): MineRock | undefined {
     const r = this.byTile.get(z * this.L.w + x);
@@ -325,6 +345,10 @@ export class RockField {
     if (!rock.alive) return;
     rock.alive = false;
     rock.set.remove(rock.id);
+    if (this.shadows && rock.shadowId !== undefined) {
+      this.shadows.setMatrixAt(rock.shadowId, new THREE.Matrix4().makeScale(0, 0, 0));
+      this.shadows.instanceMatrix.needsUpdate = true;
+    }
     this.wobbling.delete(rock);
   }
 

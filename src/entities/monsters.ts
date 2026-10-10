@@ -53,7 +53,7 @@ const PALETTE: Record<Biome, { slime: number; slimeCore: number; bat: number; ba
 
 const STATS: Record<MonsterKind, { hp: number; dmg: number; radius: number; knock: number }> = {
   // knock = knockback distance in tiles (eased out over KB_TIME).
-  slime: { hp: 24, dmg: 6, radius: 0.42, knock: 1.65 },
+  slime: { hp: 24, dmg: 6, radius: 0.5, knock: 1.65 },
   bat: { hp: 16, dmg: 6, radius: 0.35, knock: 1.8 },
   crab: { hp: 42, dmg: 9, radius: 0.45, knock: 0.85 },
   wisp: { hp: 20, dmg: 4, radius: 0.36, knock: 1.5 },
@@ -500,8 +500,8 @@ export class Slime extends Monster {
     this.gel.castShadow = true;
     this.body.add(this.gel);
     // Ink outline: a dark inverted hull so the slime reads against any floor.
-    const hull = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.slimeCore).multiplyScalar(0.22), side: THREE.BackSide }));
-    hull.scale.setScalar(1.075);
+    const hull = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.slimeCore).multiplyScalar(0.12), side: THREE.BackSide }));
+    hull.scale.setScalar(1.11);
     hull.position.y = -0.03;
     hull.userData.noAO = true;
     this.body.add(hull);
@@ -632,7 +632,7 @@ export class Slime extends Monster {
 
     const sy = THREE.MathUtils.clamp(this.sy, 0.5, 1.5);
     const sxz = 1 / Math.sqrt(sy);
-    this.body.scale.set(sxz, sy, sxz);
+    this.body.scale.set(sxz * 1.3, sy * 1.3, sxz * 1.3);
     this.body.rotation.set(this.lean.y, 0, -this.lean.x);
     let d = this.facing - this.root.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));

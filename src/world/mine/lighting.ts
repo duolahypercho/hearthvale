@@ -14,7 +14,7 @@ import * as THREE from 'three';
 import type { Game } from '../../core/game';
 import { globalUniforms } from '../../render/uniforms';
 import { nightGlow } from '../../render/materials';
-import { caveLantern } from './cave';
+import { caveLantern, caveGlow } from './cave';
 import type { BiomeDef } from './biomes';
 import type { LightSpec } from './gen';
 
@@ -79,6 +79,11 @@ export class CaveLighting {
     this.rim.color.setHex(def.id === 'ice' ? 0xffd0a0 : def.id === 'lava' ? 0x9ec4ff : 0xb0c4ff);
     this.accents.forEach((a, i) => {
       const s = lights[i] ?? null;
+      const gp = caveGlow.pools[i]!;
+      if (s) {
+        gp.set(s.x, s.z, Math.min(3.2, s.distance * 0.4), def.id === 'earth' ? 0.7 : 0.5);
+        caveGlow.cols[i]!.setHex(s.color);
+      } else gp.w = 0;
       a.spec = s;
       if (s) {
         a.light.color.setHex(s.color);

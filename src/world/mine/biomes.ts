@@ -90,7 +90,7 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     rock: [0xa29c94, 0x938d86, 0xb0aaa0],
     crystals: [0x3fe0c8, 0xffb347, 0x6fd8ff, 0x3fe0c8],
     crystalCount: 10,
-    hemi: [0x8a7a90, 0x3a2618, 0.86],
+    hemi: [0x7a7088, 0x2a1c14, 0.55],
     fog: 0x0e0a08,
     lantern: [0xffb46a, 26],
     exposure: 1.18,
@@ -98,7 +98,7 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     gain: [1.08, 1.0, 0.92],
     sat: 1.12,
     contrast: 1.08,
-    vignette: 0.7,
+    vignette: 1.0,
     bloom: [0.55, 0.82],
     floorRough: 0.92,
     ores: [
