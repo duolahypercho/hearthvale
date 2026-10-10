@@ -334,31 +334,6 @@ try {
   check('save/load', r.saved && r.loaded);
   const p = r.perfEnd;
   check('render budget (farm-morning)', p.ok, `${p.drawCalls} calls, ${(p.triangles / 1e6).toFixed(2)}M tris`);
-  // Cindergrove forage: day rollovers must never leave ghost forage entries in the grid.
-  {
-    const f = await page.evaluate(async () => {
-      const g = window.__game;
-      await g.teleport('forest', 32.5, 6);
-      const m = g.game.world.current;
-      const counts = [];
-      for (let i = 0; i < 30; i++) {
-        g.setDay((i % 28) + 1);
-        g.game.events.emit('day:start', { day: (i % 28) + 1, season: g.game.calendar.season, year: g.game.calendar.year });
-        counts.push(m.forageTiles());
-      }
-      g.setSeason('winter');
-      const winter = m.forageTiles();
-      g.setSeason('spring');
-      return { map: m.id, max: Math.max(...counts), last: counts[counts.length - 1], winter };
-    });
-    check('forest forage: no ghost tiles after 30 days (<= 11)', f.map === 'forest' && f.max <= 11 && f.winter <= 11, JSON.stringify(f));
-  }
-  // Fishing reel minigame (pure sim, Node): idle play never lands a fish, pacing bands, treasure delay.
-  {
-    const { runReelTests } = await import('./fishing-reel.test.mjs');
-    const reelFails = runReelTests(() => {});
-    check('fishing reel: no AFK catches, 5-8 s commons, treasure ≥ 1.5 s', reelFails.length === 0, reelFails.slice(0, 2).join(' | '));
-  }
   // Kintara: simulated $KIN ledger, emission caps, sinks, soulbound deeds, save/load, tamper check, co-op intents.
   {
     const k = await page.evaluate(async () => {
@@ -369,6 +344,9 @@ try {
       const kin = sv.kintara;
       out.exists = !!kin;
       await g.teleport('farm', 31.5, 20);
+      // SaveManager.load() restores the saved map with a fire-and-forget teleport (core save 'map'): wait for it to land,
+      // or it races the next teleport and drags the player back (this is what used to break the forest-forage check).
+      const settle = async () => { for (let i = 0; i < 60 && !gm.world.current; i++) await new Promise((r) => setTimeout(r, 50)); await new Promise((r) => setTimeout(r, 400)); };
       const total = () => { const s = kin.supply(); return s.reserve + s.circulating + s.burned; };
       const t0 = total();
       // one-time milestones pay once; repeatable income respects the per-source and daily caps
@@ -416,7 +394,9 @@ try {
       const nd = kin.deeds().length;
       g.save('smoke-kin');
       kin.debugGrant(77);
+      await settle();
       g.load('smoke-kin');
+      await settle();
       out.saved = kin.balance() === bal && kin.deeds().length === nd && kin.verify().ok;
       // tamper: an edited ledger entry fails verification
       const snap = kin.snapshot();
@@ -424,6 +404,7 @@ try {
       kin.applySnapshot(snap);
       out.tamper = kin.verify().ok === false;
       g.load('smoke-kin');
+      await settle();
       // co-op: a farmhand forwards intents and never writes; the host re-validates them
       const intents = [];
       const grants = [];
@@ -462,6 +443,31 @@ try {
     check('kintara: an edited ledger fails verification', k.tamper);
     check('kintara: co-op farmhand forwards intents, host validates + refunds', k.clientNoWrite && k.clientMintPending && k.hostEarn && k.hostRefund, JSON.stringify(k));
     check('kintara: panel tabs, HUD chip and the Exchange stall in town', k.panel && k.chip && k.stall);
+  }
+  // Cindergrove forage: day rollovers must never leave ghost forage entries in the grid.
+  {
+    const f = await page.evaluate(async () => {
+      const g = window.__game;
+      await g.teleport('forest', 32.5, 6);
+      const m = g.game.world.current;
+      const counts = [];
+      for (let i = 0; i < 30; i++) {
+        g.setDay((i % 28) + 1);
+        g.game.events.emit('day:start', { day: (i % 28) + 1, season: g.game.calendar.season, year: g.game.calendar.year });
+        counts.push(m.forageTiles());
+      }
+      g.setSeason('winter');
+      const winter = m.forageTiles();
+      g.setSeason('spring');
+      return { map: m.id, max: Math.max(...counts), last: counts[counts.length - 1], winter };
+    });
+    check('forest forage: no ghost tiles after 30 days (<= 11)', f.map === 'forest' && f.max <= 11 && f.winter <= 11, JSON.stringify(f));
+  }
+  // Fishing reel minigame (pure sim, Node): idle play never lands a fish, pacing bands, treasure delay.
+  {
+    const { runReelTests } = await import('./fishing-reel.test.mjs');
+    const reelFails = runReelTests(() => {});
+    check('fishing reel: no AFK catches, 5-8 s commons, treasure ≥ 1.5 s', reelFails.length === 0, reelFails.slice(0, 2).join(' | '));
   }
   const real = errors.filter((e) => !/not implemented yet|staging on farm/.test(e));
   check('no page / console errors', real.length === 0, real.slice(0, 3).join(' | '));

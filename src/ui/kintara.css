@@ -364,7 +364,7 @@
 }
 .kn-foot small {
   display: block;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 900;
   text-transform: uppercase;
   color: #6a8a8a;
@@ -372,7 +372,7 @@
 .kn-foot code,
 .kn-deed code {
   font-family: ui-monospace, Menlo, monospace;
-  font-size: 12px;
+  font-size: 13.5px;
   color: #2b5a62;
 }
 .kn-foot b.ok {
@@ -501,7 +501,7 @@
 }
 .kn-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
   gap: 12px;
 }
 .kn-deed {
@@ -551,8 +551,8 @@
   color: #2f6f78;
 }
 .kn-deed code {
-  font-size: 10px;
-  opacity: 0.7;
+  font-size: 13px;
+  opacity: 0.85;
 }
 .kn-deed .lock {
   position: absolute;
@@ -796,4 +796,117 @@ body.u-calm .kn-seal .ring {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* fills the tab's lower third with something useful, pinned to the bottom */
+.kn-guide {
+  margin-top: auto;
+  padding: 8px 12px 9px;
+  border-radius: 14px;
+  background: rgba(63, 166, 160, 0.1);
+  box-shadow: inset 0 0 0 1.5px rgba(47, 111, 120, 0.3);
+  display: grid;
+  gap: 4px;
+}
+.kn-fees {
+  display: flex;
+  align-items: center;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  font-family: var(--font-head);
+  font-size: 16px;
+  color: var(--ink);
+}
+.kn-fees b {
+  margin-right: 8px;
+}
+.kn-guide ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #8a6440;
+  columns: 2;
+}
+.kn-find {
+  display: grid;
+  grid-template-columns: 22px 92px 1fr;
+  align-items: center;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #8a6440;
+}
+.kn-find b {
+  color: var(--ink);
+}
+.kn-find.done span {
+  color: #2f7f56;
+}
+.kn-goods {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.kn-goods .kn-row {
+  padding: 4px 8px;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+.kn-goods .kn-row .nm small {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11.5px;
+}
+.kn-goods .kn-row .nm b {
+  font-size: 15px;
+}
+.kn-goods .u-slot.mini {
+  width: 40px;
+  height: 40px;
+}
+.kn-goods .u-slot.mini > img.u-ic {
+  width: 32px;
+  height: 32px;
+}
+.kn-fundrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #8a6440;
+}
+.kn-pg-market {
+  gap: 6px;
+}
+.kn-pg-market .kn-sect {
+  padding: 6px 10px 8px;
+  gap: 4px;
+}
+.kn-pg-market h4 {
+  margin: 0 0 2px;
+}
+
+.kn-guide small {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #8a6440;
+}
+.kn-guide.finds {
+  grid-template-columns: 1fr 1fr;
+  column-gap: 14px;
+}
+.kn-guide.finds h4 {
+  grid-column: 1 / -1;
+}
+.kn-find {
+  grid-template-columns: 20px 76px 1fr;
+}
+.kn-find small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
