@@ -512,7 +512,7 @@ async function main() {
             }
           }
           report.renders.push({ name: res.name, kind: job.kind, file: keep ? `${outRel}/${res.name}.wav` : null, notes: res.notes, ...a, flags: fl });
-          if (res.markers && job.kind === 'sfx') sfxBalance(res, inter, report);
+          if (res.markers && job.kind === 'sfx') sfxBalance(res, inter, report, fl);
         }
         done = true;
       } catch (e) {
@@ -553,7 +553,7 @@ async function main() {
     if (!o.ok) report.renders.push({ name: 'opening-spread', kind: 'check', flags: ['OPENING-SPREAD'] });
   }
   writeReport();
-  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC|DULL|THIN|DEAD-AIR|SLOW-HANDOFF|SFX-MASKED|OPENING-SPREAD|AMB-BURIED|FORM-/.test(f)));
+  const bad = report.renders.filter((r) => r.flags.some((f) => /CLIP|TRUEPEAK|TOO-LOUD|PHASE|DC|DULL|THIN|DEAD-AIR|SLOW-HANDOFF|SFX-|OPENING-SPREAD|AMB-BURIED|FORM-/.test(f)));
   console.log(`\nwrote ${report.renders.length} WAVs + report.json to ${outRel}/`);
   if (errors.length) console.log(`page errors:\n  ${errors.join('\n  ')}`);
   if (report.failedJobs.length) console.log(`FAILED JOBS: ${report.failedJobs.map((j) => j.name).join(' ')}`);
@@ -636,7 +636,7 @@ function transitionCheck(res, inter, fl) {
 }
 
 /** Per-effect analysis of the SFX reel. */
-function sfxBalance(res, inter, report) {
+function sfxBalance(res, inter, report, reelFlags = null) {
   console.log(`\n  SFX balance (per effect: peak dBFS, true peak, momentary max LUFS, 100 ms max LUFS, centroid)`);
   const sr = res.sampleRate;
   const ms = [];
@@ -664,6 +664,9 @@ function sfxBalance(res, inter, report) {
     if (IMPACTS.test(x.name) && x.centroidHz < 500) fl.push('THUD(no crunch)');
     console.log(`  ${x.name.padEnd(16)} ${fmt(x.peakDb).padStart(6)} ${fmt(x.truePeakDb).padStart(6)} ${fmt(x.momentaryMax).padStart(6)} ${fmt(x.short).padStart(6)} ${fmt(x.centroidHz, 0).padStart(6)}  ${fl.join(' ') || 'ok'}`);
     report.sfx.push({ ...x, flags: fl });
+    // (Critic r6: a per-effect flag used to stay in report.sfx while the reel's job read 'ok' and the
+    // manifest passed. Every effect's flag now flags the reel job itself, so the verdict sees it.)
+    if (reelFlags) for (const f of fl) reelFlags.push(`SFX-${f}(${x.name})`);
   }
   console.log(`  median momentary max: ${fmt(median)} LUFS`);
   // Hierarchy assertions (round 4): a constant hover tick sits well under a click, click ≈ select,

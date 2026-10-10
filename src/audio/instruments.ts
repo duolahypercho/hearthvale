@@ -1224,7 +1224,8 @@ export function sfxPalette(key: number): { inst: InstrumentName; midi: number }[
     out.push({ inst: 'celesta', midi }, { inst: 'bell', midi }, { inst: 'kalimba', midi });
   }
   // The harp runs (level-up, festival win, a farmer arriving) start below the key's C5 pentatonic.
-  for (let deg = -3; deg < 10; deg++) out.push({ inst: 'harp', midi: at(deg) });
+  // (Round 21: from degree -5 — the bundle and farewell runs sit an octave under the key's C5.)
+  for (let deg = -5; deg < 10; deg++) out.push({ inst: 'harp', midi: at(deg) });
   return out;
 }
 

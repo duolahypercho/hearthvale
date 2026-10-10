@@ -797,7 +797,10 @@ export class Sfx {
           }
           for (let i = 0; i < 4; i++) this.noise(d, t + 0.06 + i * 0.045, { f: 700 + r.next() * 400, q: 1.2, amp: 0.1 * (1 - i * 0.18), attack: 0.006, tau: 0.018, buf: this.g.pink });
           if (killed) {
-            this.tone(d, t + 0.18, { type: 'triangle', f0: 2900, f1: 1300, glide: 0.25, amp: 0.07, attack: 0.01, tau: 0.09, lp: 4000 });
+            // (Round 21: the dying squeal falls from 2.4 kHz, not 2.9, and quieter; the body tumbles —
+            // a few soft wing flops on the way down carry the kill, not a 2-5 kHz screech.)
+            this.tone(d, t + 0.18, { type: 'triangle', f0: 2400, f1: 1000, glide: 0.22, amp: 0.045, attack: 0.01, tau: 0.08, lp: 3000 });
+            for (let i = 0; i < 3; i++) this.noise(d, t + 0.24 + i * 0.06, { f: 520 + r.next() * 260, q: 1.1, amp: 0.09 - i * 0.02, attack: 0.008, tau: 0.025, buf: this.g.pink });
             this.tone(d, t + 0.42, { f0: 170, f1: 110, glide: 0.04, amp: 0.16, tau: 0.035 });
             this.noise(d, t + 0.42, { f: 900, q: 1, amp: 0.12, tau: 0.03, buf: this.g.pink });
           }
@@ -1178,7 +1181,10 @@ export class Sfx {
         this.tone(d, t + 0.56, { f0: 260, f1: 420, glide: 0.07, amp: 0.1, tau: 0.04, lp: 1200 });
         break;
       case 'bundle':
-        [0, 2, 4, 5].forEach((k, i) => this.chime(d, t + i * 0.09, this.kn(k), 0.26, 'harp'));
+        // (Round 21: the run starts an octave down and climbs back to the key's C5 — at C5-C6 the
+        // harp's plucks put 40 % of the cue in 2-5 kHz, the reel's one HARSH reward.)
+        [-5, -3, -1, 0, 2].forEach((k, i) => this.chime(d, t + i * 0.085, this.kn(k), i === 4 ? 0.2 : 0.26, 'harp'));
+        this.tone(d, t + 0.34, { f0: mtof(this.kn(0, -2)), amp: 0.12, attack: 0.03, tau: 0.6 });
         break;
       case 'lantern':
         [0, 2, 3, 5].forEach((k) => this.chime(d, t, this.kn(k, -1), 0.2, 'bell'));
@@ -1288,7 +1294,8 @@ export class Sfx {
         this.g.duckMusic(t, 0.7, 0.6, 0.8);
         break;
       case 'leave':
-        [4, 2, 0].forEach((k, i) => this.chime(d, t + i * 0.12, this.kn(k), 0.18, 'harp'));
+        // A farmer heads home: the welcome's harp turned round, falling into the low register.
+        [-1, -3, -5].forEach((k, i) => this.chime(d, t + i * 0.13, this.kn(k), 0.2, 'harp'));
         break;
       case 'chat':
         // A chat line lands: a soft wooden pop with a small tuned tail.
