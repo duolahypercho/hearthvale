@@ -327,7 +327,22 @@ export class MusicPlayer {
     let n = this.inputs.get(key);
     if (!n) {
       const make = INSERTS[inst];
-      n = make ? make(this.g, this.track(name)) : this.track(name);
+      let out: AudioNode = this.track(name);
+      // (Round 21) The bowed strings' body insert is stereo (a two-channel body IR). Joining a track
+      // that a mono voice already plays on, it turned the whole track stereo — and a stereo signal
+      // passes the track's panner ~3 dB hotter than a mono one (equal-power pan law), so after Amber
+      // Waltz's / Lamplit Seam's cello bridge the clarinet came back ~2.6 dB louder than its calibrated
+      // opening (and a whole-song offline render, which schedules the cello up front, was louder from
+      // bar one). A bowed insert joining a mono track is folded to mono with the pan law made up.
+      if (make && BODY_INSERTS.has(inst) && [...this.inputs.keys()].some((k) => k.startsWith(`${name}:`) && !BODY_INSERTS.has(k.slice(name.length + 1) as InstrumentName))) {
+        const mono = this.g.ctx.createGain();
+        mono.channelCount = 1;
+        mono.channelCountMode = 'explicit';
+        mono.gain.value = Math.SQRT2;
+        mono.connect(out);
+        out = mono;
+      }
+      n = make ? make(this.g, out) : out;
       this.inputs.set(key, n);
     }
     return n;
@@ -756,6 +771,9 @@ export class MusicDirector {
 }
 
 /** Offline helper: schedule a theme from t=0 for `seconds`. */
+/** Instruments whose track insert is a stereo body (instruments.ts bodyBank). */
+const BODY_INSERTS: ReadonlySet<InstrumentName> = new Set<InstrumentName>(['fiddle', 'cello']);
+
 export function scheduleTheme(g: AudioGraph, id: string, seconds: number, seed = 1, solo: TrackName | null = null): MusicPlayer {
   const th = THEMES[id];
   if (!th) throw new Error(`unknown theme ${id}`);
