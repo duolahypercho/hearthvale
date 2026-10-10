@@ -623,13 +623,13 @@ ${CAVE_VN_GLSL}`,
         // Cave mood: the floor falls off into cool, desaturated dark away from the lantern (and its
         // wall feet), with slow mottled damp patches so it never reads as one flat orange plane.
         float ld = length(vCW.xz - uLantern.xz);
-        float pool = exp(-ld * ld / 30.0);
+        float pool = exp(-ld * ld / 24.0);
         float mott = hvFbm(vCW.xz * 0.35 + 21.0);
         float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
         vec3 cool = vec3(lum) * vec3(0.78, 0.86, 1.04);
         float farK = (1.0 - pool) * onFloor;
-        diffuseColor.rgb = mix(diffuseColor.rgb, cool * 0.5, farK * 0.8);
-        diffuseColor.rgb *= 1.0 - farK * 0.6;
+        diffuseColor.rgb = mix(diffuseColor.rgb, cool * 0.34, farK * 0.9);
+        diffuseColor.rgb *= 1.0 - farK * 0.82;
         diffuseColor.rgb *= 1.0 - onFloor * smoothstep(0.45, 0.75, mott) * 0.22;
       }
       `,
@@ -1006,7 +1006,7 @@ ${CAVE_VN_GLSL}`,
       if (!foot && !rim) continue;
       // Clustered, not a ring: a slow noise field gates density so rocks bunch into piles with gaps.
       const cl = noise.fbm(x * 0.32 + 40, z * 0.32, 2) * 0.5 + 0.5;
-      const dens = (foot ? 0.5 : 0.34) * (0.1 + 1.9 * smoothstep(0.38, 0.68, cl));
+      const dens = (foot ? (L.biome === 'earth' ? 0.28 : 0.5) : (L.biome === 'earth' ? 0.24 : 0.34)) * (0.1 + 1.9 * smoothstep(0.38, 0.68, cl));
       if (r.next() > dens) continue;
       // Foreground rims (rock between the camera and the floor): keep them sparse so dark boulder
       // silhouettes never clutter the bottom of the frame.

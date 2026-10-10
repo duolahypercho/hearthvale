@@ -532,7 +532,16 @@ export class Slime extends Monster {
     hull.userData.noAO = true;
     this.body.add(hull);
     // X-ray: where the farmer's hat or a rock hides the slime, a faint tinted silhouette still shows.
-    const xray = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.slime).multiplyScalar(1.3), transparent: true, opacity: 0.38, depthFunc: THREE.GreaterDepth, depthWrite: false }));
+    // Outline-only x-ray: just a thin fresnel rim ring, drawn only where something is in front of the slime.
+    const xmat = new THREE.ShaderMaterial({
+      uniforms: { uCol: { value: new THREE.Color(pal.slime).lerp(new THREE.Color(1, 1, 1), 0.35) } },
+      vertexShader: 'varying vec3 vN; varying vec3 vV; void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = -mv.xyz; gl_Position = projectionMatrix * mv; }',
+      fragmentShader: 'uniform vec3 uCol; varying vec3 vN; varying vec3 vV; void main() { float f = 1.0 - abs(dot(normalize(vN), normalize(vV))); if (f < 0.72) discard; gl_FragColor = vec4(uCol, 1.0); }',
+      depthFunc: THREE.GreaterDepth,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const xray = new THREE.Mesh(geo, xmat);
     xray.renderOrder = 6;
     xray.visible = false;
     this.xray = xray;

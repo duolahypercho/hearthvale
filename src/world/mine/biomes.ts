@@ -88,13 +88,13 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     strata: [0x4c3a2e, 0x624a38, 0x786048, 0x58443a, 0x86684a, 0x66503e],
     wallValue: 0.6,
     // Sandy, desaturated dirt: the brightest surface in frame inside the lantern pool.
-    floor: [0xa48e6c, 0x8c7656, 0x4c3e30],
+    floor: [0x8a7c68, 0x726652, 0x3a3228],
     // Cool grey breakables on warm dirt: the classic read (rocks never melt into the floor).
     rock: [0xa29c94, 0x938d86, 0xb0aaa0],
     crystals: [0x3fe0c8, 0xffb347, 0x6fd8ff, 0x3fe0c8],
     crystalCount: 10,
     // Cool violet-slate fill: shadowed walls go cool against the warm lantern pool (temperature split).
-    hemi: [0x7a82a8, 0x2e2018, 0.58],
+    hemi: [0x7482b0, 0x241a18, 0.5],
     fog: 0x0e0a08,
     lantern: [0xffbc78, 26],
     exposure: 1.18,
@@ -102,7 +102,7 @@ export const BIOMES: Record<Biome, BiomeDef> = {
     gain: [1.05, 1.0, 0.95],
     sat: 1.08,
     contrast: 1.08,
-    vignette: 1.0,
+    vignette: 1.25,
     bloom: [0.55, 0.82],
     floorRough: 0.92,
     ores: [

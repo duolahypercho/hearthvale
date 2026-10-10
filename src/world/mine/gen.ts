@@ -601,7 +601,7 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
   };
   let floorN = 0;
   for (let i = 0; i < W * D; i++) if (!solid[i] && !lava[i]) floorN++;
-  const rockTarget = Math.round(Math.min(72, Math.max(40, floorN * 0.11)));
+  const rockTarget = Math.round(Math.min(72, Math.max(40, floorN * 0.11)) * (biome === 'earth' ? 0.8 : 1));
   const seamN = 3 + rng.int(0, 2);
   const seeds: { x: number; z: number }[] = [];
   const cands: { x: number; z: number }[] = [];
