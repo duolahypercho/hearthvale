@@ -146,6 +146,15 @@ export function applyWorldFx<M extends THREE.Material>(material: M, opts: WorldF
       diffuseColor.rgb *= 1.0 - uWet * ${wetDark.toFixed(3)} * (1.0 - hvSnowAmt);`;
     }
     fs = after(fs, '#include <color_fragment>', albedo);
+    if (wet && fs.includes('#include <emissivemap_fragment>')) {
+      // Wet sheen: leaves, rocks, bark and soil catch the overcast sky at grazing angles (a cool
+      // Fresnel rim, scaled with how glossy the surface gets when wet).
+      fs = after(
+        fs,
+        '#include <emissivemap_fragment>',
+        `totalEmissiveRadiance += vec3(0.42, 0.52, 0.64) * pow(1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0), 3.0) * uWet * ${wetGloss < 0.5 ? '0.09' : '0.05'} * (1.0 - hvSnowAmt);`,
+      );
+    }
     if (wet && fs.includes('#include <roughnessmap_fragment>')) {
       fs = after(fs, '#include <roughnessmap_fragment>', `roughnessFactor = mix(roughnessFactor, roughnessFactor * ${wetGloss.toFixed(3)}, uWet);`);
     }

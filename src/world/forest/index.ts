@@ -783,7 +783,8 @@ export class ForestMap implements GameMap {
         const walk = d < -0.2 && pm < 0.2;
         if (walk && !this.freeTile(jx, jz)) continue;
         if (this.staged(jx, jz)) continue;
-        if (roll < fernP * 0.5) place('fern', jx, jz, { scale: 0.7 + r.next() * 0.8 + bed * 0.4 });
+        if (roll < fernP * 0.3) place('fern', jx, jz, { scale: 0.7 + r.next() * 0.7 + bed * 0.3 });
+        else if (roll < fernP * 0.5) tuft(jx, jz, 0.8 + r.next() * 0.6);
         else if (roll < fernP * 0.5 + edge * 0.1 + nearGiant * 0.035 + bed * 0.02) this.shrubs.add(jx, h, jz, 0.8 + r.next() * 0.7);
         else if (bank > 0.3 && roll < fernP * 0.5 + 0.16 * bank) place('reed', jx, jz, { scale: 0.9 + r.next() * 0.4 });
         else if (roll < fernP * 0.5 + 0.02 + nearGiant * 0.12) place('leaves', jx, jz, { scale: 1.0 + r.next() * 0.6 });
