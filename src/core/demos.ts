@@ -212,8 +212,8 @@ export const DEMOS: Record<string, DemoDef> = {
   'winter-night': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 21.5, season: 'winter', weather: 'snow', camera: HOME_CAM },
   // Farm buildings, interiors & animals (camera framing lives with each interior; these override it).
   // (r16: the farmer just inside the door, the room the subject — the chibi mid-floor outsized the armchairs)
-  'house-interior': { map: 'house', x: 5.6, z: 7.15, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.8, offsetX: 0.9, offsetZ: -2.4 }, showcase: ['interior'] },
-  'house-night': { map: 'house', x: 5.6, z: 7.15, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.8, offsetX: 0.9, offsetZ: -3.3 }, showcase: ['interior'] },
+  'house-interior': { map: 'house', x: 5.45, z: 6.2, facing: 'down', time: 8.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.8, offsetX: 1.05, offsetZ: -1.45 }, showcase: ['interior'] },
+  'house-night': { map: 'house', x: 5.45, z: 6.2, facing: 'down', time: 21.6, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 15.8, offsetX: 1.05, offsetZ: -2.35 }, showcase: ['interior'] },
   // Bedtime: the "Go to bed for the night?" prompt beside the quilted bed / tucked in under the quilt, room dimmed, Zzz.
   'house-bedtime': { map: 'house', x: 9.6, z: 2.9, facing: 'right', time: 21.8, season: 'fall', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'bed-ask'] },
   'animals-dayend': { map: 'house', x: 9.6, z: 2.9, facing: 'down', time: 22.2, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 50, distance: 16.8, offsetZ: -0.35 }, showcase: ['interior', 'animals', 'dayend'] },
@@ -223,7 +223,7 @@ export const DEMOS: Record<string, DemoDef> = {
   'coop-eggs': { map: 'coop', x: 3.35, z: 0.55, facing: 'left', time: 7.4, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 48, distance: 12.6, offsetZ: 0.4 }, showcase: ['animals', 'eggs'] },
   'barn-interior': { map: 'barn', x: 6.5, z: 5.5, facing: 'right', time: 16.8, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 46, distance: 15.3, offsetX: 0.0, offsetZ: -1.5 }, showcase: ['animals'] },
   // r24: the barn's cupola + the silo dome framed whole (the blind judge: "frame the barn and silo fully"); the farmer + goat a step north, clear of the hotbar
-  'animals-pasture': { map: 'farm', x: 40.3, z: 40.8, facing: 'right', time: 15.6, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 52, distance: 24, offsetX: 3.0, offsetZ: -4.9 }, showcase: ['animals'] },
+  'animals-pasture': { map: 'farm', x: 41.0, z: 40.0, facing: 'right', time: 15.6, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 52, distance: 24, offsetX: 2.3, offsetZ: -4.1 }, showcase: ['animals'] },
   // Perf: the pasture with three co-op farmhands on the farm (DESIGN pillar 13/14: 4 players + a full herd).
   'animals-coop': { map: 'farm', x: 40.3, z: 41.5, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 47, distance: 18.5, offsetX: 3.0, offsetZ: -2.6 }, showcase: ['animals', 'coop'] },
   // Petting close-up: crouch + reach, big heart pop with mini hearts, the animal's name + heart meter.

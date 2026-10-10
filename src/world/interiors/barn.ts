@@ -285,8 +285,10 @@ export class BarnInterior extends InteriorMap {
       // Bedding: a deep straw heap at the back, drifts towards the front. (r21: each stall bedded its own
       // way — heaped in a corner, spread thin, fresh and pale or old and tawny; six identical mounds read
       // as filler where the stall's animal is out in the aisle.)
-      const bed = [[0, 0, 1, 1, 1, 0xd8c8a4], [0.15, 0.1, 0.9, 1, 1.1, 0xd0bc94], [-0.35, -0.1, 0.62, 0.8, 1.35, 0xe2d2ac], [0.3, 0.15, 0.7, 0.85, 0.75, 0xcab48a], [-0.2, 0.2, 0.85, 0.7, 0.6, 0xbaa078], [0, 0, 1, 1, 1, 0xd8c8a4]][i]!;
-      hayPile(k, rng, cx + bed[0]!, 1.1 + bed[1]!, (SW - 0.35) * bed[2]!, 1.5 * bed[3]!, 0.2 * bed[4]!, bed[5]!);
+      // (r25, the critic's "orange pudding domes": ~20 % less saturated, each heap flattened into a wider
+      // spread (loose strands at its rim from the skirt tufts), the value varied per stall — older bedding greyer)
+      const bed = [[0, 0, 1, 1, 1, 0xcec4ae], [0.15, 0.1, 0.9, 1, 1.1, 0xc2b69e], [-0.35, -0.1, 0.62, 0.8, 1.35, 0xd8cfba], [0.3, 0.15, 0.7, 0.85, 0.75, 0xb4aa94], [-0.2, 0.2, 0.85, 0.7, 0.6, 0xa29a88], [0, 0, 1, 1, 1, 0xc8bea8]][i]!;
+      hayPile(k, rng, cx + bed[0]!, 1.1 + bed[1]!, (SW - 0.35) * Math.min(1.08, bed[2]! * 1.14), 1.5 * bed[3]! * 1.12, 0.2 * bed[4]! * 0.58, bed[5]!);
       strawDrift(k, rng, cx, SF - 0.9, SW - 0.4, 0.9, 0xc8b48a);
       strawTufts(k, rng, cx, 0.02, 1.8, 26, 0.95);
       this.manger(k, rng, x0 + MX);

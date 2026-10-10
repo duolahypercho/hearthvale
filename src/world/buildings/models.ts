@@ -509,33 +509,46 @@ export function buildBarnExterior(rng: Rng): THREE.Group {
   b.add('woodPaint', roundedBox(1.0, 0.95, 0.06, 0.02), mat(0, ly + 0.47, fz), { tint: TRIM });
   b.add('wood', boxUV(roundedBox(0.84, 0.8, 0.05, 0.02), 1 / 0.8), mat(0, ly + 0.47, fz + 0.03), { tint: RED_D });
   xBrace(b, 0.78, 0.74, 0, ly + 0.1, fz + 0.07);
-  // Hoist beam out under the hood, a block + rope with a hook (a bale half-way up)
+  // Hoist beam out under the hood, a block + a short rope with a hook
+  // (r25: the rope stops well above the door header — two long strands ran down into the doorway on screen
+  // and the vestibule bale under them read as a crate hung from the hood)
   b.add('woodDark', roundedBox(0.16, 0.16, 1.2, 0.03), mat(0, ridgeY - 0.42, fz + 0.5));
   b.add('metal', new THREE.TorusGeometry(0.09, 0.025, 6, 12), mat(0, ridgeY - 0.6, fz + 0.95), { tint: 0x3a3634 });
   b.add('woodDark', roundedBox(0.08, 0.2, 0.12, 0.02), mat(0, ridgeY - 0.6, fz + 0.95));
-  for (const dx of [-0.09, 0.09]) b.add('cloth', new THREE.CylinderGeometry(0.012, 0.012, 1.25, 4), mat(dx, ridgeY - 1.25, fz + 0.95), { tint: 0xc8a878 });
-  b.add('metal', new THREE.TorusGeometry(0.06, 0.014, 5, 10, Math.PI * 1.5), mat(0.09, ridgeY - 1.92, fz + 0.95), { tint: 0x3a3634 });
+  b.add('cloth', new THREE.CylinderGeometry(0.014, 0.014, 0.5, 4), mat(0.02, ridgeY - 0.95, fz + 0.95), { tint: 0xb89868 });
+  b.add('metal', new THREE.TorusGeometry(0.06, 0.016, 5, 10, Math.PI * 1.5), mat(0.08, ridgeY - 1.24, fz + 0.95), { tint: 0x3a3634 });
   // Big sliding doors: white frame, red leaves with X braces, top rail
   const dw = 2.2;
   const dh = 2.1;
   // r15: a recessed vestibule behind the doors instead of a flat dark card (the open leaf showed a black
   // slab): a dim straw floor, plank sides, a stall partition and a bale fading into the dark at the back.
+  // r25 (the critic: "still a pale blank slab"): the way in reads as a dark mouth — floor, sides and back at
+  // ~25-35 % of the sunlit wall's value with a falloff to the back (darkest there), a stall partition
+  // silhouette against it and a warm lantern on the partition post, low enough to be seen under the header
+  // from the high lens (the old header-hung one was hidden behind it).
   {
     const dep = 1.05;
+    // (the floor sits on the plinth's trim slab, whose cream top showed through the opening as the 'slab')
+    const fb = base + 0.125;
     const zc = fz - 0.05 - dep / 2;
-    // (r24: warm dim browns, not near-black — now that the opening is real it must read as a lit room)
-    b.add('woodGrain', roundedBox(dw, dh, 0.04, 0.01), mat(0, base + dh / 2, fz - 0.05 - dep), { tint: 0x5a3a24, aoWorld: (q) => 0.45 + 0.4 * THREE.MathUtils.smoothstep(q.y, base, base + dh) });
-    for (const sx of [-1, 1]) b.add('woodGrain', roundedBox(0.04, dh, dep, 0.01), mat(sx * (dw / 2 - 0.02), base + dh / 2, zc), { tint: 0x6a4228, aoWorld: (q) => 0.4 + 0.6 * THREE.MathUtils.smoothstep(q.z, fz - 0.05 - dep, fz) });
-    b.add('white', roundedBox(dw, 0.04, dep, 0.01), mat(0, base + dh - 0.02, zc), { tint: 0x24160c });
-    // a lantern hung from the header inside: the warm glimpse of the barn's life through the open leaf
-    b.add('metal', roundedBox(0.02, 0.3, 0.02, 0.005), mat(dw * 0.24, base + dh - 0.17, fz - 0.62), { tint: 0x2a2624 });
-    lantern(b, dw * 0.24, base + dh - 0.5, fz - 0.62, 0.9);
-    b.add('thatch', roundedBox(dw - 0.08, 0.04, dep, 0.01), mat(0, base + 0.02, zc), { tint: 0x8a6c38, aoWorld: (q) => 0.45 + 0.55 * THREE.MathUtils.smoothstep(q.z, fz - 0.05 - dep, fz - 0.1) });
-    // stall partition: a post + three boards running back from the aisle
-    b.add('wood', roundedBox(0.1, dh - 0.1, 0.1, 0.02), mat(dw * 0.18, base + (dh - 0.1) / 2, fz - 0.55), { tint: 0x4a2e1c });
-    for (let i = 0; i < 3; i++) b.add('wood', roundedBox(0.05, 0.16, dep * 0.6, 0.01), mat(dw * 0.18, base + 0.3 + i * 0.3, fz - 0.55 - dep * 0.25), { tint: 0x3e2618 });
-    b.add('thatch', boxUV(roundedBox(0.7, 0.36, 0.42, 0.05), 1.6), mat(dw * 0.36, base + 0.2, fz - 0.8, 0, 0.3, 0), { tint: 0x9a7a40 });
-    for (let i = 0; i < 3; i++) b.add('thatch', new THREE.IcosahedronGeometry(0.16, 1), mat(dw * (0.05 + i * 0.12), base + 0.04, fz - 0.35 - i * 0.15, 0, i, 0, 1.4, 0.3, 1), { tint: 0xa88a48 });
+    const back = fz - 0.05 - dep;
+    const fall = (q: THREE.Vector3, lo: number, hi: number): number => lo + (hi - lo) * THREE.MathUtils.smoothstep(q.z, back, fz);
+    b.add('woodGrain', roundedBox(dw, dh, 0.04, 0.01), mat(0, base + dh / 2, back), { tint: 0x2a1a10, aoWorld: (q) => 0.3 + 0.25 * THREE.MathUtils.smoothstep(q.y, base, base + dh) });
+    for (const sx of [-1, 1]) b.add('woodGrain', roundedBox(0.04, dh, dep, 0.01), mat(sx * (dw / 2 - 0.02), base + dh / 2, zc), { tint: 0x3a2416, aoWorld: (q) => fall(q, 0.28, 0.75) });
+    b.add('white', roundedBox(dw, 0.04, dep, 0.01), mat(0, base + dh - 0.02, zc), { tint: 0x1a100a });
+    b.add('thatch', roundedBox(dw - 0.06, 0.03, dep, 0.01), mat(0, fb + 0.01, zc), { tint: 0x4a3a20, aoWorld: (q) => fall(q, 0.22, 0.7) });
+    // stall partition: a post + three boards running back from the aisle, the post's lit edge catching the lantern
+    const px = dw * 0.16;
+    b.add('wood', roundedBox(0.11, dh - 0.1, 0.11, 0.02), mat(px, base + (dh - 0.1) / 2, fz - 0.42), { tint: 0x5a3a22, aoWorld: (q) => 0.45 + 0.5 * THREE.MathUtils.smoothstep(q.y, base, base + 1.2) });
+    for (let i = 0; i < 3; i++) b.add('wood', roundedBox(0.05, 0.16, dep * 0.62, 0.01), mat(px, fb + 0.2 + i * 0.3, fz - 0.42 - dep * 0.3), { tint: 0x4a2e1a, aoWorld: (q) => fall(q, 0.35, 0.95) });
+    b.add('wood', roundedBox(0.07, 0.1, dep * 0.62, 0.02), mat(px, fb + 1.0, fz - 0.42 - dep * 0.3), { tint: 0x6a4428, aoWorld: (q) => fall(q, 0.4, 1) });
+    // the lantern on a hook on the post's aisle face (warm point inside the mouth)
+    b.add('metal', roundedBox(0.16, 0.02, 0.02, 0.005), mat(px - 0.12, fb + 1.1, fz - 0.4), { tint: 0x2a2624 });
+    lantern(b, px - 0.2, fb + 0.94, fz - 0.36, 0.95);
+    // a few loose straw tufts at the threshold, darker as they go in
+    for (let i = 0; i < 6; i++) b.add('thatch', new THREE.IcosahedronGeometry(0.07, 1), mat(dw * (-0.34 + i * 0.13), fb + 0.02, fz - 0.12 - (i % 3) * 0.16, 0, i * 1.3, 0, 2.2, 0.18, 0.7), { tint: i % 2 ? 0x5a4624 : 0x6e5630, aoWorld: (q) => 0.4 + 0.5 * THREE.MathUtils.smoothstep(q.z, back, fz) });
+    // a milk can half in the dark beyond the partition
+    b.add('metal', new THREE.CylinderGeometry(0.12, 0.13, 0.42, 10), mat(px + 0.34, fb + 0.21, fz - 0.78), { tint: 0x56585c, aoWorld: (q) => fall(q, 0.3, 0.6) });
   }
   // (Left leaf fixed; the right leaf is the pasture door and slides open along the rail: barnLeaf().)
   {
@@ -544,8 +557,6 @@ export function buildBarnExterior(rng: Rng): THREE.Group {
     xBrace(b, dw / 2 - 0.12, dh - 0.1, cx, base + 0.05, fz + 0.09);
     b.add('metal', roundedBox(0.04, 0.3, 0.05, 0.01), mat(-0.12, base + 1.05, fz + 0.13), { tint: 0x2e2a28 });
   }
-  // Inside the opening: a glimpse of straw + a dim interior so an open leaf reads as a way in.
-  b.add('thatch', roundedBox(dw * 0.46, 0.06, 0.5, 0.02), mat(dw / 4, base + 0.03, fz - 0.28), { tint: 0xc8a050 });
   b.add('metal', roundedBox(dw * 1.9, 0.08, 0.06, 0.02), mat(dw * 0.2, base + dh + 0.08, fz + 0.1), { tint: 0x3a3634 });
   // Front windows flanking the doors + lanterns
   for (const s of [-1, 1]) {
@@ -1090,9 +1101,10 @@ export function buildPaddockFence(runs: [number, number][][], heightAt: (x: numb
     for (const [x, z] of run) {
       const y = heightAt(x, z);
       const lean = (rng.next() - 0.5) * 0.07;
-      const r = 0.08 + rng.next() * 0.015;
-      b.add('woodGrain', bevelCylinder(r, r + 0.012, postH, 0.025, 7), mat(x, y - 0.06, z, lean, rng.next() * 3, (rng.next() - 0.5) * 0.07), {
-        tint: [0x8c765e, 0x96806a, 0x84705a][Math.floor(rng.next() * 3)]!,
+      // (r25: posts 1.4x stouter and a value darker — the critic's "toothpick posts" at the 24 m pasture lens)
+      const r = 0.112 + rng.next() * 0.018;
+      b.add('woodGrain', bevelCylinder(r, r + 0.014, postH, 0.03, 7), mat(x, y - 0.06, z, lean, rng.next() * 3, (rng.next() - 0.5) * 0.07), {
+        tint: [0x6a5644, 0x725e4a, 0x625040][Math.floor(rng.next() * 3)]!,
         aoWorld: (p) => 0.42 + 0.58 * THREE.MathUtils.smoothstep(p.y - y, 0, 0.42),
       });
       // weathered top: a paler end-grain cap, slightly domed
@@ -1124,7 +1136,8 @@ export function buildPaddockFence(runs: [number, number][][], heightAt: (x: numb
         const fresh = rng.next() < 0.08;
         // (woodPaint = no colour map: the shared grain map's orange-brown would pull every rail back to the
         // old fence's value; a sun-silvered unpainted rail is a pale grey-tan with the grain only in relief)
-        const tint = fresh ? 0xf4dcae : [0xd0c4ae, 0xc6baa4, 0xd8ccb6][Math.floor(rng.next() * 3)]!;
+        // (r25: rails 1.6x thicker, a touch warmer/darker — at 0.105 m they read as pale rope)
+        const tint = fresh ? 0xe8d0a0 : [0xc2b49a, 0xb8aa90, 0xcabca2][Math.floor(rng.next() * 3)]!;
         // two half-rails meeting at a slight sag (reads as a split rail, not a ruler-straight plank)
         const sag = 0.012 + rng.next() * 0.014;
         const hl = L / 2 + 0.06;
@@ -1132,7 +1145,9 @@ export function buildPaddockFence(runs: [number, number][][], heightAt: (x: numb
         const jit = (rng.next() - 0.5) * 0.008;
         for (const s of [-1, 1]) {
           const k = 0.5 + s * 0.25;
-          b.add('woodPaint', roundedBox(hl, 0.105, 0.07, 0.03, 1), mat(x0 + dx * k, y0 + (y1 - y0) * k + ry - sag * 0.5 + jit, z0 + dz * k, 0, ang, slope + s * tilt), { tint });
+          b.add('woodPaint', roundedBox(hl, 0.165, 0.11, 0.045, 1), mat(x0 + dx * k, y0 + (y1 - y0) * k + ry - sag * 0.5 + jit, z0 + dz * k, 0, ang, slope + s * tilt), { tint });
+          // the top rail's cap shadow: a dark underside line that draws the pen boundary at distance
+          if (ry > 0.5) b.add('woodPaint', roundedBox(hl - 0.04, 0.03, 0.118, 0.012, 1), mat(x0 + dx * k, y0 + (y1 - y0) * k + ry - sag * 0.5 + jit - 0.085, z0 + dz * k, 0, ang, slope + s * tilt), { tint: 0x3a3026 });
         }
       }
     }

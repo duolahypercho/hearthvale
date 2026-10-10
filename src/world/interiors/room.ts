@@ -248,7 +248,7 @@ export abstract class InteriorMap implements GameMap {
     this.dust.userData.noAO = true;
     this.dust.name = 'dust';
 
-    this.rim = new THREE.PointLight(0xffcf9a, 0, 2.6, 2);
+    this.rim = new THREE.PointLight(0xffdcb4, 0, 3.6, 2);
     this.rim.castShadow = false;
     this.root.add(this.rim);
 
@@ -871,8 +871,10 @@ export abstract class InteriorMap implements GameMap {
     // Night: a soft warm bounce fill in front of the farmer at chest height (the lamplight coming back
     // off the floorboards), so the face reads instead of a silhouette against the hearth. Low and in
     // front, so it never blows the straw hat out from above.
-    this.rim.position.set(pp.x + 0.3, pp.y + 0.8, pp.z + 1.0);
-    this.rim.intensity = L.night * 0.95;
+    // (r25: the critic's "backlit, muddy face at night" — a true frontal fill: face height, a stride
+    // towards the lens; the brim shades it from above so the hat doesn't blow out)
+    this.rim.position.set(pp.x + 0.1, pp.y + 1.15, pp.z + 1.7);
+    this.rim.intensity = L.night * 1.5;
     this.groundMat.color.setScalar(0.55 + 0.45 * L.day);
     // (r16: dim rooms — the barn — light their lanterns from mid-afternoon)
     const lampK = Math.max(L.night, 1 - L.day * 1.05, this.lampEarly * THREE.MathUtils.smoothstep(game.calendar.hour, 14.5, 17.0));

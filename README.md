@@ -1875,6 +1875,27 @@ Sleeping in the farmhouse bed ends the day (`systems/sleep.ts`; `sleep:summary`,
   `scripts/animals-coop-test.mjs` 25/25. Perf (2560x1440 high, contended load 40-105): house 144 fps p99 14.4 ms /
   night 141 / 13.4 · coop 187 / 7.7 · barn 149 / 10.9 · pasture 109 / 12.2 · chores 150 / 9.7 · co-op pasture 99.5 /
   24.0, 125-223 draws, 0.28-1.06 M tris. Shots: `shots/animals-r24/` (`base/` before, `final/` after).
+- r25 (round 11 relay of the r10 critic): *Petting* — a new topology for tall stock instead of more offset tuning:
+  the animal stands on the LENS side of the farmer (body radius + ~0.55 m towards the camera), side-on and turned
+  ~30° to the lens, stroked near the hip so its head stands well clear; the farmer stays behind it facing the
+  camera and reaches down onto the coat with the near arm, the bliss head-tip leans away, and the sparkle dots
+  fan away from the farmer. `__game.game.services.animals.petOverlap()` projects the farmer's head + hat and the
+  animal's head / neck to screen boxes and logs the overlap (0 px² in the barn and pasture stills it was tuned on; up to
+  ~1.7 k px² mid-bliss, when the near horn's box brushes the farmer's forearm — the face itself stays clear). *Coop* — the bird peck
+  cycle is ~70 % head-up; in the coop still only one bird pecks, the rest idle faces-up; the hen's tail fan ~35 %
+  smaller and cupped; the duck's wings folded flush (root inside the body loft, tips crossing over the tail);
+  hay bales keep a body radius clear in the herd's walkability. *Show-off* — a lifted find is held in both hands
+  in front of the chest (two arm IKs on its sides), ~0.4 of the head's width; quality stars are metal-tinted
+  (silver cool grey-blue, gold warm, iridium purple) with a dark outline, bevel and twinkle; hay selected round
+  the herd shows a hay armful hugged to the chest. *Barn* — the doorway is a dark mouth (floor / sides / back at
+  25-35 % value with a falloff to the back, the floor raised over the plinth's cream trim slab that showed through,
+  a stall partition silhouette, a lantern on the post), the hoist rope stops above the header (no hung bale);
+  stall bedding desaturated, flattened and varied per stall. *Cows* — the Jersey is polled (the near horn read as
+  a grey chip on her brow), ears set higher, a flat three-tuft forelock; the pasture Holstein stands beside the
+  trough head-up, face 3/4 to the lens. *House* — the farmer stands a metre further in (on the runner line), a
+  true frontal fill at night, grandmother's portrait lit by a brass picture light (her own self-lit material +
+  a soft wash; the candle halo kept down round the table). *Fence* — rails 1.6x, posts 1.4x and a value darker,
+  a dark cap-shadow line under the top rail. Shots: `shots/animals-r25/` (`final/`, `c-chores_*.png`).
 
 ## Co-op multiplayer (1–4 farmers)
 

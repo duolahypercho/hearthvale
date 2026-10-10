@@ -539,6 +539,14 @@ export class AnimalActor {
     return this.hungry && this.state === 'eat' && this.eatW > 0.6 && this.atFeed;
   }
 
+  /** r25 debug: the head bone's world position (falls back to the top point). */
+  headWorld(out = new THREE.Vector3()): THREE.Vector3 {
+    const head = this.b.head;
+    if (!head) return this.topPoint(out);
+    head.updateWorldMatrix(true, false);
+    return head.getWorldPosition(out);
+  }
+
   /** World-space point just above the head (heart pops, labels) — follows the head bone. */
   topPoint(out = new THREE.Vector3()): THREE.Vector3 {
     const head = this.b.head;
@@ -1295,12 +1303,20 @@ export class AnimalActor {
 
     // Eat: head down + nibble (birds peck)
     if (E > 0.01) {
-      const nib = g.biped ? Math.max(0, Math.sin(t * 9 + this.seed)) ** 6 * 0.5 : Math.sin(t * 7 + this.seed) * 0.06;
+      // r25 (the critic: "most of the flock is drawn head-down"): a bird's peck cycle is ~70 % head-up —
+      // a quick bout of two or three jabs, then a long look round with the face up, chewing.
+      let dn = 1;
+      if (g.biped) {
+        const cyc = (t * 0.38 + this.seed * 0.137) % 1;
+        dn = cyc < 0.3 ? Math.sin((cyc / 0.3) * Math.PI) ** 0.5 : 0;
+        dn = 0.12 + 0.88 * dn;
+      }
+      const nib = g.biped ? Math.max(0, Math.sin(t * 9 + this.seed)) ** 6 * 0.5 * dn : Math.sin(t * 7 + this.seed) * 0.06;
       // (r13: a stall animal eats from the raised manger — half the dip, so the muzzle shows over its lip
       // instead of folding the head into the chest)
-      head.rotation.x += (g.eatPitch * (this.stalled && !g.biped ? 0.5 : this.dipK) + nib) * E;
+      head.rotation.x += (g.eatPitch * (this.stalled && !g.biped ? 0.5 : this.dipK) * dn + nib) * E;
       // Ducks dabble with a level body (a steep tip read as a toppled bird from the high camera).
-      if (g.biped) body.rotation.x += (this.species === 'duck' ? 0.14 : 0.24) * E;
+      if (g.biped) body.rotation.x += (this.species === 'duck' ? 0.14 : 0.24) * E * dn;
       else body.rotation.x += 0.06 * E;
     }
 
@@ -1728,7 +1744,9 @@ export class AnimalPops {
     const n = 3 + Math.floor(Math.random() * 3);
     // (r10: the little hearts fan out on the side away from the farmer — bursting both ways, half of
     // them landed on the farmer's cheek and read as the farmer's hearts)
-    const base0 = actor ? actor.pos : at;
+    // (r25: measured from the head, not the body — in the lens-side pat the body sits straight in front of the
+    // farmer, so 'away' pointed at the lens and the burst crossed the farmer's face; the head is off to one side)
+    const base0 = actor ? actor.headWorld(new THREE.Vector3()) : at;
     const away = this.farmer ? Math.atan2(base0.z - this.farmer.z, base0.x - this.farmer.x) : 0;
     for (let i = 0; i < n; i++) {
       const a = this.farmer ? away + ((i + 0.5) / n - 0.5) * Math.PI * 1.1 + (Math.random() - 0.5) * 0.3 : (i / n) * Math.PI * 2 + Math.random() * 0.8;
@@ -1739,7 +1757,9 @@ export class AnimalPops {
       p.vel = new THREE.Vector3(Math.cos(a) * 1.1, 1.0 + Math.random() * 0.5, Math.sin(a) * 0.7);
     }
     for (let i = 0; i < 5; i++) {
-      const a = Math.random() * Math.PI * 2;
+      // (r25: the sparkle dots fan away from the farmer too — scattered all round they settled on the
+      // farmer's face in the lens-side pat)
+      const a = this.farmer ? away + (Math.random() - 0.5) * Math.PI * 1.1 : Math.random() * Math.PI * 2;
       const off = new THREE.Vector3(Math.cos(a) * 0.1, 0.2 + Math.random() * 0.15, Math.sin(a) * 0.1);
       const p = this.spawn('note', actor ? off : at.clone().add(off), null, 0.5 + Math.random() * 0.35);
       p.actor = actor;

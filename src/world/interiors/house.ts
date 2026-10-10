@@ -1081,7 +1081,36 @@ export class HouseInterior extends InteriorMap {
     k.add('paint', roundedBox(pw + 0.3, ph + 0.3, 0.06, 0.025, 2), mat(x, py + ph / 2, pz + 0.03), { tint: 0xd8aa50 });
     k.add('paint', roundedBox(pw + 0.2, ph + 0.2, 0.012, 0.004), mat(x, py + ph / 2, pz + 0.064), { tint: 0x8a5a2a });
     k.add('paint', roundedBox(pw + 0.16, ph + 0.16, 0.012, 0.004), mat(x, py + ph / 2, pz + 0.068), { tint: 0xf2e8d4 });
-    k.add('photo', atlasUV(new THREE.PlaneGeometry(pw, ph), PHOTO_CELLS.grandma), mat(x, py + ph / 2, pz + 0.078));
+    // (r25: her own material, lit by the brass picture light above the frame — a soft neutral self-light
+    // that rises after dark, so the face keeps its value contrast instead of a washed amber silhouette)
+    {
+      const base = imat('photo');
+      const pm = base.clone();
+      pm.emissive = new THREE.Color(0xfff2dc);
+      pm.emissiveMap = base.map;
+      pm.emissiveIntensity = 0;
+      const pg = atlasUV(new THREE.PlaneGeometry(pw, ph), PHOTO_CELLS.grandma);
+      const pmesh = new THREE.Mesh(pg, pm);
+      pmesh.position.set(x, py + ph / 2, pz + 0.078);
+      pmesh.receiveShadow = true;
+      pmesh.name = 'grandma-portrait';
+      this.root.add(pmesh);
+      this.updaters.push((_dt, _t, L) => (pm.emissiveIntensity = (0.06 + 0.3 * L.night) * (1 - this.dim * 0.7)));
+      // the picture light: a brass hood on a curved arm over the crest, its tube glowing warm-white
+      const ly = py + ph + 0.28;
+      k.cyl('brass', 0.012, 0.012, 0.14, [x, ly - 0.02, pz + 0.07], { rx: 0.9 });
+      k.add('brass', new THREE.CylinderGeometry(0.05, 0.05, pw * 0.82, 14, 1, false, Math.PI, Math.PI), mat(x, ly + 0.03, pz + 0.16, 0, 0, Math.PI / 2));
+      k.add('glow', new THREE.CylinderGeometry(0.018, 0.018, pw * 0.74, 8), mat(x, ly + 0.01, pz + 0.165, 0, 0, Math.PI / 2), { tint: 0xfff0d0 });
+      // a soft cone of its light washing down the glass (additive, cool-neutral, night only)
+      const wm = new THREE.MeshBasicMaterial({ map: glowDisc().map, color: 0xfff0dc, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+      const wash = new THREE.Mesh(new THREE.PlaneGeometry(pw * 1.7, ph * 0.9), wm);
+      wash.position.set(x, py + ph * 0.86, pz + 0.1);
+      wash.userData.noAO = true;
+      wash.userData.dynamic = true;
+      wash.renderOrder = 2;
+      this.root.add(wash);
+      this.updaters.push((_dt, _t, L) => wm.color.setHex(0xfff0dc).multiplyScalar((0.02 + 0.09 * L.night) * (1 - this.dim * 0.7)));
+    }
     // Carved crest + corner rosettes on the frame.
     k.add('paint', new THREE.TorusGeometry(0.08, 0.022, 6, 16, Math.PI), mat(x, py + ph + 0.15, pz + 0.05), { tint: 0xe0b45a });
     for (const sx of [-1, 1]) for (const sy of [0, 1]) k.sphere('paint', 0.032, [x + sx * (pw / 2 + 0.12), py - 0.12 + sy * (ph + 0.24), pz + 0.07], 0xe6bc62);
@@ -1112,13 +1141,15 @@ export class HouseInterior extends InteriorMap {
     // The candle's halo on the wall + the frame (additive, warmer and stronger after dark, flickering).
     const hm = new THREE.MeshBasicMaterial({ map: glowDisc().map, color: 0xffa860, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
     const halo = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), hm);
-    halo.position.set(cx + 0.1, ty + 0.55, 0.1);
+    // (r25: kept down round the candle + table — over the portrait it washed her face amber)
+    halo.position.set(cx + 0.02, ty + 0.38, 0.1);
+    halo.scale.setScalar(0.8);
     halo.userData.noAO = true;
     halo.userData.dynamic = true;
     halo.renderOrder = 2;
     this.root.add(halo);
     const c0 = new THREE.Color(0xffa860);
-    this.updaters.push((_dt, t, L) => hm.color.copy(c0).multiplyScalar((0.05 + L.night * 0.22) * (0.9 + 0.1 * Math.sin(t * 9.1) * Math.sin(t * 5.3 + 1)) * (1 - this.dim * 0.6)));
+    this.updaters.push((_dt, t, L) => hm.color.copy(c0).multiplyScalar((0.05 + L.night * 0.18) * (0.9 + 0.1 * Math.sin(t * 9.1) * Math.sin(t * 5.3 + 1)) * (1 - this.dim * 0.6)));
     this.solid(7.9, 0, 9.05, 0.42, 'memory-table');
   }
 

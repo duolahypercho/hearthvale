@@ -157,15 +157,17 @@ function chicken(variant: number): AnimalModel {
       .multiply(new THREE.Matrix4().makeRotationZ(roll))
       .multiply(new THREE.Matrix4().makeRotationY(Math.PI / 2))
       .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  // (r25: the fan ~35 % smaller and cupped — a narrower spread, the outer feathers rolled in so the tail
+  // reads as one arched plume, not a "picket crown" of spikes over a white hen)
   for (const [fan, elev, len, wid, c] of [
-    [-0.45, 0.5, 0.17, 0.085, tail],
-    [0.45, 0.5, 0.17, 0.085, tail],
-    [-0.22, 0.6, 0.2, 0.09, tail],
-    [0.22, 0.6, 0.2, 0.09, tail],
-    [-0.08, 0.72, 0.22, 0.085, tailTip],
-    [0.08, 0.72, 0.22, 0.085, tailTip],
+    [-0.32, 0.46, 0.11, 0.07, tail],
+    [0.32, 0.46, 0.11, 0.07, tail],
+    [-0.16, 0.56, 0.13, 0.075, tail],
+    [0.16, 0.56, 0.13, 0.075, tail],
+    [-0.05, 0.66, 0.145, 0.07, tailTip],
+    [0.05, 0.66, 0.145, 0.07, tailTip],
   ] as const) {
-    r.part('tail', leaf(len, wid, 0.024, 0.4, 0.4, 12, 8), featherM(-fan * 0.1, 0.4, -0.17, fan, elev, fan * 0.5), c, { coat: 0, patch: brown ? band(tailTip, 0.6, false) : undefined });
+    r.part('tail', leaf(len, wid, 0.022, 0.4, 0.4, 12, 8), featherM(-fan * 0.1, 0.4, -0.165, fan, elev, fan * 1.1), c, { coat: 0, patch: brown ? band(tailTip, 0.6, false) : undefined });
   }
   // Hackles: a ruff of rounded neck feathers lying back over the shoulders (sides + back of the neck).
   for (let i = 0; i < 7; i++) {
@@ -236,10 +238,12 @@ function duck(variant: number): AnimalModel {
   if (mallard) r.part('tail', new THREE.TorusGeometry(0.025, 0.009, 5, 10, Math.PI * 1.4), mat(0, 0.37, -0.3, 0, Math.PI / 2, 0), 0x26282a, { flat: true });
   for (const s of [-1, 1]) {
     const w = s < 0 ? 'wingL' : 'wingR';
-    r.part(w, ellipsoid(0.04, 0.085, 0.2), mat(s * 0.15, 0.29, -0.06, -0.1, 0, s * 0.1), mallard ? 0x9a8a74 : 0xf0ebe0);
+    // (r25: folded flush — the wing root inside the body loft, the leading edge rolled in against the flank
+    // and the tips angled in to cross over the tail; the old flat paddles stood off the flanks as flaps)
+    r.part(w, ellipsoid(0.034, 0.08, 0.21), mat(s * 0.132, 0.3, -0.08, -0.14, s * 0.13, -s * 0.14), mallard ? 0x9a8a74 : 0xeae4d8);
     if (mallard) {
       // Speculum: a thin dark-blue stripe along the trailing edge of the folded wing.
-      r.part(w, ellipsoid(0.01, 0.014, 0.1, 10, 6), mat(s * 0.184, 0.262, -0.1, -0.1, 0, s * 0.1), 0x34489a, { flat: true });
+      r.part(w, ellipsoid(0.01, 0.014, 0.1, 10, 6), mat(s * 0.158, 0.27, -0.12, -0.14, s * 0.13, -s * 0.14), 0x34489a, { flat: true });
     }
     const legB = s < 0 ? 'legL' : 'legR';
     r.part(legB, limb(0.02, 0.017, 0.14, 0.02, 8), mat(s * 0.065, 0, 0), feet, { flat: true });
@@ -549,15 +553,22 @@ function cow(variant: number): AnimalModel {
   r.part('head', ellipsoid(0.07, 0.014, 0.012, 8, 6), mat(0, 0.865, 0.92 + mz), 0x4a2a1e, { flat: true });
   for (const s of [-1, 1]) {
     const horn = new THREE.ConeGeometry(0.04, 0.12, 10);
-    r.part('head', horn, mat(s * 0.15, 1.31, 0.55, 0, 0, -s * 0.55), 0xf2e6c8, { flat: true });
+    // (r25: swept back + out — pointing up-out at the high lens, the near horn was seen down its axis as a
+    // pale grey square on the Jersey's brow)
+    // (the Jersey is polled — no horn buds at all: the near one still read as a grey chip on her brow)
+    if (!jersey) r.part('head', horn, mat(s * 0.16, 1.29, 0.52, -0.5, 0, -s * 0.42), 0xf2e6c8, { flat: true });
     const ear = s < 0 ? 'earL' : 'earR';
     const earPatch = !jersey && s < 0 ? band(0x26221f, -9, false) : undefined;
-    r.part(ear, ellipsoid(0.12, 0.05, 0.075), mat(s * 0.33, 1.11, 0.54, 0, 0, s * 0.3), base, { patch: earPatch });
-    r.part(ear, ellipsoid(0.08, 0.02, 0.05), mat(s * 0.34, 1.12, 0.575, 0, 0, s * 0.3), 0xf0a8a0, { flat: true });
+    // (r25: ears set higher on the skull and a touch shorter — the far ear hung at chest height beside the
+    // foreleg in the 3/4 view)
+    r.part(ear, ellipsoid(0.105, 0.048, 0.07), mat(s * 0.3, 1.2, 0.5, 0, 0, s * 0.4), base, { patch: earPatch });
+    r.part(ear, ellipsoid(0.07, 0.02, 0.046), mat(s * 0.306, 1.21, 0.532, 0, 0, s * 0.4), 0xf0a8a0, { flat: true });
   }
   // Forelock tuft
   // (r19: smooth curls, a tone off the coat — the 8 x 6 balls read as a stack of hexagonal coins on the brow)
-  for (let i = 0; i < 4; i++) r.part('head', ellipsoid(0.058, 0.036, 0.054, 16, 11), mat(-0.06 + i * 0.04, 1.3 - Math.abs(i - 1.5) * 0.008, 0.6 + (i % 2) * 0.03, 0.2, 0, (i - 1.5) * 0.25), jersey ? 0xb27446 : base);
+  // (r25: three flat overlapping tufts combed forward onto the brow — the four round curls read as stacked
+  // bread rolls)
+  for (let i = 0; i < 3; i++) r.part('head', ellipsoid(0.072, 0.022, 0.07, 16, 9), mat((i - 1) * 0.048, 1.302 - Math.abs(i - 1) * 0.012, 0.6 + (i === 1 ? 0.035 : 0), 0.55, (i - 1) * 0.35, (i - 1) * 0.28), jersey ? 0xb27446 : base);
   // (r9: bigger eyes up on the brow, tilted to face up-and-forward: from the 42-50° gameplay pitch the
   // old ones sat under the brow line and the face read as an eyeless lump)
   eyes(r, 0.13, 1.145, 0.79, 0.053, 0.36, { rim: 0xf6efe4, pitch: 0.42 });
