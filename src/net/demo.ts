@@ -18,7 +18,7 @@ import { DEBRIS } from './farmsync';
 import type { RemotePlayer } from './players';
 import type { DayTally } from './system';
 import type { EmoteId } from '../entities/remote-emotes';
-import { FarmChoreo, BED, HOST_SPOT, LANE_Z } from './demo-farm';
+import { FarmChoreo, BED, HOST_SPOT, LANE_Z, buildBasket } from './demo-farm';
 
 interface Bot {
   p: RemotePlayer;
@@ -29,7 +29,23 @@ interface Bot {
   z: number;
   facing: Facing;
   acting: number;
+  /**
+   * Static stagings (coop-chat / coop-emote): face the lens itself, turned `bias` rad off it (+ = to
+   * the farmer's left on screen), eyes on the lens — a fixed world yaw read as profile at the frame's
+   * edges, and the idle glance turned heads away at random (r7: Fennel in profile).
+   */
+  bias?: number;
 }
+
+/** coop-emote staging round the shipping bin (bin tiles 37-38, 16; its front edge at z ≈ 17.45). */
+export const BIN_STAGE = {
+  juniper: { x: 35.45, z: 18.95 },
+  fennel: { x: 36.8, z: 18.45 },
+  briar: { x: 38.15, z: 18.3 },
+  /** front-right of the arc, so the wheel opens over open grass to the right (never over a farmhand) */
+  host: { x: 39.5, z: 19.95 },
+  hostYaw: -0.22,
+};
 
 const yawOf = (f: Facing): number => (f === 'down' ? 0 : f === 'up' ? Math.PI : f === 'left' ? -Math.PI / 2 : Math.PI / 2);
 
@@ -98,6 +114,10 @@ export class CoopDemo {
       this.stagePorch(mk);
       return;
     }
+    if (name === 'coop-emote') {
+      this.stageBin(mk);
+      return;
+    }
     const idle: Bot['script'] = () => {};
     this.bots = [mk(0, BED.x0 + 0.5, LANE_Z, 'down', idle), mk(1, BED.x1 + 0.5, LANE_Z, 'down', idle), mk(2, 20.73, 25.65, 'right', idle)];
     this.net.refreshCabins(new Map([[0, PRESET_LOOKS[0]!.scarf], [1, PRESET_LOOKS[1]!.scarf], [2, PRESET_LOOKS[2]!.scarf]]));
@@ -147,6 +167,7 @@ export class CoopDemo {
       // awaiting capture resumes — so no still / sequence ever shows the pre-seek pose jump (r6: Briar
       // vanished between the first two frames of a capture).
       const staged = this.stageId;
+      this.installSeq(t0);
       this.game.events.once('game:ready', () => {
         if (!this.active || !this.choreo || staged !== this.stageId) return;
         this.seek(t0);
@@ -218,10 +239,11 @@ export class CoopDemo {
     // (r7b) An open ring round the doorway, the door + the mug crate left clear between them: Juniper by
     // her window (west of the step), Fennel out on the grass to the west, Briar front-right, the host
     // coming in from the east (r7: Juniper stood in the doorway and Briar overlapped her).
-    this.bots = [mk(0, cx - 1.05, front + 0.3, 'down', idle), mk(1, cx - 2.05, front + 1.65, 'down', idle), mk(2, cx + 0.75, front + 2.05, 'down', idle)];
-    this.bots[0]!.p.farmer.targetYaw = 0.3;
-    this.bots[1]!.p.farmer.targetYaw = 0.72;
-    this.bots[2]!.p.farmer.targetYaw = -0.28;
+    this.bots = [mk(0, cx - 1.0, front + 0.3, 'down', idle), mk(1, cx - 2.2, front + 1.8, 'down', idle), mk(2, cx + 1.3, front + 2.55, 'down', idle)];
+    // (turned a little toward each other round the doorway; faces on the lens)
+    this.bots[0]!.bias = 0.25;
+    this.bots[1]!.bias = 0.35;
+    this.bots[2]!.bias = -0.2;
     this.net.refreshCabins(new Map([[0, PRESET_LOOKS[0]!.scarf], [1, PRESET_LOOKS[1]!.scarf], [2, PRESET_LOOKS[2]!.scarf]]));
     for (const [i, c] of [0xf4ead8, 0x9fc6e8, 0xe8b64a].entries()) {
       const m = buildMug(c);
@@ -245,18 +267,92 @@ export class CoopDemo {
       if (!this.active) return;
       const pl = this.game.player;
       const rig = this.game.rc.rig;
-      const to = { x: cx + 2.35, z: front + 1.05 };
+      const to = { x: cx + 3.0, z: front + 0.85 };
       rig.lookOffset.x -= to.x - pl.position.x;
       rig.lookOffset.z -= to.z - pl.position.z;
       pl.teleport(to.x, to.z);
-      pl.setFacing('left');
-      (pl as unknown as { targetYaw: number }).targetYaw = -0.7;
+      // ('down': a 'left' facing turned the head + shoulders a quarter away toward the faced tile)
+      pl.setFacing('down');
+      // (r7c) faces the lens, a glance toward the group (r7: -0.7 showed the back of the hat)
+      (pl as unknown as { targetYaw: number }).targetYaw = -0.15;
+      // (tuned on the lens: at this camera yaw the hat + bob read frontal at ~-0.5)
+      this.hostBias = -0.5;
       this.game.followPlayer(true);
     });
     this.net.emitRoster();
   }
 
   private mugs: THREE.Object3D[] = [];
+  private camW = new THREE.Vector3();
+  /** `&hostbias=<rad>` overrides the staged host bias (tuning stills on the lens). */
+  private hostBiasUrl = ((): number | null => {
+    const v = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('hostbias') : null;
+    return v !== null && Number.isFinite(Number(v)) ? Number(v) : null;
+  })();
+  /** Static stagings: the host faces the lens turned this far (rad, + = to screen right); null = free. */
+  private hostBias: number | null = null;
+
+  /**
+   * `coop-emote` (r7c: its own place, not the berry-bed frame): late afternoon at the shipping bin, the
+   * day's last basket just tipped in. Briar holds the empty basket up with a grin, Fennel throws a
+   * "Wow!" (held at the pop's peak: overshoot + sparkle ring + his hop), Juniper answers with a heart,
+   * and the host — at the front of the arc, three-quarters to the lens — has the emote wheel open.
+   * Everyone faces the camera; the farmhouse porch and the bin frame them.
+   */
+  private stageBin(mk: (i: number, x: number, z: number, facing: Facing, script: Bot['script']) => Bot): void {
+    const idle: Bot['script'] = () => {};
+    const S = BIN_STAGE;
+    this.bots = [mk(0, S.juniper.x, S.juniper.z, 'down', idle), mk(1, S.fennel.x, S.fennel.z, 'down', idle), mk(2, S.briar.x, S.briar.z, 'down', idle)];
+    this.bots[0]!.bias = 0.3;
+    this.bots[1]!.bias = 0.1;
+    this.bots[2]!.bias = -0.1;
+    this.net.refreshCabins(new Map([[0, PRESET_LOOKS[0]!.scarf], [1, PRESET_LOOKS[1]!.scarf], [2, PRESET_LOOKS[2]!.scarf]]));
+    // Briar's empty basket, held up in both arms (the last of the day's six is in the bin).
+    const basket = buildBasket();
+    basket.mound.visible = false;
+    basket.root.scale.setScalar(0.82);
+    this.props.push(basket.root);
+    this.bots[2]!.p.farmer.carry(basket.root);
+    basket.root.position.set(0, 0.02, 0.36);
+    const line = (id: number, text: string): void => {
+      const p = this.net.remotes.get(id);
+      if (p) this.game.events.emit('net:chat', { id, name: p.name, text, color: hex(p.look.scarf) });
+    };
+    line(2, 'Race you to the bin after this row!');
+    line(3, 'Berries are watered!');
+    this.bots[2]!.p.chat('Six baskets shipped!', 1e6);
+    // Fennel's "Wow!" is held at the pop for stills (&live=1 lets it play); Juniper's heart a beat later.
+    const live = new URLSearchParams(location.search).get('live') === '1';
+    const pops = (): void => {
+      if (!this.active) return;
+      const fennel = this.bots[1]?.p;
+      const juniper = this.bots[0]?.p;
+      if (!fennel || !juniper) return;
+      fennel.emote('wow', 1e6);
+      fennel.farmer.bubble.freezeAt = live ? null : 0.16;
+      juniper.emote('heart', 1e6);
+    };
+    pops();
+    const staged = this.stageId;
+    this.game.events.once('game:ready', () => staged === this.stageId && pops());
+    queueMicrotask(() => {
+      if (!this.active) return;
+      const pl = this.game.player;
+      const rig = this.game.rc.rig;
+      const to = S.host;
+      rig.lookOffset.x -= to.x - pl.position.x;
+      rig.lookOffset.z -= to.z - pl.position.z;
+      pl.teleport(to.x, to.z);
+      pl.setFacing('down');
+      (pl as unknown as { targetYaw: number }).targetYaw = S.hostYaw;
+      this.hostBias = S.hostYaw;
+      this.game.followPlayer(true);
+    });
+    this.net.emitRoster();
+  }
+
+  /** Demo props owned by the staging (disposed on clear). */
+  private props: THREE.Object3D[] = [];
 
   private place(b: Bot): void {
     const map = this.game.world.current;
@@ -277,6 +373,30 @@ export class CoopDemo {
     ];
     this.bots.forEach((b, i) => rows.push({ id: b.p.id, name: b.p.name, look: b.p.look, isMe: false, n: work[i]! }));
     return rows;
+  }
+
+  /**
+   * Sequence captures (`shot.mjs --frames n --every ms`): the loop is held and stepped by hand, `&seqms=`
+   * (default 150) of loop time per still, so a sheet shows one pick / lob / pour in order however slowly
+   * a loaded machine captures (r6: the stills jumped seconds apart — Briar 'vanished' between frames).
+   */
+  private installSeq(t0: number): void {
+    const per = Number(new URLSearchParams(location.search).get('seqms')) || 150;
+    const g = this.game;
+    const staged = this.stageId;
+    g.seqHook = (i) => {
+      if (!this.active || !this.choreo || staged !== this.stageId) return 'no coop loop';
+      g.holdLoop = true;
+      // (the first still restarts the loop at the staged &t=, however long the page took to get here)
+      if (i === 0) this.seek(t0);
+      const STEP = 1000 / 60;
+      const n = i === 0 ? 1 : Math.max(1, Math.round(per / STEP));
+      for (let k = 0; k < n; k++) {
+        this.net.advanceSeqClock(STEP);
+        g.step(STEP / 1000);
+      }
+      return `coop loop t=${this.choreo.time.toFixed(2)}s`;
+    };
   }
 
   /** Restart the coop-farm loop at `t` s (stills from a live page; same as `&t=`). */
@@ -313,9 +433,14 @@ export class CoopDemo {
   clear(): void {
     if (!this.active) return;
     this.active = false;
-    for (const b of this.bots) b.p.farmer.carry(null);
-    for (const m of this.mugs) m.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    this.hostBias = null;
+    for (const b of this.bots) {
+      b.p.farmer.carry(null);
+      b.p.farmer.gaze = null;
+    }
+    for (const m of [...this.mugs, ...this.props]) m.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
     this.mugs = [];
+    this.props = [];
     this.choreo?.dispose();
     this.choreo = null;
     for (const b of this.bots) this.net.remotes.remove(b.p.id);
@@ -330,11 +455,22 @@ export class CoopDemo {
       this.choreo.update(dt);
       return;
     }
+    const cam = this.game.rc.camera.getWorldPosition(this.camW);
     for (const b of this.bots) {
       if (b.acting > 0) b.acting -= dt;
       b.p.farmer.speed = 0;
       b.script(b, dt);
       this.place(b);
+      if (b.bias !== undefined) {
+        const toCam = Math.atan2(cam.x - b.x, cam.z - b.z);
+        b.p.farmer.targetYaw = toCam + b.bias;
+        b.p.farmer.gaze = toCam;
+      }
+    }
+    // The host too: a world yaw that faced the lens at one camera yaw showed the back of the hat at another.
+    if (this.hostBias !== null) {
+      const pl = this.game.player;
+      (pl as unknown as { targetYaw: number }).targetYaw = Math.atan2(cam.x - pl.position.x, cam.z - pl.position.z) + (this.hostBiasUrl ?? this.hostBias);
     }
   }
 }

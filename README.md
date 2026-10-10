@@ -2008,7 +2008,9 @@ Friends on other machines open the game from the host's address; the relay defau
   reports fps / frame-time percentiles, RTT, bytes, queue and reconcile / refund / denied counters.
 - **Tests**: `node scripts/mp-interp.mjs` (node only) tortures the playout clock: jitter, spikes, stalls, a busy
   fixed-step sender at 150±40 ms one way (≤ 1.45× pace over 5 seeds), a sender stamping frame time, and a sender tab
-  frozen 0.6 / 1.2 / 2.5 s mid-walk. `node scripts/mp-adv.mjs [--delay 150 --jitter 40 --walks 5]` (4 clients, one behind a 75±25 ms proxy) adds per-frame pop checks (only frames the game drew; ≤ 1.5× pace over 5 walks + a run), harvest
+  frozen 0.6 / 1.2 / 2.5 s mid-walk. The playout's speed cap follows the path's windowed pace, clamped per anim code
+  to what the player controller can do (walk 4.6, run 6.9 m/s — energy / combat only slow farmers), so bunched
+  stamps from a lagged sender can't lift the cap past ~1.45× a walk (r6: Cole at 1.62×). `node scripts/mp-adv.mjs [--delay 150 --jitter 40 --walks 5]` (4 clients, one behind a 75±25 ms proxy) adds per-frame pop checks (only frames the game drew; ≤ 1.5× pace over 5 walks + a run), harvest
   races, drop / crash rejoin, bedtime and a per-client frame-time gate (each client measured while the other tabs
   skip drawing: p95 ≤ 20 ms). `npm run mp-test` (relay in its own process + Vite + headless clients) covers sync, convergence, RTT,
   farmhand→farmhand smoothness, drop/rejoin, and the adversarial cases: own save untouched by a co-op night,
@@ -2021,11 +2023,18 @@ Friends on other machines open the game from the host's address; the relay defau
   everyone over for coffee. Every line said goes through `net:chat`, so the log matches the bubbles; `&t=<sec>`
   seeks the loop for stills — the loop restarts at that time once `__game.ready()` resolves, so a still taken N s after
   ready lands N s into the coffee beat whatever the boot took; default t = 19.9, everyone facing the camera until ~23.5;
-  `services.net.demoSeek(t)` re-seeks a live page), `coop-chat`,
+  `services.net.demoSeek(t)` re-seeks a live page; `shot.mjs --frames n --every ms` on it is hand-stepped — the loop
+  holds and each still is `&seqms=` (default 150) ms of loop time after the last, starting exactly at `&t=`, so a
+  sequence sheet shows one pick → hold-up → lob → basket pop in order however slowly a loaded box captures),
+  `coop-chat` (golden hour at Juniper's porch: mugs, everyone on the lens, the host typing a reply),
   `coop-bedtime` (you at Juniper's festooned cabin under its porch lamp, a Zzz over the roof, the bedtime banner; the lens
-  sits north of the blossom tree so no canopy crosses the frame), `coop-emote` = Fennel's "Wow!" held at the pop's peak
-  (overshoot + sparkle ring + hop; `&live=1` lets it play out) with your wheel open beside you,
-  `coop-dayend`, `coop-lobby` (creator + lobby; your lobby card follows the creator live). Emote bubbles are drawn in a small overlay pass after post-processing
+  sits north of the blossom tree so no canopy crosses the frame), `coop-emote` (its own place: 5 pm at the shipping bin
+  by the farmhouse porch — Briar holds the empty basket up, "Six baskets shipped!", Fennel's "Wow!" held at the pop's
+  peak (overshoot + sparkle ring + hop; `&live=1` lets it play out), Juniper's heart, your wheel open over the grass
+  to your right). Static stagings turn each farmer (and the host) toward the lens itself plus a small social bias and
+  pin their eyes on it (`RemoteFarmer.gaze`), so no one reads in profile at the frame's edge or glances away in a still,
+  `coop-dayend`, `coop-lobby` (creator + lobby; your lobby card follows the creator live; a "Cabins on your farm" row
+  draws each farmhand's cabin roofed in their colour, free slots greyed). Emote bubbles are drawn in a small overlay pass after post-processing
   (`renderEmoteOverlay`, from `game.afterRender`) so tilt-shift / bloom never smear them.
   `MP_TIMEOUT_MIN` raises mp-test's wall-clock guard on a saturated machine (default 25). Debug: `services.net` (`host()`, `join(code)`, `kick(id)`,
   `players()`, `stats()`, `simulateDrop()`), `services.net.sync.digest()` (per-tile farm state that must match).

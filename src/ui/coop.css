@@ -1572,3 +1572,110 @@ body:has(.dlg-letterbox.on) .coop-chat .coop-log {
   flex-direction: column;
   align-items: flex-end;
 }
+
+/* ── (r7c) lobby: the farmhands' cabins, roofed in their colour ───────────────────────────────── */
+.coop-cabins {
+  margin: 12px 0 0;
+  padding: 8px 12px 10px;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(190, 225, 160, 0) 62%, rgba(150, 190, 110, 0.32) 62%, rgba(130, 175, 95, 0.4)),
+    linear-gradient(180deg, rgba(255, 246, 220, 0.75), rgba(250, 236, 200, 0.6));
+  box-shadow: inset 0 0 0 2px rgba(150, 100, 40, 0.2);
+}
+.coop-cabins .hd {
+  font: 700 13px var(--font-head);
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 0 0 4px;
+}
+.coop-cabins .row {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.coop-cabins .cab {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  padding-top: 6px;
+}
+.coop-cabins .cab .roof {
+  width: 76px;
+  height: 30px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background:
+    repeating-linear-gradient(180deg, rgba(40, 20, 5, 0.18) 0 2px, transparent 2px 7px),
+    linear-gradient(180deg, color-mix(in srgb, var(--c, #a89a88) 85%, #fff), color-mix(in srgb, var(--c, #a89a88) 70%, #3a2210));
+  filter: drop-shadow(0 2px 0 rgba(60, 30, 10, 0.35));
+}
+.coop-cabins .cab .wall {
+  position: relative;
+  width: 60px;
+  height: 30px;
+  margin-top: -1px;
+  border-radius: 0 0 4px 4px;
+  background:
+    repeating-linear-gradient(180deg, #a2643a 0 6px, #7f4a28 6px 7.5px),
+    #a2643a;
+  box-shadow: inset 0 -3px 0 rgba(50, 25, 8, 0.35), 0 3px 4px rgba(60, 40, 10, 0.25);
+}
+.coop-cabins .cab .door {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 13px;
+  height: 19px;
+  translate: -50% 0;
+  border-radius: 5px 5px 0 0;
+  background: #5c3418;
+  box-shadow: inset 0 0 0 1.5px #3e220e;
+}
+.coop-cabins .cab .win {
+  position: absolute;
+  left: 7px;
+  top: 8px;
+  width: 11px;
+  height: 10px;
+  border-radius: 2px;
+  background: radial-gradient(circle at 50% 50%, #fff2b8, #f2b250);
+  box-shadow: 0 0 0 1.5px #5c3418, 0 0 8px rgba(255, 200, 90, 0.8);
+}
+.coop-cabins .cab .smoke {
+  position: absolute;
+  top: -2px;
+  left: calc(50% + 18px);
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 5px -8px 0 1px rgba(255, 255, 255, 0.5), 2px -17px 0 3px rgba(255, 255, 255, 0.3);
+  animation: coopCabSmoke 3.2s ease-in-out infinite;
+}
+@keyframes coopCabSmoke {
+  0%, 100% { translate: 0 0; opacity: 0.85; }
+  50% { translate: 2px -3px; opacity: 1; }
+}
+.coop-cabins .cab b {
+  margin-top: 4px;
+  font: 700 14px var(--font-head);
+  color: var(--ink);
+}
+.coop-cabins .cab small {
+  font: 600 11px var(--font-body);
+  color: var(--ink-soft);
+}
+.coop-cabins .cab.free .roof,
+.coop-cabins .cab.free .wall {
+  opacity: 0.4;
+  filter: grayscale(0.8);
+}
+.coop-cabins .cab.free .win {
+  background: #cdbb9a;
+  box-shadow: 0 0 0 1.5px #5c3418;
+}
+.coop-cabins .cab.free b {
+  color: var(--ink-soft);
+}

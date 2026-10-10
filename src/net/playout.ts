@@ -28,6 +28,13 @@ const VCAP = 1.32;
 const VCAP_MIN = 1.6;
 /** Error the limiter may carry before it gives up and lets the farmer catch up (m). */
 const VCAP_SLACK = 1.2;
+/**
+ * Ceiling of the pace the cap follows, by the sample's anim code (idle, walk, run, fish, hidden): no
+ * farmer outruns the player controller (walk 4.2 m/s, run 6.4 m/s — energy / combat only ever slow them),
+ * so however a lagged sender's stamps bunch up, the pace estimate can't lift the cap past ~1.45× a walk
+ * (r6 mp-adv: Cole at 150±40 ms one way rendered at 6.8 m/s = 1.62× because the window pace read high).
+ */
+const PACE_CEIL = [4.6, 4.6, 6.9, 4.6, Infinity];
 /** Samples further apart than this (m) are a teleport: snap instead of sliding. */
 const TELEPORT_M = 4;
 
@@ -261,7 +268,8 @@ export class Playout {
     let len = 0;
     for (let k = i; k < j; k++) len += Math.hypot(b[k + 1]!.x - b[k]!.x, b[k + 1]!.z - b[k]!.z);
     const span = b[j]!.t - b[i]!.t;
-    return span > 0 ? (len / span) * 1000 : 0;
+    const ceil = PACE_CEIL[this.ec?.anim ?? 4] ?? Infinity;
+    return span > 0 ? Math.min(ceil, (len / span) * 1000) : 0;
   }
 
   /** Position on the buffered path at sender time `rt` (coasts ≤ EXTRAP_MS past the tail). */

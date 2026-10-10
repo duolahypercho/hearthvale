@@ -91,7 +91,8 @@ export function torture(o = {}) {
   while (now < dur + 900) {
     while (ai < arrivals.length && arrivals[ai].arr <= now) {
       const a = arrivals[ai++];
-      p.push(a.t + offset, a.x, a.z, 0, 1, now);
+      // anim code as the game sends it (1 walk, 2 run): the playout's pace ceiling follows it
+      p.push(a.t + offset, a.x, a.z, 0, speed > 5 ? 2 : 1, now);
     }
     if (p.sample(now)) {
       frames.push([now, p.x, p.z]);

@@ -35,6 +35,11 @@ export const BED = { x0: 22, z0: BED_Z0, x1: 27, z1: 26 };
 /** Where the basket sits on the ground: off the bed's west end, level with its rows (r4: at the
  * bed's front corner it pulled Rowan down to the lens, big and face-down). */
 const BASKET_AT = { x: 21.45, z: 25.95 };
+/**
+ * Juniper's own picking basket at the west end of the lane behind the bed (r7c): while Briar is off with
+ * the big one her lobs used to vanish mid-air ('into the apron'); now every berry lands somewhere.
+ */
+const SPARE_AT = { x: 21.35, z: 24.4 };
 /** The shipping bin's front (farm layout: bin at tiles 37-38, 16). */
 const BIN_FRONT = { x: 37.5, z: 17.45 };
 /** Age (s) inside which a seeked action is replayed for real (anim + FX); older ones apply quietly. */
@@ -107,13 +112,18 @@ interface Actor {
 }
 
 /** A woven harvest basket (one mesh) + its berry mound (one mesh, scaled by how full it is). */
-function buildBasket(): { root: THREE.Group; mound: THREE.Mesh } {
+export function buildBasket(): { root: THREE.Group; mound: THREE.Mesh } {
   const m = farmerMaterial();
   const b = new MeshBuilder();
   b.add(m, bevelCylinder(0.27, 0.21, 0.26, 0.03, 14), mat(0, 0, 0), { tint: 0xc4904e });
   for (const y of [0.07, 0.15]) b.add(m, new THREE.TorusGeometry(0.245 + y * 0.18, 0.016, 5, 16), mat(0, y, 0, Math.PI / 2, 0, 0), { tint: 0x9a6a36 });
   b.add(m, new THREE.TorusGeometry(0.27, 0.028, 6, 18), mat(0, 0.255, 0, Math.PI / 2, 0, 0), { tint: 0xa8743a });
   b.add(m, new THREE.TorusGeometry(0.2, 0.018, 5, 12, Math.PI), mat(0, 0.25, 0, 0, Math.PI / 2, 0), { tint: 0x8a5a2c });
+  // (r7c) An open mouth: a shaded hollow inside the rim + a cloth liner peeking over it, so the empty
+  // basket reads as a basket from the high lens (r7: a closed lid, it read as a pie).
+  b.add(m, new THREE.CircleGeometry(0.245, 18), mat(0, 0.262, 0, -Math.PI / 2, 0, 0), { tint: 0x4a2c14 });
+  b.add(m, new THREE.CircleGeometry(0.16, 14), mat(0.03, 0.264, 0.02, -Math.PI / 2, 0, 0), { tint: 0x2e1a0c });
+  b.add(m, new THREE.SphereGeometry(0.09, 8, 5), mat(0.2, 0.25, 0.1, 0.4, 0, -0.6, 1.1, 0.35, 0.8), { tint: 0xe9dcc0 });
   const basket = new THREE.Mesh(b.geometries().get(m)!, m);
   basket.castShadow = true;
   const mb = new MeshBuilder();
@@ -139,11 +149,18 @@ export class FarmChoreo {
   private actors: Actor[] = [];
   private hostEvents: Ev[] = [];
   private clock = 0;
+  /** Loop time (s) — sequence captures label their stills with it. */
+  get time(): number {
+    return this.clock;
+  }
   private basket = buildBasket();
+  private spare = buildBasket();
+  private spareFill = 0.35;
+  private sparePop = 0;
   /** 0..1 how full the basket is. */
   private fill = 0.8;
   private carrying = false;
-  private berries: { m: THREE.Mesh; t: number; hold: number; from: THREE.Vector3; to: THREE.Vector3 }[] = [];
+  private berries: { m: THREE.Mesh; t: number; hold: number; from: THREE.Vector3; to: THREE.Vector3; spare?: boolean }[] = [];
   private berryGeo = new THREE.SphereGeometry(0.075, 8, 6);
   private berryMat = new THREE.MeshStandardMaterial({ color: 0xd8323a, roughness: 0.4 });
   private seeking = false;
@@ -168,6 +185,7 @@ export class FarmChoreo {
     this.hostEvents.push({ t: 20.3, run: (age) => !this.hostQuiet && age < 2.2 && this.net.emote('heart') });
     this.game.world.current?.root.add(this.basket.root);
     this.placeBasket();
+    this.placeSpare();
   }
 
   // ─────────────────────────────── scripts
@@ -305,6 +323,9 @@ export class FarmChoreo {
       else if (!this.carrying) {
         this.fill = Math.min(1, this.fill + 0.2);
         this.placeBasket();
+      } else {
+        this.spareFill = Math.min(1, this.spareFill + 0.12);
+        this.placeSpare();
       }
     };
     const at = Math.max(0, IMPACT.pull - age);
@@ -447,6 +468,21 @@ export class FarmChoreo {
     mound.position.y = 0.12 + 0.13 * this.fill;
   }
 
+  private placeSpare(): void {
+    const { root, mound } = this.spare;
+    const map = this.game.world.current;
+    if (map && root.parent !== map.root) map.root.add(root);
+    root.name = 'coop-basket-spare';
+    const s = 0.78;
+    const q = this.sparePop > 0 ? 1 + Math.sin((1 - this.sparePop / 0.25) * Math.PI) * 0.2 : 1;
+    root.scale.set(s * q, s / q, s * q);
+    root.position.set(SPARE_AT.x, map ? map.heightAt(SPARE_AT.x, SPARE_AT.z) : 0, SPARE_AT.z);
+    root.rotation.set(0, -0.5, 0);
+    mound.visible = this.spareFill > 0.01;
+    mound.scale.set(0.55 + 0.45 * this.spareFill, 0.4 + 0.6 * this.spareFill, 0.55 + 0.45 * this.spareFill);
+    mound.position.y = 0.12 + 0.13 * this.spareFill;
+  }
+
   /** A berry held up in the picker's fist for a beat, then lobbed over the bed into the basket. */
   private lob(hand: THREE.Object3D): void {
     let b = this.berries.find((q) => q.t < 0 && q.hold <= 0);
@@ -511,23 +547,29 @@ export class FarmChoreo {
   }
 
   update(dt: number): void {
-    this.advance(Math.min(0.1, dt), false);
+    // (r7c) At most 1/30 s of loop time per drawn frame: on a saturated box (10-20 fps) the loop slows
+    // with the frames instead of leaping seconds between them, so a still taken N s after ready lands
+    // near t0 + N (critic stills at &t=8 / 14 caught the next beat) — unchanged at 60 fps.
+    dt = Math.min(1 / 30, dt);
+    this.advance(dt, false);
     // Berry lobs.
     const map = this.game.world.current;
     for (const b of this.berries) {
       if (b.hold > 0) {
         b.hold -= dt;
         if (b.hold > 0) continue;
-        // Let go: into the basket if it's on the ground, else into the apron (gone).
+        // Let go: into the big basket if it's on the ground, else into Juniper's own picking basket.
         b.m.getWorldPosition(b.from);
         b.m.removeFromParent();
-        if (this.carrying || !map) {
+        if (!map) {
           b.m.visible = false;
           continue;
         }
         map.root.add(b.m);
         b.m.scale.setScalar(1);
-        b.to.set(BASKET_AT.x, map.heightAt(BASKET_AT.x, BASKET_AT.z) + 0.3, BASKET_AT.z);
+        const at = this.carrying ? SPARE_AT : BASKET_AT;
+        b.spare = this.carrying;
+        b.to.set(at.x, map.heightAt(at.x, at.z) + (this.carrying ? 0.24 : 0.3), at.z);
         b.t = 0;
       }
       if (b.t < 0) continue;
@@ -535,9 +577,15 @@ export class FarmChoreo {
       if (b.t >= 1) {
         b.t = -1;
         b.m.visible = false;
-        this.fill = Math.min(1, this.fill + 0.2);
-        this.pop = 0.25;
-        this.placeBasket();
+        if (b.spare) {
+          this.spareFill = Math.min(1, this.spareFill + 0.12);
+          this.sparePop = 0.25;
+          this.placeSpare();
+        } else {
+          this.fill = Math.min(1, this.fill + 0.2);
+          this.pop = 0.25;
+          this.placeBasket();
+        }
         this.burst(b.to);
         continue;
       }
@@ -563,6 +611,10 @@ export class FarmChoreo {
         (sp.pts.material as THREE.PointsMaterial).opacity = 1 - sp.t;
       }
     }
+    if (this.sparePop > 0) {
+      this.sparePop = Math.max(0, this.sparePop - dt);
+      this.placeSpare();
+    }
     // A little squash-pop when something lands in (or leaves) the basket.
     if (this.pop > 0) {
       this.pop = Math.max(0, this.pop - dt);
@@ -575,7 +627,12 @@ export class FarmChoreo {
     const c0 = this.clock;
     let c1 = c0 + dt;
     const wrap = c1 >= LOOP;
-    if (wrap) c1 -= LOOP;
+    if (wrap) {
+      c1 -= LOOP;
+      // (a new loop: Juniper's picking basket starts a third full again)
+      this.spareFill = 0.35;
+      this.placeSpare();
+    }
     const map = this.game.world.current;
     for (const a of [...this.actors.map((q) => q.events), this.hostEvents]) {
       for (const e of a) {
@@ -603,6 +660,8 @@ export class FarmChoreo {
     this.actors[2]?.p.farmer.carry(null);
     this.actors = [];
     this.basket.root.removeFromParent();
+    this.spare.root.removeFromParent();
+    for (const b of [this.basket, this.spare]) b.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
     for (const b of this.berries) b.m.removeFromParent();
     this.berries = [];
     if (this.sparkle) {

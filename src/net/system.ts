@@ -2271,7 +2271,16 @@ export class NetSystem implements System, NetApi {
   }
 
   later(ms: number, fn: () => void): void {
-    this.timers.push({ at: performance.now() + ms, fn });
+    this.timers.push({ at: performance.now() + this.seqSkew + ms, fn });
+  }
+
+  /**
+   * Hand-stepped sequence captures (shot.mjs --frames with a held loop): the demo's timers run on the
+   * stepped time, not the wall clock (each still in a capture is `every` ms of loop time apart).
+   */
+  private seqSkew = 0;
+  advanceSeqClock(ms: number): void {
+    this.seqSkew += ms;
   }
 
   private autoStart(): void {
@@ -2292,7 +2301,7 @@ export class NetSystem implements System, NetApi {
     this.frameTimes[this.frameIdx] = dt * 1000;
     this.frameIdx = (this.frameIdx + 1) % this.frameTimes.length;
     this.frameCount++;
-    const now = frameClock(game.frameTs);
+    const now = frameClock(game.frameTs) + this.seqSkew;
     this.frameAt = now;
     // The position we sample is the fixed-step sim's, which trails the frame clock by the step
     // accumulator: stamp samples with the sim's own time so a 17 ms frame that ran 0 or 2 steps

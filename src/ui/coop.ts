@@ -244,8 +244,9 @@ class FarmerPreview implements TurntableView {
       this.wantPos.set(0.05, 1.86, 2.75);
       this.wantAim.set(0, 1.6, 0);
     } else if (tab === 'look') {
-      this.wantPos.set(0, 1.8, 3.35);
-      this.wantAim.set(0, 1.42, 0);
+      // (r7c) head + hat whole with the shoulders in: the straw crown was cut by the stage's top edge
+      this.wantPos.set(0, 1.92, 3.85);
+      this.wantAim.set(0, 1.5, 0);
     } else {
       this.wantPos.set(0, 1.5, 4.95);
       this.wantAim.set(0, 1.08, 0);
@@ -741,6 +742,19 @@ class CoopScreen extends Screen {
     btns.append(start, leave);
     body.appendChild(btns);
     body.appendChild(el('div', 'coop-hint', `<b>T</b> chat · hold <b>G</b> emotes · the day ends when <b>everyone</b> is in bed`));
+    // (r7c) The cabin row: each farmhand's cabin on the farm, roofed in their colour (the lobby's lower
+    // third was an empty parchment band).
+    const owners = new Map<number, PlayerView>();
+    for (const p of players) if (!p.isHost && p.cabin >= 0) owners.set(p.cabin, p);
+    const cabins = [0, 1, 2]
+      .map((i) => {
+        const o = owners.get(i);
+        return o
+          ? `<div class="cab" style="--c:${hex(o.look.scarf)}"><i class="smoke"></i><i class="roof"></i><i class="wall"><i class="win"></i><i class="door"></i></i><b>${escapeHtml(farmerName(o.name))}</b><small>Cabin ${i + 1}</small></div>`
+          : `<div class="cab free"><i class="roof"></i><i class="wall"><i class="win"></i><i class="door"></i></i><b>Cabin ${i + 1}</b><small>built when a friend joins</small></div>`;
+      })
+      .join('');
+    body.appendChild(el('div', 'coop-cabins', `<div class="hd">Cabins on your farm</div><div class="row">${cabins}</div>`));
     body.appendChild(
       el(
         'ul',

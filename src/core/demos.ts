@@ -354,6 +354,6 @@ export const DEMOS: Record<string, DemoDef> = {
   'coop-bedtime': { map: 'farm', x: 19.25, z: 22.35, facing: 'left', time: 22.6, season: 'spring', weather: 'sun', camera: { yaw: 22, pitch: 38, distance: 15.2, offsetX: -2.2, offsetZ: -3.4 }, showcase: ['field', 'coop'] },
   'coop-dayend': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 23.5, season: 'spring', weather: 'sun', camera: HOME_CAM, showcase: ['coop'], ui: 'dayend' },
   // Co-op social stills: the emote wheel open over the farm (&emote=<id>) / typing a chat line (&say=<text>).
-  'coop-emote': { map: 'farm', x: 26.9, z: 24.38, facing: 'down', time: 16.4, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 45, distance: 20.5, offsetX: -1.6, offsetZ: -1.6 }, showcase: ['field', 'coop'] },
-  'coop-chat': { map: 'farm', x: 19.4, z: 22.3, facing: 'left', time: 17.7, season: 'spring', weather: 'sun', camera: { yaw: 25, pitch: 40, distance: 13, offsetX: -2.2, offsetZ: -0.2 }, showcase: ['field', 'coop'] },
+  'coop-emote': { map: 'farm', x: 39.5, z: 19.95, facing: 'down', time: 17.1, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 41, distance: 14.6, offsetX: -1.5, offsetZ: -0.75 }, showcase: ['field', 'coop'] },
+  'coop-chat': { map: 'farm', x: 19.4, z: 22.3, facing: 'left', time: 17.7, season: 'spring', weather: 'sun', camera: { yaw: 36, pitch: 44, distance: 13.5, offsetX: -1.0, offsetZ: -0.9 }, showcase: ['field', 'coop'] },
 };

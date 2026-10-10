@@ -437,35 +437,33 @@ function hatFor(look: FarmerLook, add: (g: THREE.BufferGeometry, m: THREE.Matrix
       break;
     }
     case 'beanie': {
-      // A knitted cap worn high and pushed well back (a woodworker's beanie): from the high 3/4
-      // camera the brow and eyes stay clear instead of reading as a mushroom cap over the face.
-      // Folded, ribbed cuff + a slouched crown + a pom-pom over the back of the head.
-      // (r7: lower, slouchier crown + a thinner fold-up cuff — r6 read as a tall ribbed bucket / flowerpot)
-      const tip = -0.56;
-      const cy = r * 1.2;
-      const cz = -0.1;
-      const dome = new THREE.SphereGeometry(r * 1.0, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
-      add(dome, inHat(mat(0, cy, cz - 0.02, tip - 0.12, 0, 0, 1.03, 0.8, 1.08)), hc);
-      add(new THREE.CylinderGeometry(r * 1.07, r * 1.09, 0.085, 28), inHat(mat(0, cy + 0.01, cz, tip, 0, 0)), C(hc, 0.86));
-      const ribs = 18;
+      // A slouchy knitted cap worn back off the brow (a woodworker's beanie): from the high 3/4 camera
+      // the brow and eyes stay clear. One soft rounded crown that sags toward the nape, a fat fold-up
+      // cuff in a half-tone of the same yarn with fine knit ribs, and a pom-pom on the slouch.
+      // (r7c: no cream rings / tall cuff — r6-r7 read as a ribbed bucket or a flowerpot)
+      const tip = -0.46;
+      const cy = r * 1.16;
+      const cz = -0.08;
+      const crown = mat(0, cy, cz - 0.03, tip - 0.2, 0, 0, 1.0, 0.84, 1.08);
+      const dome = new THREE.SphereGeometry(r * 1.13, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      add(dome, inHat(crown), hc);
+      // The slouch: a soft lobe of knit sagging over the back of the crown.
+      add(lumpySphere(r * 0.62, 2, 0.04, new Rng('slouch')), inHat(crown.clone().multiply(new THREE.Matrix4().makeTranslation(0, r * 0.5, -r * 0.42)).multiply(new THREE.Matrix4().makeScale(1.25, 0.8, 1))), C(hc, 0.96));
+      const cuffC = C(hc, 0.84);
+      // (the cuff stands proud of the hair all round: r7c's first pass sank it into the fringe and only
+      // the ribs showed, hanging like teeth)
+      add(new THREE.CylinderGeometry(r * 1.15, r * 1.19, 0.13, 28), inHat(mat(0, cy + 0.01, cz, tip, 0, 0)), cuffC);
+      add(new THREE.TorusGeometry(r * 1.15, 0.03, 6, 28), inHat(mat(0, cy + 0.075, cz, tip + Math.PI / 2, 0, 0)), cuffC);
+      const ribs = 22;
       const ribM = new THREE.Matrix4();
       const tilt = new THREE.Matrix4().makeRotationX(tip);
       for (let i = 0; i < ribs; i++) {
         const a = (i / ribs) * Math.PI * 2;
-        ribM.makeRotationY(a).setPosition(Math.sin(a) * r * 1.065, 0, Math.cos(a) * r * 1.065);
+        ribM.makeRotationY(a).setPosition(Math.sin(a) * r * 1.175, 0, Math.cos(a) * r * 1.175);
         const m = new THREE.Matrix4().makeTranslation(0, cy + 0.01, cz).multiply(tilt).multiply(ribM);
-        add(roundedBox(0.03, 0.08, 0.016, 0.006), inHat(m), C(hc, 0.78));
+        add(roundedBox(0.016, 0.11, 0.008, 0.004), inHat(m), C(hc, 0.76));
       }
-      add(lumpySphere(0.08, 1, 0.24, new Rng('pom')), inHat(mat(0, cy, cz - 0.02, tip - 0.12, 0, 0).multiply(new THREE.Matrix4().makeTranslation(0, r * 0.84, -r * 0.1))), C(hc).lerp(new THREE.Color(0xffffff), 0.5));
-      // Two cream knit stripes round the crown + a fold seam: from behind it reads as a knitted
-      // beanie, not an orange ball (r5).
-      const stripe = C(hc).lerp(new THREE.Color(0xfff4e0), 0.72);
-      for (const th of [0.42, 0.78]) {
-        const ring = new THREE.TorusGeometry(r * Math.cos(th) * 1.05, 0.022, 4, 28);
-        // (on the dome's own tilted axis, so the stripes hug the slouched crown)
-        const m = mat(0, cy, cz - 0.02, tip - 0.12, 0, 0).multiply(new THREE.Matrix4().makeTranslation(0, r * Math.sin(th) * 0.8, 0)).multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2));
-        add(ring, inHat(m), stripe);
-      }
+      add(lumpySphere(0.085, 1, 0.26, new Rng('pom')), inHat(crown.clone().multiply(new THREE.Matrix4().makeTranslation(0, r * 0.9, -r * 0.5))), C(hc).lerp(new THREE.Color(0xfff4e0), 0.35));
       break;
     }
     case 'flower': {
