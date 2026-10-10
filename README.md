@@ -2265,3 +2265,51 @@ Params: `&bolt=0|1` (posed strike), `&fog=0..1`, `&rainbow=0..1`.
 
 Perf notes: the fog pass (`heightfog.ts`) only receives the light shafts inside the view frustum and skips the
 striation noise for pixels away from every beam; the height-fog banks reuse the ground mist's noise when both run.
+
+## Kintara: the in-fiction $KIN layer (simulated play-to-earn)
+
+An original, optional crypto-style layer: **everything is a simulation inside the save file**. No real wallet, private
+key, network access or money exists anywhere; `$KIN` has no value outside Hearthvale.
+
+**Fiction.** Before the Lantern Hall went dark, families chalked harvests and kindnesses on its slate wall, the
+*kin-tally* (Kintara). Perpetua Vane, a retired lighthouse bookkeeper, wheeled a ledger cart into the square (south-west of
+the fountain, `STALL` in `systems/kintara.ts`) and keeps the tally on a lantern-glass ledger that every lantern in the
+valley holds a copy of. She refuses to sell kin ("a thing that can be bought is not worth writing down"); the Glimmerco
+kiosk's bought "points" are the foil. The first visit plays a five-page intro; Hall bundles, rooms and the relit Hall write kin,
+and a restored Hall unlocks a free **Hall Keystone** deed. Interact next to the stall, or click the HUD chip.
+
+**Files.** `data/kintara.ts` (every number, the fiction, keeper lines) · `core/kintara-chain.ts` (`ChainAdapter` interface +
+`SimulatedChain`) · `systems/kintara.ts` (rules, service, co-op, save, stall + keeper) · `world/props/kintara-stall.ts` (the
+stall) · `ui/kintara.ts` + `kintara.css` (panel, HUD chip under the gold register, mint ceremony).
+
+**Earning (only via `pay()`, from a finite 1,000,000 reserve).** Repeatable income is scaled by a yearly schedule
+(`emissionFactor`: x1.0, then x0.8 per year, floor x0.4), limited per source per day and by a daily ceiling (`dailyCap`, 32 in
+year 1). Sources: shipping tally (1 kin per 400g shipped, max 8/day) plus lifetime shipped-gold milestones; notice-board jobs
+(3 each, 6/day); festival ribbons (8 / 3, 18/day); mine depth marks (once per floor that is a multiple of 5, max 3 marks a
+day); angler's records (first catch of each species once, +1 for a longer record, 8/day; the Lanternjaw pays 40); Lantern
+Hall bundles, rooms and relighting (once each). Reflex-minigame results ("perfect") never pay extra.
+
+**Sinks (all burn kin; nothing is paid to anyone).** Deed inscription fees (3 / 8 / 20 / 60 by rarity, x2 and x4 for later
+editions of the same item + quality, 5 seals a day); the **Gold Counter** (kin to gold only: 8g per kin slipping 4% per kin
+traded today, 10% tax, 20 kin a day); Exchange goods bought in kin; the **Hearth tithe** (2% of any balance over 300 is burned
+each morning as lantern oil); the **Lantern Fund** (burn kin for tiers that light the stall lamp, add +10% / +25% to repeatable
+payouts and allow a 4th deed edition). Gold can never buy kin. No randomness anywhere: nothing is a loot box.
+
+**Deeds (soulbound).** Seal gold-quality or expensive crops, valuable fish and hard-won gems from the backpack (the item is
+consumed), or attest an upgraded tool (it stays in your pack). A deed records edition, date, provenance, minter, serial and the
+ledger hash; the chain has no transfer function. The Collection tab shows them. Sealing plays a stamp, a canvas particle burst
+and the `kin-mint` sound (particles are skipped under Reduce motion).
+
+**Ledger integrity.** Transactions are hash-linked (`verify()`), supply is conserved (reserve + circulating + burned), and a
+tampered save is flagged on load. **Wiring a real chain later:** implement `ChainAdapter` (optimistic local cache + `sync()`)
+and call `game.services.kintara.useAdapter(adapter)`; nothing else touches the chain.
+
+**Co-op (host-authoritative).** One shared farm wallet, like the shared purse. Farmhands forward earning events and actions as
+`kintara:intent`; the host re-validates against the same caps, replicates the state (`rep` snapshot via `net/bridge.ts`) and
+refunds / delivers items through `kintara:grant`. Tool deeds are sealed on the host's farm only.
+
+**Debug / demo.** `__game.kin.state() · grant(n) · earn(source, n, onceKey?) · mint(item, quality) · convert(n) · donate(n) ·
+verify()`; `&kin=250` URL param (debug grant); `info().kin`. Demos: `kintara` (the stall at dusk), `ui-kintara`,
+`ui-kintara-mint | -collection | -market` (or `&ui=kintara:mint|collection|market`); staging seeds a lived-in wallet only when
+nothing has been earned yet. `npm test` covers once-only milestones, caps, supply conservation, the counter, deeds,
+save/load, tamper detection and the co-op intents.

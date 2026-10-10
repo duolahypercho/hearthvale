@@ -359,6 +359,110 @@ try {
     const reelFails = runReelTests(() => {});
     check('fishing reel: no AFK catches, 5-8 s commons, treasure ≥ 1.5 s', reelFails.length === 0, reelFails.slice(0, 2).join(' | '));
   }
+  // Kintara: simulated $KIN ledger, emission caps, sinks, soulbound deeds, save/load, tamper check, co-op intents.
+  {
+    const k = await page.evaluate(async () => {
+      const g = window.__game;
+      const gm = g.game;
+      const sv = gm.services;
+      const out = {};
+      const kin = sv.kintara;
+      out.exists = !!kin;
+      await g.teleport('farm', 31.5, 20);
+      const total = () => { const s = kin.supply(); return s.reserve + s.circulating + s.burned; };
+      const t0 = total();
+      // one-time milestones pay once; repeatable income respects the per-source and daily caps
+      const b0 = kin.balance();
+      const once1 = kin.debugEarn('hall', 10, 'smoke:once');
+      const once2 = kin.debugEarn('hall', 10, 'smoke:once');
+      out.once = once1 === 10 && once2 === 0;
+      for (let i = 0; i < 20; i++) kin.debugEarn('ship', 50);
+      const td = kin.today();
+      out.capped = (td.bySource.ship ?? 0) <= 9 && (td.bySource.ship ?? 0) >= 1 && td.earned <= td.cap;
+      out.supplyConserved = total() === t0;
+      // away from town: the counter and the seal are closed
+      out.awayRefused = kin.convert(1).ok === false && kin.mint('ruby', 0).ok === false;
+      await g.teleport('town', 28.6, 35.2);
+      gm.events.emit('day:start', { day: gm.calendar.day, season: gm.calendar.season, year: gm.calendar.year });
+      kin.debugGrant(200);
+      // Gold Counter: pays gold, burns kin, slips with volume, daily limit
+      const gold0 = sv.economy.gold();
+      const bal0 = kin.balance();
+      const q1 = kin.quoteConvert(5);
+      const c1 = kin.convert(5);
+      out.convert = c1.ok && sv.economy.gold() === gold0 + c1.gold && kin.balance() === bal0 - 5 && c1.gold === q1.gold;
+      out.slip = kin.quoteConvert(1).rate < q1.rate;
+      const burnedBefore = kin.supply().burned;
+      kin.convert(100);
+      out.limit = kin.today().counterLeft === 0 && kin.convert(1).ok === false && kin.supply().burned > burnedBefore;
+      // deeds: soulbound, fee burned, item consumed, editions get dearer, no unsealable items
+      kin.debugGrant(300);
+      const inv = sv.inventory;
+      for (let i = 10; i < 30; i++) inv.setSlot(i, null);
+      const give = (id, q) => gm.events.emit('item:give', { itemId: id, qty: 1, quality: q });
+      give('cauliflower', 2); give('cauliflower', 2); give('wood', 0);
+      const n0 = kin.deeds().length;
+      const fee1 = kin.mintOptions().find((o) => o.itemId === 'cauliflower' && o.quality === 2)?.fee;
+      const have0 = inv.slots.filter((s) => s && s.id === 'cauliflower').reduce((a, s) => a + s.qty, 0);
+      const m1 = kin.mint('cauliflower', 2);
+      const fee2 = kin.mintOptions().find((o) => o.itemId === 'cauliflower' && o.quality === 2)?.fee;
+      const m2 = kin.mint('cauliflower', 2);
+      const have1 = inv.slots.filter((s) => s && s.id === 'cauliflower').reduce((a, s) => a + s.qty, 0);
+      out.mint = m1.ok && m2.ok && kin.deeds().length === n0 + 2 && have0 - have1 === 2 && m1.deed.soulbound === true && fee2 === fee1 * 2;
+      out.noWood = kin.mint('wood', 0).ok === false;
+      out.verify = kin.verify().ok;
+      // save / load round trip keeps balance, deeds and a valid chain
+      const bal = kin.balance();
+      const nd = kin.deeds().length;
+      g.save('smoke-kin');
+      kin.debugGrant(77);
+      g.load('smoke-kin');
+      out.saved = kin.balance() === bal && kin.deeds().length === nd && kin.verify().ok;
+      // tamper: an edited ledger entry fails verification
+      const snap = kin.snapshot();
+      snap.chain.txs[snap.chain.txs.length - 2].amount += 999;
+      kin.applySnapshot(snap);
+      out.tamper = kin.verify().ok === false;
+      g.load('smoke-kin');
+      // co-op: a farmhand forwards intents and never writes; the host re-validates them
+      const intents = [];
+      const grants = [];
+      const off1 = gm.events.on('kintara:intent', (p) => intents.push(p.intent));
+      const off2 = gm.events.on('kintara:grant', (p) => grants.push(p));
+      kin.setAuthority(false);
+      const balC = kin.balance();
+      gm.events.emit('fishing:catch', { fishId: 'pondPerch', perfect: false, size: 20, quality: 0, treasure: false });
+      out.clientNoWrite = kin.balance() === balC && intents.some((i) => i.k === 'earn' && i.src === 'fish');
+      give('ruby', 0);
+      out.clientMintPending = kin.mint('ruby', 0).pending === true && intents.some((i) => i.k === 'mint');
+      kin.setAuthority(true);
+      const balH = kin.balance();
+      kin.applyIntent('2', { k: 'earn', src: 'fish', fishId: 'pondPerch', size: 20 });
+      kin.applyIntent('2', { k: 'earn', src: 'mine', deepest: 99999 });
+      out.hostEarn = kin.balance() > balH && kin.balance() - balH < 100;
+      kin.applyIntent('2', { k: 'mint', itemId: 'wood', quality: 0, by: 'Pal' });
+      out.hostRefund = grants.length > 0 && grants[grants.length - 1].peer === 2;
+      off1(); off2();
+      // UI: panel opens on every tab, the chip is on screen
+      for (const t of ['kintara', 'kintara:mint', 'kintara:collection', 'kintara:market']) { g.openUI(t); g.step(2); }
+      out.panel = !document.querySelector('.hv-kintara')?.classList.contains('hv-hidden');
+      out.chip = !!document.querySelector('.kn-chip-hud');
+      g.openUI('none');
+      await g.demo('kintara');
+      g.step(3);
+      out.stall = !!gm.world.current.root.getObjectByName('kintara-stall');
+      return out;
+    });
+    check('kintara: service + one-time milestones pay once', k.exists && k.once);
+    check('kintara: repeatable income capped per source and per day; supply conserved', k.capped && k.supplyConserved);
+    check('kintara: counter + seal closed away from the Exchange', k.awayRefused);
+    check('kintara: Gold Counter pays gold, burns kin, slips and has a daily limit', k.convert && k.slip && k.limit);
+    check('kintara: deeds are soulbound, burn a fee, consume the item, editions cost more', k.mint && k.noWood);
+    check('kintara: save/load keeps wallet + deeds; verify() ok', k.saved && k.verify);
+    check('kintara: an edited ledger fails verification', k.tamper);
+    check('kintara: co-op farmhand forwards intents, host validates + refunds', k.clientNoWrite && k.clientMintPending && k.hostEarn && k.hostRefund, JSON.stringify(k));
+    check('kintara: panel tabs, HUD chip and the Exchange stall in town', k.panel && k.chip && k.stall);
+  }
   const real = errors.filter((e) => !/not implemented yet|staging on farm/.test(e));
   check('no page / console errors', real.length === 0, real.slice(0, 3).join(' | '));
 } catch (e) {

@@ -186,7 +186,7 @@ const TOOL_SWING: Record<string, string> = { hoe: 'swing', axe: 'swing', pickaxe
 const UI_KIND: Record<string, string> = {
   click: 'ui:click', hover: 'ui:hover', open: 'ui:open', close: 'ui:close', error: 'ui:error', buy: 'purchase',
   sell: 'ui:sell', coin: 'coin', craft: 'craft', trash: 'ui:trash', pickup: 'pickup', drop: 'ui:drop', tab: 'ui:tab',
-  toggle: 'ui:toggle', tick: 'ui:tick', sort: 'ui:tab', select: 'ui:select',
+  toggle: 'ui:toggle', tick: 'ui:tick', sort: 'ui:tab', select: 'ui:select', 'kin-earn': 'kin:earn', 'kin-mint': 'kin:mint',
 };
 
 export class AudioSystem implements System {
