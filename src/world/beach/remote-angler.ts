@@ -198,7 +198,17 @@ export class RemoteAngler {
         g.fx.emit(_b.set(bob.x, g.waterY + 0.03, bob.z), { color: 0xf2fbff, count: 2, speed: 0.25, size: 0.055, gravity: 0, life: 0.9, up: 0.02, spread: 0.12 });
       }
       this.lastBob.copy(bob);
-    } else this.lastBob.set(0, 0, 0);
+      // r8: the hooked fish as a dark shape just under the top, pulling away beyond the float
+      // (same look as the local angler's fight).
+      _a.set(bob.x - feet.x, 0, bob.z - feet.z);
+      if (_a.lengthSq() < 1e-4) _a.set(1, 0, 0);
+      _a.normalize();
+      const pull = Math.atan2(-_a.z, _a.x) + Math.PI + Math.sin(t * 10) * 0.22;
+      g.setShadow(_b.copy(bob).addScaledVector(_a, 0.45), 0.7, pull, g.rippleLift > 0.008 ? 0.075 : 0.045, 1.15);
+    } else {
+      this.lastBob.set(0, 0, 0);
+      g.setShadow(null, 0);
+    }
     if (st === 'bite') {
       const s = project(_b.copy(feet).setY(feet.y + 2.3));
       this.bang.on = true;
@@ -278,6 +288,7 @@ export class RemoteAngler {
     g.hold(null);
     this.held = '';
     g.glory.visible = false;
+    g.setShadow(null, 0);
     g.updateLine(0, g.tip, camera);
   }
 

@@ -166,6 +166,7 @@ const TREASURE: [string, number][] = [
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
 const _cr = new THREE.Vector3();
 // Scratch vectors for the per-frame pose (no allocations in the hot path).
 const _hr = new THREE.Vector3();
@@ -302,6 +303,9 @@ export class FishingSystem implements System, FishingApi {
   private reelDuck = 0;
   private rodBend = 0.84;
   private wakeT = 0;
+  /** r8: last frame's thrash (edge-triggers the surface break) + the dart-splash cooldown. */
+  private prevThrash = 0;
+  private fightSplashT = 0;
   private lastFloat = new THREE.Vector3();
   /** `?demo=coop-fishing`: a scripted second angler streamed through the real snapshot path. */
   private coopDemo: { farmer: RemoteFarmer; t: number; phase: number; live: boolean; netT: number; x: number; z: number; y: number } | null = null;
@@ -1354,6 +1358,16 @@ export class FishingSystem implements System, FishingApi {
 
   // ───────────────────────────────────────────── demos
 
+  /** Fish-shadow height over the water: above the beach swell's lift (the sea writes depth). */
+  private shadowLift(): number {
+    return this.game.world.current?.id === 'beach' ? 0.075 : 0.045;
+  }
+
+  /** Fish-shadow scale from the hooked species' size range (a carp's shadow beats a minnow's). */
+  private shadowSize(): number {
+    return this.hooked ? THREE.MathUtils.clamp((this.hooked.size[0] + this.hooked.size[1]) / 90, 0.6, 1.6) : 1;
+  }
+
   private stageDemo(showcase: string[]): void {
     let want = showcase.find((s) => s.startsWith('fishing-') && s !== 'fishing-play');
     this.cancel(true);
@@ -1374,6 +1388,13 @@ export class FishingSystem implements System, FishingApi {
     this.gear.rippleLift = this.game.world.current?.id === 'beach' ? 0.012 : 0.004;
     const p = this.game.player.position;
     const dir = this.facingDir(this.aim);
+    // r8: &cast=<m> (float distance, default 5.2) and &aimdeg=<deg> (aim turned off the facing, +
+    // = counter-clockwise from above). beach-sunset lays a long line out over the lit shallows (at
+    // 5.2 m straight down the lens the float sat foreshortened against the pier).
+    const sunsetLine = want === 'fishing-wait' && showcase.includes('beach') && this.game.world.current?.id === 'beach';
+    const aimDeg = Number(q.get('aimdeg') ?? (sunsetLine ? -12 : 0));
+    if (Number.isFinite(aimDeg) && aimDeg !== 0) dir.applyAxisAngle(_up, THREE.MathUtils.degToRad(aimDeg));
+    const castM = THREE.MathUtils.clamp(Number(q.get('cast') ?? (sunsetLine ? 9 : 5.2)) || 5.2, 2, 14);
     this.rig.targetYaw = Math.atan2(dir.x, dir.z);
     const pick = (ids: string[]): FishDef => {
       if (forced && fishDef(forced)) return fishDef(forced)!;
@@ -1384,7 +1405,7 @@ export class FishingSystem implements System, FishingApi {
       }
       return pool[0] ?? FISH[0]!;
     };
-    this.target.set(p.x + dir.x * 5.2, this.waterY, p.z + dir.z * 5.2);
+    this.target.set(p.x + dir.x * castM, this.waterY, p.z + dir.z * castM);
     this.bob.copy(this.target);
     this.onWater = true;
     this.depth = 2;
@@ -1738,7 +1759,9 @@ export class FishingSystem implements System, FishingApi {
     this.splashT -= dt;
     if (this.splashT <= 0) {
       this.splashT = (0.5 + Math.random() * 1.1 - def.difficulty * 0.3) * (1 - tension * 0.45);
-      this.gear.splash(this.bob, tension > 0.6 && Math.random() < 0.4);
+      // (r8: at the float where it is now — it runs sideways with the fish and is dragged in as the
+      // meter fills; the splashes used to burst at the cast spot, metres off the float.)
+      this.gear.splash(this.lastFloat.lengthSq() > 0 ? this.lastFloat : this.bob, tension > 0.6 && Math.random() < 0.4);
       if (Math.random() < 0.5) this.sfx.fishSplash();
     }
     const v = this.view;
@@ -1814,13 +1837,15 @@ export class FishingSystem implements System, FishingApi {
       let torsoX = 0.05;
       let torsoY = 0;
       if (st === 'charging') {
-        // Wind-up: both hands up over the right shoulder, torso twisted back.
-        ar = -2.75 - pw * 0.2;
-        al = -2.25 - pw * 0.2;
-        arz = 0.05;
-        alz = 0.35;
-        torsoX = -0.1 - pw * 0.12;
-        torsoY = 0.12 + pw * 0.14;
+        // Wind-up: both fists on the butt in front of the right shoulder (r8: hands raised over the
+        // head vanished behind the big head + hat and the rod seemed to grow out of the crown), the
+        // left arm reaching across, the torso twisted back as the power builds.
+        ar = -1.85 - pw * 0.18;
+        al = -1.6 - pw * 0.15;
+        arz = 0.16;
+        alz = 0.62;
+        torsoX = -0.08 - pw * 0.1;
+        torsoY = 0.2 + pw * 0.18;
       } else if (st === 'casting') {
         const k = Math.min(1, this.stT / 0.22);
         const e = 1 - Math.pow(1 - k, 3);
@@ -2009,6 +2034,21 @@ export class FishingSystem implements System, FishingApi {
           if (Math.random() < 0.3) this.gear.ripple(_fxp, 0.7, 0.9);
         }
         this.lastFloat.copy(pos);
+        // r8: the fight breaks the surface. A thrash throws a splash crown at the float (the fish
+        // rolling at the top; the periodic fight splashes hold off), a hard dart kicks up a spit of
+        // spray; rate-limited, cosmetic only.
+        this.fightSplashT -= dt;
+        if (thrash > 0 && this.prevThrash <= 0) {
+          this.gear.splash(pos, (this.hooked?.difficulty ?? 0) >= 0.6);
+          this.fightSplashT = 0.6;
+          this.splashT = Math.max(this.splashT, 0.5);
+        } else if (dart > 0.75 && this.fightSplashT <= 0) {
+          this.fightSplashT = 0.9 + Math.random() * 0.6;
+          _fxp.set(pos.x, this.waterY + 0.03, pos.z);
+          this.gear.fx.emit(_fxp, { color: 0xeef8fc, count: 6, speed: 0.9, size: 0.04, gravity: 9.8, life: 0.45, up: 1.2, spread: 0.08 });
+          this.gear.ripple(_fxp, 0.9, 1.0);
+        }
+        this.prevThrash = thrash;
       } else {
         tiltX = Math.sin(t * 1.7) * 0.08;
         tiltZ = Math.cos(t * 2.1) * 0.08;
@@ -2044,8 +2084,20 @@ export class FishingSystem implements System, FishingApi {
       const ang = t * 1.3;
       const rad = 1.3 * (1 - k) + 0.25;
       _sp.set(this.bob.x + Math.cos(ang) * rad, 0, this.bob.z + Math.sin(ang) * rad);
-      this.gear.setShadow(_sp, k, -ang - Math.PI / 2);
-    } else if (st === 'reeling' && this.mg) this.gear.setShadow(pos, 0.7, t * 2);
+      this.gear.setShadow(_sp, k, -ang - Math.PI / 2, this.shadowLift(), this.shadowSize());
+    } else if (st === 'reeling' && this.mg) {
+      // r8: the hooked fish shows as a dark shape just under the top, pulling away from the angler
+      // beyond the float (tail wagging harder on a dart / thrash). It sits over the swell's lift
+      // (the sea writes depth): under the float it was swallowed by the water and never read.
+      const _d2 = _side.set(pos.x - game.player.position.x, 0, pos.z - game.player.position.z);
+      if (_d2.lengthSq() < 1e-4) _d2.set(1, 0, 0);
+      _d2.normalize();
+      // (The silhouette texture has its tail at +x: turn it head-away, swimming off.)
+      const pull = Math.atan2(-_d2.z, _d2.x) + Math.PI;
+      const wag = Math.sin(t * (9 + (this.mg.thrash ?? 0) * 14)) * (0.18 + Math.min(1, Math.abs(this.mg.fishV) / 2.2) * 0.25);
+      _sp.copy(pos).addScaledVector(_d2, 0.42 + this.reelDuck * 0.8);
+      this.gear.setShadow(_sp, 0.62 + (this.mg.thrash ?? 0) * 0.3, pull + wag, this.shadowLift(), this.shadowSize() * 1.2);
+    }
     else this.gear.setShadow(null, 0);
 
     // Prewarm (pillar 14, the r3 catch hitch): the fish on the line is built and drawn — microscopic,

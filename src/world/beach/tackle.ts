@@ -451,28 +451,40 @@ export class FishingGear {
       this.group.add(m);
     }
 
-    // Fish shadow (a dark soft ellipse below the surface).
+    // Fish shadow: a soft fish silhouette (head at -x, forked tail at +x), white on the canvas and
+    // tinted deep teal by the material. (r8: the old radial-gradient ellipse washed out to almost
+    // nothing on the deep water — the hooked fish never read.)
     const sc = document.createElement('canvas');
     sc.width = 128;
     sc.height = 64;
     const sg = sc.getContext('2d')!;
-    const rg = sg.createRadialGradient(56, 32, 2, 56, 32, 40);
-    rg.addColorStop(0, 'rgba(8,24,32,0.9)');
-    rg.addColorStop(1, 'rgba(8,24,32,0)');
-    sg.fillStyle = rg;
+    sg.filter = 'blur(2.5px)';
+    sg.fillStyle = '#fff';
     sg.beginPath();
-    sg.ellipse(56, 32, 44, 16, 0, 0, Math.PI * 2);
+    sg.moveTo(10, 32);
+    sg.bezierCurveTo(16, 20, 36, 17, 54, 18);
+    sg.bezierCurveTo(72, 19, 86, 25, 98, 29);
+    sg.lineTo(98, 35);
+    sg.bezierCurveTo(86, 39, 72, 45, 54, 46);
+    sg.bezierCurveTo(36, 47, 16, 44, 10, 32);
     sg.fill();
     sg.beginPath();
-    sg.moveTo(92, 32);
-    sg.lineTo(124, 18);
-    sg.lineTo(120, 32);
-    sg.lineTo(124, 46);
+    sg.moveTo(95, 32);
+    sg.lineTo(118, 14);
+    sg.quadraticCurveTo(110, 32, 118, 50);
     sg.closePath();
-    sg.fillStyle = 'rgba(8,24,32,0.35)';
     sg.fill();
+    sg.globalAlpha = 0.6;
+    for (const sy of [-1, 1]) {
+      sg.beginPath();
+      sg.moveTo(42, 32 + sy * 12);
+      sg.lineTo(56, 32 + sy * 24);
+      sg.lineTo(50, 32 + sy * 12);
+      sg.closePath();
+      sg.fill();
+    }
     const stex = new THREE.CanvasTexture(sc);
-    this.shadowMat = new THREE.MeshBasicMaterial({ map: stex, transparent: true, depthWrite: false, opacity: 0 });
+    this.shadowMat = new THREE.MeshBasicMaterial({ map: stex, color: 0x0b3440, transparent: true, depthWrite: false, opacity: 0 });
     const sgeo = new THREE.PlaneGeometry(0.9, 0.45);
     sgeo.rotateX(-Math.PI / 2);
     this.shadow = new THREE.Mesh(sgeo, this.shadowMat);
@@ -636,7 +648,12 @@ export class FishingGear {
     const pts = this.pts;
     const straight = this.tip.distanceTo(end);
     // Only a touch of spare line (more piles up on the water as scribble).
-    const rest = (straight / (n - 1)) * (1 + this.slack * 0.035);
+    // r8: and never more than lets the line hang in one descending curve into the float: on a
+    // long cast from the high pier deck the spare 3.5 % dropped the belly onto the water well short
+    // of the float, which a low lens read as a U-shaped hammock rising back up to it.
+    const sagMax = Math.max(0.25 * (this.tip.y - end.y), straight * 0.03);
+    const spare = Math.min(this.slack * 0.035, (8 / 3) * (sagMax / Math.max(straight, 0.01)) ** 2);
+    const rest = (straight / (n - 1)) * (1 + spare);
     const g = -9.8 * dt * dt;
     const floor = this.waterY + 0.006;
     // The last few nodes rise smoothly to the float's eye (no V-kink where the line leaves the water).
@@ -691,13 +708,17 @@ export class FishingGear {
     // Ease the nodes towards a clean catenary between tip and float so the rod's shake never leaves
     // kinks in it (the part that reaches the water lies along the surface, straight to the float).
     if (this.ease > 0) {
-      const sag = straight * (0.03 + this.slack * 0.1);
+      const sag = Math.min(straight * (0.03 + this.slack * 0.1), sagMax);
       // A slack line also bows sideways in the breeze, so the curve reads from the steep play
       // camera (a vertical sag alone is invisible from above).
       _d.subVectors(pts[n - 1]!, pts[0]!).setY(0);
       _e.set(-_d.z, 0, _d.x);
       if (_e.lengthSq() > 1e-6) _e.normalize();
-      const bow = straight * this.slack * 0.075;
+      // r8: only as much bow as reads sideways on screen — on a low lens looking across the line
+      // the bow points along the view and drew a U-shaped hammock dipping below the float.
+      _c.setFromMatrixColumn(camera.matrixWorld, 0).setY(0);
+      const side = _c.lengthSq() > 1e-6 ? Math.abs(_c.normalize().dot(_e)) : 1;
+      const bow = straight * this.slack * 0.075 * (0.2 + 0.8 * side * side);
       const k = this.ease;
       for (let i = 1; i < n - 1; i++) {
         const t = i / (n - 1);
@@ -868,12 +889,17 @@ export class FishingGear {
   }
 
   /** Fish shadow near the bobber (0 = hidden). */
-  setShadow(p: THREE.Vector3 | null, alpha: number, yaw = 0): void {
-    this.shadowMat.opacity = p ? alpha * 0.55 : 0;
+  setShadow(p: THREE.Vector3 | null, alpha: number, yaw = 0, lift = -0.18, scale = 1): void {
+    this.shadowMat.opacity = p ? alpha * 0.62 : 0;
     this.shadow.visible = !!p && alpha > 0.01;
     if (p) {
-      this.shadow.position.set(p.x, this.waterY - 0.18, p.z);
+      // `lift` (r8): a hooked fish rides just under the top, drawn over the swell (the sea writes
+      // depth, so at -0.18 m it was swallowed by deep water).
+      this.shadow.position.set(p.x, this.waterY + lift, p.z);
+      // Over the surface it must draw after the sea (renderOrder 2), like the school's shadows.
+      this.shadow.renderOrder = lift > 0 ? 3 : 1;
       this.shadow.rotation.y = yaw;
+      this.shadow.scale.setScalar(scale);
     }
   }
 

@@ -18,6 +18,8 @@ const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3(1, 1, 1);
+/** Flotsam float height over the sea level per kind (plank, stick, bottle, kelp raft). */
+const FLOTSAM_RIDE = [0.012, 0.004, 0.03, 0.035];
 /** Fish in the school off the pier. */
 const SCHOOL_N = 9;
 
@@ -59,33 +61,57 @@ function painted(g: THREE.BufferGeometry, col: (x: number, y: number, z: number)
   return n;
 }
 
-/** Kelp fronds (flat crossed ribbons lit from above either way). */
+/**
+ * Kelp fronds: wavy, segmented ribbons spreading from a shared knot (narrow stipe → broad ruffled
+ * blade → tapered tip, darker at the knot, sun-lit amber at the tips), lit from above either way.
+ * (r8: the old straight tapered strips crossed into a flat aeroplane shape from the pier lens.)
+ */
 function fronds(rng: Rng, count: number, len: number, tint: [number, number]): THREE.BufferGeometry {
   const P: number[] = [];
   const C: number[] = [];
   const a = new THREE.Color(tint[0]);
   const b = new THREE.Color(tint[1]);
+  const N = 7;
+  const ang0 = rng.next() * Math.PI * 2;
   for (let i = 0; i < count; i++) {
-    const ang = rng.next() * Math.PI;
-    const L = len * (0.6 + rng.next() * 0.6);
-    const w = 0.05 + rng.next() * 0.035;
-    const dx = Math.cos(ang);
-    const dz = Math.sin(ang);
-    const sx = -dz * w;
-    const sz = dx * w;
-    const ox = (rng.next() - 0.5) * 0.18;
-    const oz = (rng.next() - 0.5) * 0.18;
-    const c = a.clone().lerp(b, rng.next());
-    const y = 0.01 + i * 0.002;
-    const v = [
-      [ox - dx * L * 0.5 + sx, y, oz - dz * L * 0.5 + sz],
-      [ox - dx * L * 0.5 - sx, y, oz - dz * L * 0.5 - sz],
-      [ox + dx * L * 0.5 + sx * 0.3, y, oz + dz * L * 0.5 + sz * 0.3],
-      [ox + dx * L * 0.5 - sx * 0.3, y, oz + dz * L * 0.5 - sz * 0.3],
-    ];
-    for (const k of [0, 1, 2, 1, 3, 2, 0, 2, 1, 1, 2, 3]) {
-      P.push(v[k]![0]!, v[k]![1]!, v[k]![2]!);
-      C.push(c.r, c.g, c.b);
+    // Fanned out down-current from the knot (a raft trails, it is no starfish), unevenly.
+    const ang = ang0 + ((i + 0.5) / count - 0.5) * 3.2 + (rng.next() - 0.5) * 0.45;
+    const L = len * (0.55 + rng.next() * 0.65);
+    const w = 0.045 + rng.next() * 0.03;
+    const ph = rng.next() * 6.28;
+    const curl = (rng.next() - 0.5) * 0.9;
+    const ox = (rng.next() - 0.5) * 0.06;
+    const oz = (rng.next() - 0.5) * 0.06;
+    const ca = a.clone().lerp(b, rng.next() * 0.35);
+    const y = 0.01 + i * 0.0025;
+    const rows: number[][] = [];
+    for (let k = 0; k <= N; k++) {
+      const t = k / N;
+      const th = ang + curl * t;
+      const dx = Math.cos(th);
+      const dz = Math.sin(th);
+      const lat = Math.sin(t * Math.PI * 2.2 + ph) * 0.05 * t;
+      const cx = ox + dx * L * t - dz * lat;
+      const cz = oz + dz * L * t + dx * lat;
+      const wid = w * (0.25 + 0.75 * Math.sin(Math.PI * Math.min(1, t * 1.25 + 0.05))) * (0.85 + 0.3 * Math.sin(t * 19 + ph));
+      const c = ca.clone().lerp(b, t * 0.8);
+      rows.push([cx - dz * wid, cz + dx * wid, cx + dz * wid, cz - dx * wid, c.r, c.g, c.b]);
+    }
+    for (let k = 0; k < N; k++) {
+      const r0 = rows[k]!;
+      const r1 = rows[k + 1]!;
+      const v = [
+        [r0[0]!, y, r0[1]!, r0[4]!, r0[5]!, r0[6]!],
+        [r0[2]!, y, r0[3]!, r0[4]!, r0[5]!, r0[6]!],
+        [r1[0]!, y, r1[1]!, r1[4]!, r1[5]!, r1[6]!],
+        [r1[2]!, y, r1[3]!, r1[4]!, r1[5]!, r1[6]!],
+      ];
+      // Both windings (seen from above whichever way the instance is turned).
+      for (const q of [0, 1, 2, 1, 3, 2, 0, 2, 1, 1, 2, 3]) {
+        const vv = v[q]!;
+        P.push(vv[0]!, vv[1]!, vv[2]!);
+        C.push(vv[3]!, vv[4]!, vv[5]!);
+      }
     }
   }
   const g = new THREE.BufferGeometry();
@@ -113,10 +139,31 @@ function flotsamGeometry(kind: number, rng: Rng): THREE.BufferGeometry {
     // A rusty nail stub near one end.
     parts.push(painted(new THREE.CylinderGeometry(0.008, 0.008, 0.06, 4).translate(-0.36, 0.04, 0.02), () => new THREE.Color(0x6a3a22)));
   } else if (kind === 1) {
-    const branch = new THREE.CylinderGeometry(0.025, 0.045, 1.0, 6, 3).rotateZ(Math.PI / 2);
-    const bleached = (x: number, y: number) => new THREE.Color(0xb8ab98).multiplyScalar((y > 0 ? 1 : 0.72) * (0.9 + 0.1 * Math.sin(x * 9)));
-    parts.push(painted(branch, bleached));
-    parts.push(painted(new THREE.CylinderGeometry(0.018, 0.028, 0.42, 5).rotateZ(Math.PI / 2).rotateY(0.7).translate(0.2, 0.0, 0.12), bleached));
+    // r8: a crooked, waterlogged stick riding low in the water (the old straight bleached rod + a
+    // cross twig floated on top of the sea and read as a flat tan aeroplane from the pier lens).
+    // Wet grey-brown, only the crown that dries in the sun bleached; knots at the bends.
+    const wet = (x: number, y: number, z: number) =>
+      new THREE.Color(0x6e5e4c).lerp(new THREE.Color(0xa49682), THREE.MathUtils.smoothstep(y, 0.0, 0.03)).multiplyScalar(0.88 + 0.12 * Math.sin(x * 23 + z * 17));
+    const seg = (a: THREE.Vector3, b: THREE.Vector3, r0: number, r1: number, sides: number): THREE.BufferGeometry => {
+      const d = new THREE.Vector3().subVectors(b, a);
+      const g = new THREE.CylinderGeometry(r1, r0, d.length(), sides, 2);
+      g.translate(0, d.length() / 2, 0);
+      g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()));
+      g.translate(a.x, a.y, a.z);
+      return g;
+    };
+    const p0 = new THREE.Vector3(-0.52, 0, -0.02);
+    const p1 = new THREE.Vector3(-0.08, 0.004, 0.07);
+    const p2 = new THREE.Vector3(0.24, 0, 0.02);
+    const p3 = new THREE.Vector3(0.5, -0.004, -0.09);
+    parts.push(painted(seg(p0, p1, 0.05, 0.043, 7), wet));
+    parts.push(painted(seg(p1, p2, 0.043, 0.034, 7), wet));
+    parts.push(painted(seg(p2, p3, 0.034, 0.016, 6), wet));
+    // A short broken-off side branch and a stub.
+    parts.push(painted(seg(new THREE.Vector3(-0.1, 0, 0.06), new THREE.Vector3(0.06, 0.004, 0.27), 0.022, 0.012, 5), wet));
+    parts.push(painted(seg(new THREE.Vector3(-0.3, 0, 0.01), new THREE.Vector3(-0.35, 0.01, -0.1), 0.02, 0.014, 5), wet));
+    // Knots at the bends.
+    for (const k of [p1, p2]) parts.push(painted(new THREE.SphereGeometry(0.05, 7, 5).scale(1, 0.75, 1).translate(k.x, k.y, k.z), wet));
     const w = fronds(rng, 2, 0.28, [0x3e4a22, 0x5a5a2a]);
     w.translate(0.05, 0.0, 0.06);
     parts.push(w);
@@ -130,7 +177,15 @@ function flotsamGeometry(kind: number, rng: Rng): THREE.BufferGeometry {
     // Lying tilted on the water, neck out of it.
     for (const g of parts) g.rotateZ(1.25).translate(0.1, 0.02, 0);
   } else {
-    parts.push(fronds(rng, 5, 0.5, [0x55602a, 0x8a7a3a]));
+    // A kelp raft: a tangle of olive-brown fronds round a dark knot, with a few gas bladders.
+    parts.push(fronds(rng, 7, 0.6, [0x2c3010, 0x6e5a20]));
+    parts.push(painted(new THREE.SphereGeometry(0.06, 8, 5).scale(1.2, 0.5, 1).translate(0, 0.012, 0), () => new THREE.Color(0x3a3412)));
+    for (let i = 0; i < 4; i++) {
+      const a = rng.next() * 6.28;
+      const r = 0.08 + rng.next() * 0.16;
+      const sz = 0.022 + rng.next() * 0.014;
+      parts.push(painted(new THREE.SphereGeometry(sz, 7, 5).translate(Math.cos(a) * r, 0.016, Math.sin(a) * r), (_x, y) => new THREE.Color(0x544818).multiplyScalar(y > 0.02 ? 1.15 : 0.8)));
+    }
   }
   return mergeGeometries(parts.map((g) => {
     if (!g.attributes.normal) g.computeVertexNormals();
@@ -269,7 +324,8 @@ export class SeaProps {
     // Moored dory.
     this.boat = buildRowboat(rng.fork('dory'), 0xc8583a, 0xf4efe2);
     // (No shadow pass for the dory: it sits on open water, and it saves 3 draw calls.)
-    this.boatAt = new THREE.Vector3(boat.x, level - 0.22, boat.z);
+    // (r8: rides a little higher, 0.22 → 0.15 m down, so its floorboards stay dry over the swell.)
+    this.boatAt = new THREE.Vector3(boat.x, level - 0.15, boat.z);
     // A soft waterline collar round the hull (foam + a darker contact band): the dory sits IN the
     // water, it doesn't hover over it.
     this.boatRing = new THREE.Mesh(new THREE.PlaneGeometry(6.0, 3.6).rotateX(-Math.PI / 2), boatRingMaterial());
@@ -380,7 +436,9 @@ export class SeaProps {
     for (const [i, d] of this.drifters.entries()) {
       d.a += d.sp * dt;
       d.rot += d.sp * dt * 1.7;
-      _p.set(d.cx + Math.cos(d.a) * d.r, L + 0.05 + Math.sin(t * 1.4 + i) * 0.02, d.cz + Math.sin(d.a) * d.r);
+      // r8: ride IN the water (the sea writes depth, so the lower half is hidden under it), not on it.
+      const ride = FLOTSAM_RIDE[d.kind] ?? 0.03;
+      _p.set(d.cx + Math.cos(d.a) * d.r, L + ride + Math.sin(t * 1.4 + i) * 0.012, d.cz + Math.sin(d.a) * d.r);
       _e.set(Math.sin(t * 1.2 + i) * 0.05 + d.tilt, d.rot, Math.cos(t * 0.9 + i) * 0.04);
       _q.setFromEuler(_e);
       _s.setScalar(d.scale);

@@ -849,6 +849,46 @@ export function buildRowboat(rng: Rng, hull = 0x2f7a8a, stripe = 0xf2eee4): THRE
     }
     b.add('woodGrain', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, 0.035, 5, false), undefined, { tint: 0xd8b890 });
   }
+  // Floorboards (r8): five fore-and-aft boards a hand above the keel. A moored hull rides with its
+  // bottom under the sea surface, and the (transparent) water drew over the bare inner skin, so
+  // from a steep dusk lens the dory read as an empty frame with the sea showing through its floor.
+  {
+    const pos: number[] = [];
+    const col: number[] = [];
+    const idx: number[] = [];
+    const NP = 5;
+    const NSF = 12;
+    const s0 = 0.05;
+    const s1 = 0.86;
+    const yF = 0.22;
+    const cB = new THREE.Color(0xb88a5c);
+    for (let p = 0; p < NP; p++) {
+      const base = pos.length / 3;
+      const sh = (p % 2 ? 0.84 : 0.97) * (0.96 + 0.04 * Math.sin(p * 2.3));
+      for (let i = 0; i <= NSF; i++) {
+        const s = s0 + ((s1 - s0) * i) / NSF;
+        const x = -L / 2 + s * L;
+        const hw = halfW(s) * 0.64;
+        for (const e of [p / NP, (p + 1) / NP]) {
+          pos.push(x, yF + (p % 2) * 0.004, (e * 2 - 1) * hw);
+          // Darker toward the board edges' seams and the bilge ends.
+          const end = Math.min(1, Math.min(i, NSF - i) / 2);
+          const k = sh * (0.78 + 0.22 * end);
+          col.push(cB.r * k, cB.g * k, cB.b * k);
+        }
+      }
+      for (let i = 0; i < NSF; i++) {
+        const a = base + i * 2;
+        idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
+      }
+    }
+    const fg = new THREE.BufferGeometry();
+    fg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    fg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    fg.setIndex(idx);
+    fg.computeVertexNormals();
+    b.add('woodGrain', fg);
+  }
   // Thwarts (seats) + oars.
   for (const s of [0.28, 0.58]) b.add('woodGrain', roundedBox(0.28, 0.05, halfW(s) * 1.85, 0.015), mat(-L / 2 + s * L, depthAt(s) - 0.18, 0), { tint: 0xd8b890 });
   for (const side of [-1, 1]) {

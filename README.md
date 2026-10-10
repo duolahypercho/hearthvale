@@ -1154,11 +1154,26 @@ Fishing (`systems/fishing.ts`, visuals in `world/beach/tackle.ts` + `fishmesh.ts
   the rod tip to the reticle, the meter sits out over the water, the rod is loaded upright and the farmer crouches
   with the power. Pond / river ripple rings sit under the lily pads. `__game.teleport` resets the camera to the
   follow defaults (a demo camera no longer outlives it; `&x=`/`&z=` URL nudges keep it).
+- Round 8: the day sky over the sea is blue with separate cumulus heaps (round lobes on a flat base, cauliflower
+  bumps, cool white crowns, shaded creases, clear sky between them, integer cells round the horizon so there is no
+  seam) instead of one continuous bank that read as a beige overcast lid; the sea past the far plane and the
+  ocean's far haze are a deeper blue than the sky, so sea and sky meet on a crisp line. Slack line never hangs more
+  than lets it fall in one curve into the float (no U-shaped hammock on long casts from the pier) and the sideways
+  breeze bow scales with how much of it reads sideways on screen. `beach-sunset` lays a 9 m line out over the lit
+  shallows. The moored dory has floorboards and rides 7 cm higher (the sea drew over its bare inner skin). Kelp rafts
+  are wavy segmented fronds fanned down-current round a dark knot with gas bladders, the floating stick is a crooked
+  waterlogged branch, and flotsam rides in the water rather than on it; gulls have a cool slate mantle and black
+  primaries. Wind-up: both fists on the butt in front of the right shoulder (the raised hands vanished behind the
+  hat). The fight: the hooked fish is a dark silhouette just under the top pulling away beyond the float (local and
+  remote anglers), a thrash breaks the surface with a splash crown, and the fight splashes burst at the float where
+  it is now (they used to burst at the cast spot).
 
 Demos: `beach-day`, `beach-sunset` (a line in the water at dusk), `beach-night`, `beach-tidepools`, `beach-tackle` (the honesty box),
 `fishing-cast`, `fishing-flight` (the cast arc in the air), `fishing-wait`, `fishing-bite`, `fishing-reel`, `fishing-catch`,
 `fishing-pond`, `fishing-river`. Fishing demos take `&fish=<fishId>` and `&phase=cast|flight|wait|bite|reel|catch`;
 `fishing-catch` also takes `&size=<0..1>` (where in the species' size range the catch lands, default 0.78).
+The staged phases take `&cast=<m>` (float distance, default 5.2; 9 in `beach-sunset`) and `&aimdeg=<deg>` (the
+aim turned off the facing, + = counter-clockwise from above; -12 in `beach-sunset`).
 `openUI('fishing')` starts a practice fight on the spot.
 
 ## Farming

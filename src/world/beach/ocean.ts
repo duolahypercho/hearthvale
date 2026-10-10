@@ -776,7 +776,8 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         float hazeDay = pow(smoothstep(80.0, 385.0, dist), 1.6);
         // (r7b: by day the sea meets the sky as a crisp, slightly darker cerulean band under the pale
         // horizon wash of the cloud band, not a beige haze.)
-        vec3 hzc = mix(uHorizonColor, mix(uSkyColor, vec3(0.5, 0.64, 0.84), 0.55), 0.85 * dayBlue) + uSunColor * pow(max(dot(-V, L) * 0.5 + 0.5, 0.0), 12.0) * 0.16 * (1.0 - 0.6 * dayBlue);
+        // (r8: the same deeper sea blue as the cloud band's below-horizon fill.)
+        vec3 hzc = mix(uHorizonColor, mix(uSkyColor, vec3(0.3, 0.47, 0.78), 0.4), mix(0.85, 1.0, dayBlue) * dayBlue) + uSunColor * pow(max(dot(-V, L) * 0.5 + 0.5, 0.0), 12.0) * 0.16 * (1.0 - 0.6 * dayBlue);
         hzc = mix(hzc, vec3(dot(hzc, vec3(0.3, 0.55, 0.15))) * vec3(0.75, 0.88, 1.2), uNight * 0.8);
         c = mix(c, hzc, mix(haze * 0.72, hazeDay, dayBlue));
 
@@ -1089,6 +1090,22 @@ export function createHorizonClouds(): THREE.Mesh {
       uniform float uCloudShadow;
       varying vec3 vDir;
       ${NOISE_GLSL}
+      // Round cumulus lobes along the horizon: x in cells (n cells round the circle), returns the
+      // tallest lobe over x (cell units, 0 = clear sky). A third of the cells hold no lobe.
+      float cumLobes(float x, float n, float seed) {
+        float h = 0.0;
+        float ci = floor(x);
+        for (int k = -1; k <= 1; k++) {
+          float c = ci + float(k);
+          float cw = mod(c, n);
+          float present = step(0.36, hvHash12(vec2(cw, seed + 3.0)));
+          float cx = c + 0.5 + (hvHash12(vec2(cw, seed)) - 0.5) * 0.6;
+          float r = (0.35 + 0.75 * hvHash12(vec2(cw, seed + 7.0))) * present;
+          float dx = (x - cx) / max(r, 1e-3);
+          if (abs(dx) < 1.0) h = max(h, r * sqrt(1.0 - dx * dx));
+        }
+        return h;
+      }
       void main() {
         vec3 d = normalize(vDir);
         float el = d.y;
@@ -1107,15 +1124,18 @@ export function createHorizonClouds(): THREE.Mesh {
           // (r7b: deepening to a soft cerulean zenith, and over the whole visible sky: the global
           // dome's afternoon beige showed through above ~17° as an overcast lid.)
           vec3 zen = mix(uSkyColor, vec3(0.3, 0.52, 0.88), 0.25);
-          wash = mix(hzB, zen, smoothstep(0.0, 0.3, el));
+          // (r8: deepens within the first ~9° so the high lens's strip of sky reads blue, not pale.)
+          wash = mix(hzB, zen, smoothstep(0.0, 0.16, el));
           washA = day * (1.0 - smoothstep(0.75, 0.95, el));
           if (el < 0.0) {
             // (r7b) Below the horizon: the sea past the camera's 400 m far plane, in the ocean shader's
             // far-haze colour (oceanMaterial hzc by day), so the sea runs on to a true horizon line
             // instead of stopping at a band of the dome's beige below it.
-            vec3 hzS = mix(uSkyColor, vec3(0.5, 0.64, 0.84), 0.55);
+            // (r8: a deeper sea blue — darker than the sky at the horizon, so sea and sky meet on a
+            // crisp line instead of a pale lavender band; a hairline of haze right on the line.)
+            vec3 hzS = mix(uSkyColor, vec3(0.3, 0.47, 0.78), 0.4);
             hzS += uSunColor * pow(max(dot(d, L) * 0.5 + 0.5, 0.0), 12.0) * 0.064;
-            wash = mix(hzS, hzS * 1.06 + 0.02, smoothstep(-0.03, 0.0, el));
+            wash = mix(hzS, mix(hzS, hzB, 0.55), smoothstep(-0.006, 0.0, el));
             washA = day;
           }
         }
@@ -1127,6 +1147,7 @@ export function createHorizonClouds(): THREE.Mesh {
         float dens = 0.0;
         float cum = 0.0;
         float cumH = 0.0;
+        float cumCrease = 1.0;
         if (band > 0.0) {
           vec2 q = vec2(az * 9.0 + uTime * 0.004, el * 42.0);
           // Long stratus streaks + a few puffy heads (the dusk look; thinned by day).
@@ -1140,14 +1161,24 @@ export function createHorizonClouds(): THREE.Mesh {
           // Perf r12: the heaps only exist where bank >= 0.01 (cum is multiplied by step(0.01, bank))
           // and below the tallest possible crown (base + 0.12 + 0.025 + fade), so skip the billow fbm
           // (4 taps) + crown noise everywhere else: zero visual change, most of the band skips them.
-          float bank = 0.0;
-          if (day > 0.0 && el < 0.17) bank = smoothstep(0.42, 0.66, hvNoise(vec2(az * 1.9 + 4.0, 1.3)));
-          if (bank >= 0.01) {
-            float base = 0.014;
-            float bill = hvFbm(vec2(az * 26.0 + uTime * 0.003, el * 34.0));
-            float top = base + bank * (0.05 + 0.07 * hvNoise(vec2(az * 7.0, 2.0))) + (bill - 0.5) * 0.05 * bank;
-            cum = smoothstep(base - 0.004, base + 0.006, el) * smoothstep(top + 0.006, top - 0.006, el) * day;
-            cumH = clamp((el - base) / max(top - base, 0.01), 0.0, 1.0);
+          // r8: the banks were one continuous wall (crowns over the whole visible sky read as a
+          // beige overcast lid in beach-day). Now separate heaps with clear sky between them: round
+          // lobes on a flat base (two scales, cauliflower bumps on the big lobes), crisp 2-3 px edges,
+          // short enough that the high lens sees their tops. Cells are an integer count round the
+          // circle (no atan seam).
+          if (day > 0.0 && el < 0.075) {
+            float u = az / 6.2831853 + 0.5;
+            float l1 = cumLobes(u * 44.0, 44.0, 3.0);
+            if (l1 > 0.0) {
+              float l2 = cumLobes(u * 176.0, 176.0, 9.0);
+              float base = 0.0045 + 0.0035 * hvNoise(vec2(u * 30.0, 5.0));
+              float top = base + l1 * l1 * 0.036 + l1 * 0.008 + l2 * 0.01 * smoothstep(0.0, 0.35, l1);
+              cum = smoothstep(base - 0.0015, base + 0.0025, el) * smoothstep(top + 0.0012, top - 0.0012, el) * day;
+              cumH = clamp((el - base) / max(top - base, 0.002), 0.0, 1.0);
+              // Creases between the small bumps sit in shade, the bump crowns catch the light.
+              float under = clamp((top - el) / 0.006, 0.0, 1.0);
+              cumCrease = mix(1.0, 0.82 + 0.18 * smoothstep(0.1, 0.7, l2), under) * (0.9 + 0.1 * hvNoise(vec2(u * 900.0, el * 400.0)));
+            }
           }
         }
         if (dens < 0.01 && cum < 0.01 && washA < 0.01) discard;
@@ -1162,7 +1193,11 @@ export function createHorizonClouds(): THREE.Mesh {
         c *= 1.0 - uNight * 0.75;
         float a = dens * (0.55 + 0.35 * lowSun) * (1.0 - uNight * 0.4);
         // Cumulus: white crowns, cool blue-grey flat bellies.
-        vec3 cumC = mix(mix(uSkyColor, vec3(0.72, 0.76, 0.86), 0.55) * 0.95, vec3(1.0, 0.99, 0.96) * (0.82 + 0.25 * toward), smoothstep(0.05, 0.75, cumH));
+        // (r8: cool white crowns — the warm grade turned the old warm white beige; flat blue-grey
+        // bellies; creases shaded; a little of the horizon wash over them so they sit far away.)
+        vec3 cumC = mix(mix(uSkyColor, vec3(0.7, 0.76, 0.88), 0.62) * 0.92, vec3(0.95, 0.975, 1.0) * (0.86 + 0.2 * toward), smoothstep(0.02, 0.7, cumH));
+        cumC *= cumCrease;
+        cumC = mix(cumC, wash, 0.18);
         c = mix(c, cumC, cum);
         a = max(a, cum * 0.96);
         // Under everything, the clear blue wash.

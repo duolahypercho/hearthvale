@@ -50,15 +50,17 @@ function gullBody(): THREE.BufferGeometry {
   const body = new THREE.SphereGeometry(0.16, 12, 8);
   body.scale(1.9, 0.95, 1.0);
   // Off-white (never pure white: a gull seen from above at noon must not bloom into a light bulb).
-  paint(body, 0xdcdcd4);
+  paint(body, 0xe6e6e0);
   // Grey mantle over the whole back, so from the high camera a gull reads grey-backed, white-bellied.
   const back = new THREE.SphereGeometry(0.163, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.5);
   back.scale(1.86, 0.9, 0.97);
   back.translate(-0.02, 0.012, 0);
-  paint(back, 0xa8b2bc);
+  // (r8: a cooler, darker mantle — the old pale grey went sandy-tan under the afternoon sun and a
+  // gliding gull read as a flat paper cut-out on the shallows.)
+  paint(back, 0x8a98ac);
   const head = new THREE.SphereGeometry(0.1, 10, 8);
   head.translate(0.28, 0.1, 0);
-  paint(head, 0xe2e2da);
+  paint(head, 0xeeeee8);
   const beak = new THREE.ConeGeometry(0.03, 0.14, 6);
   beak.rotateZ(-Math.PI / 2);
   beak.translate(0.42, 0.085, 0);
@@ -98,12 +100,14 @@ function gullWing(): THREE.BufferGeometry {
   g.rotateX(Math.PI / 2); // shape XY → XZ
   const pos = g.attributes.position as THREE.BufferAttribute;
   const col = new Float32Array(pos.count * 3);
-  const grey = new THREE.Color(0xb0bac4);
-  const black = new THREE.Color(0x22242a);
-  const white = new THREE.Color(0xdcdcd6);
+  // r8: cool slate-grey mantle (stays grey under warm light), long black primaries with a white
+  // mirror spot near the tip.
+  const grey = new THREE.Color(0x8a98ac);
+  const black = new THREE.Color(0x1c1e24);
+  const white = new THREE.Color(0xe4e4de);
   for (let i = 0; i < pos.count; i++) {
     const z = Math.abs(pos.getZ(i));
-    const c = z > 0.56 ? black : z > 0.52 ? white : grey;
+    const c = z > 0.66 ? (z > 0.69 ? black : white) : z > 0.47 ? black : grey;
     c.toArray(col, i * 3);
     // gentle camber
     pos.setY(i, Math.sin((z / 0.72) * Math.PI) * 0.03);
