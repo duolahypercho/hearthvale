@@ -22,6 +22,7 @@ import { NPCS } from '../data/npcs';
 import { roundedBox, lumpySphere, bevelCylinder, smoothNormals, DETAIL_R } from '../world/geom';
 import { applyWorldFx } from '../render/worldfx';
 import { inDetailPass } from '../render/batching';
+import { registerOverlayWarm } from '../render/warmkit';
 import { globalUniforms } from '../render/uniforms';
 import { patchMaterial, after, before } from '../render/patch';
 import { Rng } from '../core/rng';
@@ -3431,6 +3432,38 @@ function nearDepth(m: THREE.MeshBasicMaterial): void {
   };
   m.customProgramCacheKey = () => 'nearDepth';
 }
+
+// Perf r17 (pillar 14): the first villager emote / bark of a session compiled its bubble programs
+// on the main thread (glimmer-town: a 230-450 ms frame). They are drawn by NpcSystem.drawBubbles
+// straight to the canvas (BUBBLE_LAYER), which the shader gate and compile() never see. Draw
+// sub-pixel twins once behind the load, through the same path: billboard() as-is (emote + bark tail)
+// and billboard() + nearDepth (bark). Not disposed, so RenderContext pins the programs.
+registerOverlayWarm((renderer, camera) => {
+  const tex = barkTailTexture();
+  const twins = [billboard(tex, 20), billboard(tex, 21)];
+  nearDepth(twins[1]!.material);
+  camera.updateMatrixWorld();
+  const at = camera.getWorldPosition(new THREE.Vector3()).add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(5));
+  const auto = renderer.autoClear;
+  const target = renderer.getRenderTarget();
+  const mask = camera.layers.mask;
+  try {
+    renderer.autoClear = false;
+    renderer.setRenderTarget(null);
+    camera.layers.set(BUBBLE_LAYER);
+    for (const t of twins) {
+      t.layers.set(BUBBLE_LAYER);
+      t.position.copy(at);
+      t.scale.setScalar(1e-4);
+      t.updateMatrixWorld();
+      renderer.render(t, camera);
+    }
+  } finally {
+    camera.layers.mask = mask;
+    renderer.setRenderTarget(target);
+    renderer.autoClear = auto;
+  }
+});
 
 /** Speech-bark bubbles: one canvas texture per line (a handful per villager), cached. */
 const BARK_TEX = new Map<string, { tex: THREE.CanvasTexture; aspect: number; hk: number; bot: number }>();
