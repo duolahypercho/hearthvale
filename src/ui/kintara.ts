@@ -29,12 +29,12 @@ const TABS: [Tab, string][] = [
 ];
 const GLYPH: Record<EarnSource, string> = { ship: '▦', quest: '✎', festival: '✿', mine: '⛏', fish: '≈', hall: '✦' };
 const EARN_RULES: Record<EarnSource, string> = {
-  ship: '1 kin per 400g shipped in a night, plus lifetime milestones',
+  ship: '1 kin per 400g shipped, plus milestones',
   quest: '3 kin per notice-board job',
   festival: '8 kin for a first-place ribbon, 3 for joining in',
-  mine: 'Once per mine floor that is a multiple of 5',
+  mine: 'Once per floor that is a multiple of 5',
   fish: 'Once per new species; +1 for a longer record',
-  hall: 'Once per bundle, room, and for relighting the Hall',
+  hall: 'Once per bundle, room and the Hall',
 };
 
 export class KintaraScreen extends Screen {
@@ -243,7 +243,7 @@ export class KintaraScreen extends Screen {
       'kn-guide',
       `<h4>The fee board <small>burned when you seal; later editions of the same item cost x2, then x4</small></h4>
        <div class="kn-fees">${(['common', 'uncommon', 'rare', 'legendary'] as const).map((r) => `<span class="kn-rar" style="--c:${RARITY_STYLE[r].color}">${RARITY_STYLE[r].name}</span><b>${MINT_FEE[r]}</b>`).join('')}</div>
-       <small>Crops: gold-quality or 160g+ · Fish: 150g+ · Gems: amethyst and finer · Tools: any upgrade (attested, stays in your pack)</small>`,
+       <small>Crops gold or 160g+ · Fish 150g+ · Gems amethyst up · Tools any upgrade (attested)</small>`,
     );
     if (!opts.length) this.content.appendChild(el('div', 'kn-empty', 'Nothing in your pack can be sealed yet.'));
     for (const o of opts) {
@@ -285,8 +285,34 @@ export class KintaraScreen extends Screen {
     }
     const grid = el('div', 'kn-grid');
     for (const d of [...deeds].reverse()) grid.appendChild(deedCard(d));
+    const ghosts: [string, string, string, string][] = [
+      ['crop', 'pumpkin', 'Gold harvest', 'rare'],
+      ['fish', 'lanternEel', 'A rare catch', 'rare'],
+      ['gem', 'ruby', 'A hard-won gem', 'rare'],
+      ['tool', 'pickaxe', 'An upgraded tool', 'uncommon'],
+      ['keepsake', 'keystone', 'The Hall Keystone', 'legendary'],
+    ];
+    for (const [cat, item, label, rar] of ghosts) {
+      if (deeds.some((d) => d.category === cat) || grid.children.length >= 8) continue;
+      const rs = RARITY_STYLE[rar as keyof typeof RARITY_STYLE];
+      const gh = el('div', 'kn-deed ghost', `<div class="art">${art(item)}</div><em class="ribbon" style="--c:${rs.color}"></em><b>${label}</b><span class="kn-rar" style="--c:${rs.color}">${rs.name}</span><small>not sealed yet</small>`);
+      gh.style.setProperty('--rc', rs.color);
+      grid.appendChild(gh);
+    }
+    const more: [string, string, string][] = [
+      ['diamond', 'The deepest gem', 'legendary'],
+      ['lanternjaw', 'The Lanternjaw', 'legendary'],
+      ['melon', 'A giant-grown melon', 'rare'],
+      ['emberKoi', 'Ember Koi, 2nd edition', 'rare'],
+    ];
+    for (const [item, label, rar] of more) {
+      if (grid.children.length >= 8) break;
+      const rs = RARITY_STYLE[rar as keyof typeof RARITY_STYLE];
+      const gh = el('div', 'kn-deed ghost', `<div class="art">${art(item)}</div><em class="ribbon" style="--c:${rs.color}"></em><b>${label}</b><span class="kn-rar" style="--c:${rs.color}">${rs.name}</span><small>waiting to be sealed</small>`);
+      gh.style.setProperty('--rc', rs.color);
+      grid.appendChild(gh);
+    }
     this.content.appendChild(grid);
-    this.content.appendChild(this.findStrip(deeds));
   }
 
   private findStrip(deeds: DeedToken[]): HTMLElement {
@@ -365,7 +391,15 @@ export class KintaraScreen extends Screen {
       });
       give.appendChild(b);
     }
-    this.content.append(counter, goods, fund);
+    const yr = this.game.calendar.year;
+    const bars = [1, 2, 3, 4, 5, 6].map((y) => {
+      const v = Math.max(10, Math.round(32 * emissionFactor(y)));
+      return `<div class="kn-ebar${y === yr ? ' now' : ''}"><i style="height:${Math.round((v / 32) * 44)}px"></i><b>${v}</b><small>Y${y}</small></div>`;
+    }).join('');
+    const recent = k.feed().slice(0, 3).map((e) => `<div class="kn-line ${e.kind}"><span>${escapeHtml(e.text)}</span><b>${e.amount > 0 ? '+' : '−'}${Math.abs(e.amount)}</b></div>`).join('');
+    const sched = el('div', 'kn-sect kn-sched');
+    sched.innerHTML = `<div class="kn-schedcol"><h4>Emission schedule <small>daily ceiling per farm</small></h4><div class="kn-ebars">${bars}</div></div><div class="kn-schedcol"><h4>Recent lines</h4>${recent || '<div class="kn-empty">Nothing written yet.</div>'}</div>`;
+    this.content.append(counter, goods, fund, sched);
   }
 }
 
@@ -375,8 +409,8 @@ function deedCard(d: DeedToken): HTMLElement {
     'div',
     `kn-deed ${d.rarity}`,
     `<div class="art">${art(d.itemId)}${d.category === 'tool' ? '' : qualityStar(d.quality)}</div>
-     <b>${escapeHtml(d.name)}</b>
-     <span class="kn-rar" style="--c:${r.color}">${r.name}</span>
+     <i class="foil"></i><em class="ribbon" style="--c:${r.color}"></em>
+     <b>${escapeHtml(d.name)}</b><span class="kn-rar" style="--c:${r.color}">${r.name}</span>
      <small>${escapeHtml(d.note)}</small>
      <small>${d.tokenId} · Edition ${d.edition}</small>
      <small class="by">${escapeHtml(d.mintedBy)} · ${escapeHtml(d.date)}</small>

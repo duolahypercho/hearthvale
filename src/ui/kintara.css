@@ -11,7 +11,7 @@
   gap: 22px;
   padding: 34px 22px 18px;
   width: 1040px;
-  height: 590px;
+  height: 660px;
   box-sizing: border-box;
 }
 .kn-keeper {
@@ -58,7 +58,7 @@
 }
 .kn-name small {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
   color: #a08060;
   text-align: center;
@@ -82,7 +82,7 @@
   position: absolute;
   right: 12px;
   bottom: 4px;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
   color: #2f7f86;
   animation: knBlink 1.3s ease-in-out infinite;
@@ -142,7 +142,7 @@
   font-variant-numeric: tabular-nums;
 }
 .kn-plate small {
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -185,7 +185,7 @@
   margin-left: auto;
   padding: 3px 10px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -244,7 +244,7 @@
   gap: 2px;
 }
 .kn-card small {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -262,7 +262,7 @@
 }
 .kn-card em {
   font-style: normal;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #8a6440;
 }
@@ -293,7 +293,7 @@
 .kn-content h4 small {
   margin-left: 6px;
   font-family: var(--font-body);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #a08060;
 }
@@ -317,7 +317,7 @@
 }
 .kn-src small {
   display: block;
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 700;
   color: #a08060;
 }
@@ -364,7 +364,7 @@
 }
 .kn-foot small {
   display: block;
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   color: #6a8a8a;
@@ -388,7 +388,7 @@
 }
 .kn-fine,
 .kn-intro {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1.4;
   color: #8a6440;
@@ -430,7 +430,7 @@
   border-radius: 10px;
   font-family: var(--font-body);
   font-style: normal;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   color: #fff;
@@ -443,7 +443,7 @@
   background: #9a58c8;
 }
 .kn-row .nm small {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #a08060;
 }
@@ -464,7 +464,7 @@
 .kn-row .why {
   flex-basis: 100%;
   margin: -2px 0 0 58px;
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 800;
   color: #b8483a;
 }
@@ -479,7 +479,7 @@
   margin-right: 4px;
   padding: 0 7px 1px;
   border-radius: 9px;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.3px;
   text-transform: uppercase;
@@ -543,7 +543,7 @@
   color: var(--ink);
 }
 .kn-deed small {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: #8a6440;
 }
@@ -559,7 +559,7 @@
   right: 8px;
   top: 6px;
   font-style: normal;
-  font-size: 12px;
+  font-size: 13px;
   opacity: 0.6;
 }
 .kn-deed.legendary {
@@ -605,7 +605,7 @@
 }
 .kn-quote small {
   font-family: var(--font-body);
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 700;
   color: #a08060;
 }
@@ -621,7 +621,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
   color: #1c3d40;
 }
@@ -629,7 +629,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   color: #a08060;
 }
@@ -754,7 +754,7 @@ body.u-calm .kn-seal .ring {
   font-variant-numeric: tabular-nums;
 }
 .kn-chip-hud small {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.5px;
   color: #8fc8c0;
@@ -857,7 +857,7 @@ body.u-calm .kn-seal .ring {
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-size: 11.5px;
+  font-size: 13px;
 }
 .kn-goods .kn-row .nm b {
   font-size: 15px;
@@ -875,7 +875,7 @@ body.u-calm .kn-seal .ring {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   color: #8a6440;
 }
@@ -891,7 +891,7 @@ body.u-calm .kn-seal .ring {
 }
 
 .kn-guide small {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   color: #8a6440;
 }
@@ -909,4 +909,152 @@ body.u-calm .kn-seal .ring {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* collectible deed cards */
+.kn-deed {
+  overflow: hidden;
+  padding: 14px 10px 10px;
+  border-radius: 16px;
+  transition: transform 180ms var(--ease-back), box-shadow 180ms;
+}
+.kn-deed .art {
+  width: 92px;
+  height: 92px;
+  box-shadow: inset 0 0 0 3px var(--rc, #9aa79a), 0 0 14px var(--glow, transparent);
+}
+.kn-deed .art img,
+.kn-deed .art .u-ic {
+  width: 70px;
+  height: 70px;
+}
+.kn-deed .art .u-star {
+  width: 24px;
+  height: 24px;
+}
+.kn-deed .ribbon {
+  position: absolute;
+  left: -30px;
+  top: 12px;
+  width: 112px;
+  padding: 2px 0 3px;
+  rotate: -38deg;
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  text-align: center;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--c);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+}
+.kn-deed .foil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.65) 45%, rgba(190, 255, 240, 0.5) 52%, rgba(255, 220, 150, 0.4) 58%, transparent 72%);
+  background-size: 260% 100%;
+  background-position: 120% 0;
+  mix-blend-mode: soft-light;
+}
+.kn-deed:hover {
+  transform: translateY(-4px) rotate(-0.6deg);
+}
+.kn-deed:hover .foil {
+  opacity: 1;
+  animation: knFoil 900ms ease-out forwards;
+}
+@keyframes knFoil {
+  to {
+    background-position: -40% 0;
+  }
+}
+.kn-deed.legendary .foil {
+  opacity: 0.35;
+}
+.kn-deed.ghost {
+  background: rgba(255, 250, 235, 0.35);
+  box-shadow: 0 0 0 2.5px var(--rc, #9aa79a);
+  border: 0;
+  opacity: 0.8;
+  align-content: center;
+}
+.kn-deed.ghost .art {
+  filter: grayscale(1) brightness(1.3);
+  opacity: 0.45;
+  background: none;
+}
+.kn-deed.ghost:hover {
+  transform: none;
+}
+.kn-grid {
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 12px;
+}
+/* emission schedule + recent lines (Market) */
+.kn-sched {
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.kn-ebars {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 78px;
+}
+.kn-ebar {
+  display: grid;
+  justify-items: center;
+  align-content: end;
+  gap: 1px;
+  width: 36px;
+}
+.kn-ebar i {
+  display: block;
+  width: 100%;
+  border-radius: 5px 5px 2px 2px;
+  background: linear-gradient(180deg, #7fe0cf, #3aa6a0);
+  opacity: 0.55;
+}
+.kn-ebar.now i {
+  opacity: 1;
+  box-shadow: 0 0 8px rgba(110, 240, 215, 0.6);
+}
+.kn-ebar b {
+  font-family: var(--font-head);
+  font-size: 13px;
+  color: var(--ink);
+}
+.kn-ebar small {
+  font-size: 13px;
+  font-weight: 800;
+  color: #8a6440;
+}
+.kn-sched h4 {
+  margin: 0 0 2px;
+}
+
+.kn-deed .ribbon {
+  left: -38px;
+  top: 14px;
+  width: 136px;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+.kn-deed {
+  min-height: 236px;
+  align-content: start;
+}
+.kn-deed.ghost {
+  align-content: center;
+}
+
+.kn-deed .ribbon {
+  left: -34px;
+  top: 10px;
+  width: 112px;
+  height: 14px;
+  padding: 0;
 }
