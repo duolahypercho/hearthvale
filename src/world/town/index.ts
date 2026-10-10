@@ -23,18 +23,26 @@ import { TreeField } from '../props/trees';
 import { Nature } from '../props/nature';
 import { mergeStatic } from '../geom';
 import { BatchPool, InstancedSet } from '../props/instanced';
-import { FountainFX } from './fountain';
+import { FountainFX, buildFountainIce } from './fountain';
+import { buildPlazaWear, buildPlazaPuddles } from './plaza';
 import { Festoons, buildFestoonPole, buildLampMast } from './festoons';
 import { buildNoticeOverlay } from './notices';
-import { buildSnowmen, buildSweptPaths } from './winter';
+import { buildChalkAFrame } from './aframe';
+import { buildTownHedge, buildTownPlanter } from './hedge';
+import { CherryTrees } from './cherry';
+import { buildSnowmen, buildSweptPaths, buildWreathDressing, buildWinterWear, buildWinterShade } from './winter';
+import { findPath } from './pathfind';
+import { installTownTone } from './tone';
+import { NPCS } from '../../data/npcs';
 import { globalUniforms } from '../../render/uniforms';
 import { createWater } from '../water';
 import { textures } from '../../render/textures';
+import { materials } from '../../render/materials';
 import { SmokeEmitter, Ambience, FireFX } from '../../render/particles';
 import { LightPools } from '../props/decals';
 import { buildLanternPost, buildBarrel, buildCrate, buildMailbox, buildDock, buildFence, type BuiltProp } from '../props/structures';
 import { buildBench, buildFlowerPot, buildWheelbarrow, buildSignpost, buildLaundryLine, buildBeehive } from '../props/farmkit';
-import { buildTownHouse, buildLanternHall, buildFountain, buildNoticeBoard, buildMarketStall, buildPlanter, buildHedge, buildFlowerCart, buildCafeSet, buildSandwichBoard, type HouseSpec } from '../props/townkit';
+import { buildTownHouse, buildLanternHall, buildFountain, buildNoticeBoard, buildMarketStall, buildPlanter, buildFlowerCart, buildCafeSet, buildSandwichBoard, type HouseSpec } from '../props/townkit';
 import { buildBunting, buildLanternPole, buildMaypole, buildFeastTable, buildBrazier } from '../props/festival';
 import { PLAZA, STREETS, BUILDINGS, TOWN_PROPS, TOWN_TREES, FESTIVAL, TOWN_WARPS, TOWN_SPAWN, type TownBuilding } from '../../data/town-layout';
 import {
@@ -58,6 +66,7 @@ import {
   FESTOON_MASTS,
   FESTOON_SPANS,
   SNOWMEN,
+  SPOTS,
   type Bridge,
   type NewBuilding,
 } from './layout';
@@ -75,6 +84,8 @@ import {
   buildEasel,
   buildRowboat,
   buildSawhorse,
+  buildScaffold,
+  buildHallBanner,
   buildLumber,
   buildLogPile,
   buildSacks,
@@ -86,13 +97,24 @@ import {
   buildVegBed,
   buildBicycle,
   buildFlowerRing,
+  buildPicnic,
+  buildWildflowers,
   coalMaterial,
   deckY,
+  buildRoofDressing,
+  eaveWinter,
+  roofSnowWinter,
+  buildStoreFront,
+  buildBakeryFront,
+  buildGlasshouse,
 } from './buildings';
+import { MeshBuilder } from '../geom';
+import { installLensCut, installGrassClear } from './lenscut';
+import { townCobble } from './cobble';
 
 const HOUSES: Record<Exclude<TownBuilding['kind'], 'hall'>, HouseSpec> = {
-  store: { w: 7, d: 5, wallH: 3.3, wall: 'plaster', wallTint: 0xfbeed8, roofTint: 0x5fa89a, doorTint: 0x3f7890, shutterTint: 0x5d9484, awning: [0xd8573e, 0xf6ecd8], sign: 'store', chimney: false, doorX: -1 },
-  bakery: { w: 6.6, d: 5, wallH: 3.2, wall: 'stone', wallTint: 0xf0d2b8, roofTint: 0xd0724e, doorTint: 0x8a4a2a, awning: [0xe8b64a, 0xfbf2dc], sign: 'bakery', chimney: true, flowerBoxes: true, doorX: 1 },
+  store: { w: 7, d: 5, wallH: 3.3, wall: 'plaster', wallTint: 0xfbeed8, roofTint: 0x5fa89a, doorTint: 0x3f7890, shutterTint: 0x5d9484, awning: [0xd8573e, 0xeee0c6], sign: 'store', chimney: true, doorX: -1 },
+  bakery: { w: 6.6, d: 5, wallH: 3.2, wall: 'stone', wallTint: 0xf0d2b8, roofTint: 0xd0724e, doorTint: 0x8a4a2a, awning: [0xe8b64a, 0xf2e2c2], sign: 'bakery', chimney: true, flowerBoxes: true, doorX: 1 },
   cottageA: { w: 5.4, d: 4.2, wallH: 2.6, wall: 'wood', wallTint: 0xf6e2c4, roofTint: 0xd8b068, roof: 'thatch', doorTint: 0x4f7fb0, shutterTint: 0x4f7fb0, chimney: true, flowerBoxes: true },
   cottageB: { w: 5.4, d: 4.2, wallH: 2.6, wall: 'plaster', wallTint: 0xe8f0e0, roofTint: 0xa87aa8, doorTint: 0x5a8a4a, shutterTint: 0x6a9a5a, chimney: true, flowerBoxes: true },
 };
@@ -106,7 +128,22 @@ const CELL = 12;
 const cellOf = (x: number, z: number): string => `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
 
 /** Knee-high street clutter: grounded by the contact-AO stamp, so it skips the shadow pass. */
-const SMALL_CLUTTER = new Set<string>(['flowerPot', 'mailbox', 'sandwichBoard', 'chalkBoard', 'produce', 'sacks', 'bicycle', 'wheelbarrow']);
+/**
+ * Street clutter that drops out of the batches past FAR_CLUTTER_M of the lens (r9, pillar 14: wide
+ * establishing frames of the whole town paid ~1.8M triangles for pots, barrels, sacks and wildflowers
+ * a few pixels tall). Kept per 12 m cell in its own batch sets; `?farclutter=0` turns it off.
+ */
+const FAR_CLUTTER = new Set<string>(['flowerPot', 'wildflowers', 'planter', 'barrel', 'crates', 'crateStack', 'sacks', 'produce', 'mailbox', 'bicycle', 'wheelbarrow', 'beehive', 'vegBed', 'cafeSet', 'sandwichBoard', 'chalkBoard', 'logpile', 'picnic', 'flowerCart', 'sawhorse', 'lumber']);
+const FAR_CLUTTER_M = ((): number => {
+  try {
+    const q = new URLSearchParams(location.search).get('farclutter');
+    if (q !== null) return Number(q) || 0;
+  } catch {
+    /* no location */
+  }
+  return 40;
+})();
+const SMALL_CLUTTER = new Set<string>(['picnic', 'wildflowers', 'flowerPot', 'mailbox', 'sandwichBoard', 'chalkBoard', 'produce', 'sacks', 'bicycle', 'wheelbarrow']);
 
 export class TownMap implements GameMap {
   readonly id = 'town';
@@ -120,12 +157,16 @@ export class TownMap implements GameMap {
   readonly warps: MapWarp[] = TOWN_WARPS;
   readonly poi: Record<string, { x: number; y?: number; z: number; rot?: number }[]> = {};
   private trees: TreeField;
+  /** r14: hand-grown hero cherries (boughs, blossom clusters, petal drifts) for the town's blossom trees. */
+  private cherries!: CherryTrees;
   private nature: Nature;
   private rng: Rng;
   private noise: Noise2D;
   private streetSamples: { x: number; z: number; w: number }[] = [];
   private riverSamples: THREE.Vector3[] = [];
   private staticRoots: THREE.Object3D[] = [];
+  /** Far-clutter cells (centre, their batch sets, shown?). */
+  private clutterCells: { x: number; z: number; sets: InstancedSet[]; on: boolean }[] = [];
   private smoke: SmokeEmitter[] = [];
   private ambience: Ambience;
   private pools = new LightPools();
@@ -135,6 +176,9 @@ export class TownMap implements GameMap {
   private forgeFire: FireFX | null = null;
   private forgeLight: THREE.PointLight | null = null;
   private fountainFx: FountainFX | null = null;
+  private fountainIce: THREE.Mesh | null = null;
+  private plazaWear: THREE.Mesh | null = null;
+  private winterShade: THREE.Mesh | null = null;
   private festoons: Festoons | null = null;
   private snowmen: THREE.Group | null = null;
   private swept: THREE.Mesh | null = null;
@@ -142,14 +186,17 @@ export class TownMap implements GameMap {
   private festivalLights: { light: THREE.PointLight; max: number; seed: number }[] = [];
   /** Debug: triangles per static prop root name (×2 when it casts shadows). */
   propTris: Record<string, number> = {};
+  /** World AABBs (minX, minY, minZ, maxX, maxY, maxZ)… of tall static prop meshes (lens occluders). */
+  occluders: Float32Array = new Float32Array(0);
 
   constructor(private game: Game) {
     this.root.name = 'map:town';
+    installTownTone(game);
     this.rng = game.rng.fork('town');
     this.noise = new Noise2D(this.rng.fork('n').seed);
     this.sampleRiver();
     this.sampleStreets();
-    this.terrain = new Terrain({ ...TOWN_EXTENT2, step: 0.5, height: (x, z) => this.height(x, z), waterLevel: WATER_Y, pathTexture: textures.cobble().map, pathScale: 0.48 });
+    this.terrain = new Terrain({ ...TOWN_EXTENT2, step: 0.5, height: (x, z) => this.height(x, z), waterLevel: WATER_Y, pathTexture: townCobble().map, pathScale: 0.5 });
     this.root.add(this.terrain.mesh);
     this.terrain.paint('path', (x, z) => this.streetValue(x, z));
     // Sandy / pebbly river banks.
@@ -169,8 +216,10 @@ export class TownMap implements GameMap {
 
     this.trees = new TreeField(this.rng.fork('trees'));
     this.nature = new Nature(this.rng.fork('nature'));
+    this.cherries = new CherryTrees(this.rng.fork('cherries'), (x, z) => this.terrain.heightAt(x, z));
     this.buildBuildings();
     this.buildNewBuildings();
+    this.buildWinterRoofs();
     this.buildProps();
     this.buildExtraProps();
     this.buildFestoons();
@@ -179,10 +228,11 @@ export class TownMap implements GameMap {
     this.placeNature();
     this.terrain.commitCover();
     this.trees.finalize();
+    this.cherries.finalize();
     this.nature.finalize();
     this.trees.group.userData.perfTag = 'trees';
     this.nature.group.userData.perfTag = 'nature';
-    this.root.add(this.trees.group, this.nature.group, this.pools.group);
+    this.root.add(this.trees.group, this.cherries.group, this.nature.group, this.pools.group);
     this.mergeDistricts();
     this.festival.name = 'festival';
     this.festival.visible = false;
@@ -200,6 +250,13 @@ export class TownMap implements GameMap {
       cover: this.terrain,
     });
     this.root.add(this.grass.group);
+    // r16: blades round the speakers' feet shrink to a lawn while a talk / event owns the frame.
+    this.grass.group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) for (const mt of Array.isArray(m.material) ? m.material : [m.material]) installGrassClear(mt);
+    });
+    // Picnic blankets lie on mown grass (no blades poking up through the gingham).
+    for (const p of EXTRA_PROPS) if (p.kind === 'picnic') for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) this.grass.clearTile(Math.floor(p.x) + dx, Math.floor(p.z) + dz, 0.05);
     this.ambience = new Ambience((x, z) => this.terrain.heightAt(x, z));
     this.root.add(this.ambience.group);
     game.events.on('demo:stage', ({ showcase }) => this.setFestival(showcase.includes('festival')));
@@ -383,12 +440,15 @@ export class TownMap implements GameMap {
     if (this.riverDist(x, z) < RIVER_HALF + 0.9) return 0;
     const pv = t.splatAt(x, z, 'path');
     if (pv > 0.25) return 0;
+    // (r16 critic: "lone grass tufts grow out of the middle of the cobbled paths")
+    const sv = this.streetValue(x, z);
+    if (sv > 0.3) return 0;
     const sand = t.splatAt(x, z, 'sand');
     const tx = Math.floor(x);
     const tz = Math.floor(z);
     if (this.grid.inBounds(tx, tz) && this.grid.hasFlag(tx, tz, TileFlag.Blocked) && this.grid.getType(tx, tz) !== TileType.Cliff) return 0.3;
     const clump = smoothstep(-0.1, 0.5, this.noise.fbm(x * 0.13 + 4, z * 0.13, 2));
-    return (3 + clump * 4.5) * (pv > 0.05 ? 0.55 : 1) * (1 - sand * 0.7);
+    return (3 + clump * 4.5) * (pv > 0.05 ? 0.55 : 1) * (1 - sand * 0.7) * (1 - smoothstep(0.1, 0.3, sv));
   }
 
   // ───────────────────────────────────────────── build
@@ -409,10 +469,12 @@ export class TownMap implements GameMap {
         continue;
       }
       l.light.castShadow = false;
-      l.light.color.setHex(0xffb45e);
-      l.light.distance = 6.5;
-      l.light.decay = 2;
-      this.game.lighting.addNightLight(l.light, Math.max(l.max, 6) * 1.6);
+      // (r15: a warm-gold, broader, softer pool — the r14 0xffb45e at decay 2 burned orange-red
+      // hot spots into the cobbles and crushed everything between them)
+      l.light.color.setHex(0xffc890);
+      l.light.distance = 8.5;
+      l.light.decay = 1.45;
+      this.game.lighting.addNightLight(l.light, Math.max(l.max, 6) * 1.15);
     }
     for (const [tx, tz] of solid ?? []) this.grid.setObject(tx, tz, { kind: 'prop', id: bp.group.name, solid: true });
     return bp;
@@ -430,16 +492,86 @@ export class TownMap implements GameMap {
     }
   }
 
+  /** Winter-only eaves (snow lips + icicles) over every town house, one merged mesh. */
+  private eaves: THREE.Group | null = null;
+  /** The Hall's door wreath dressed for spring / summer / fall (bare holly = winter). */
+  private wreaths: Record<'spring' | 'summer' | 'fall', THREE.Group> | null = null;
+
   private buildBuildings(): void {
     const r = this.rng.fork('buildings');
+    const rd = this.rng.fork('roofs');
+    const winters: MeshBuilder[] = [];
     for (const b of BUILDINGS) {
       const bp = b.kind === 'hall' ? buildLanternHall(r) : buildTownHouse(r, HOUSES[b.kind]);
       bp.group.name = b.id;
       this.addProp(bp, b.x, b.z, b.rot ?? 0, undefined, { lights: b.kind === 'hall' || b.kind === 'store' || b.kind === 'bakery' ? 'full' : 'pool' });
+      if (b.kind !== 'hall') {
+        // Ridge caps, dormers, moss and slipped tiles break up the big roof planes.
+        const spec = HOUSES[b.kind];
+        // (r11: the store's loading gable and the bakery's ridge vent + roof board replace the twin dormers)
+        const dormers: number[] = [];
+        this.addProp(buildRoofDressing(rd, spec, dormers), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
+        if (b.kind === 'store') this.addProp(buildStoreFront(rd, spec), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
+        if (b.id === 'cottage_east') {
+          // Hazel's lean-to glasshouse + potting bench on the west gable (tiles 43–44 × 30–34).
+          this.addProp(buildGlasshouse(rd, spec), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
+          for (let z = 31; z <= 34; z++) for (let x = 43; x <= 44; x++) this.grid.setFlag(x, z, TileFlag.Blocked);
+        }
+        if (b.kind === 'bakery') {
+          const oven = this.addProp(buildBakeryFront(rd, spec), b.x, b.z, b.rot ?? 0, undefined, { lights: 'none', y: bp.group.position.y });
+          oven.group.name = 'bakery-oven';
+          this.addDoorAndSmoke(oven, 'bakery-oven', 9);
+        }
+        const winter = new MeshBuilder();
+        winters.push(winter);
+        eaveWinter(winter, rd, spec, bp.group.matrixWorld.clone());
+        roofSnowWinter(winter, this.snowRng, spec, bp.group.matrixWorld.clone());
+      }
       const [x0, z0, x1, z1] = b.block;
       for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) this.grid.setFlag(x, z, TileFlag.Blocked);
       this.terrain.stampCover('ao', b.x, b.z + 0.3, (x1 - x0 + 1) * 0.62, 0.55, (z1 - z0 + 1) / (x1 - x0 + 1));
       this.addDoorAndSmoke(bp, b.id, b.kind === 'store' ? 0 : b.kind === 'bakery' ? 6 : 3.5);
+    }
+    this.winterB = winters;
+  }
+
+  /** Winter eaves + roof snow, one builder per house (plaza houses and the new districts). */
+  private winterB: MeshBuilder[] | null = null;
+  private snowRngV: Rng | null = null;
+  private get snowRng(): Rng {
+    return (this.snowRngV ??= this.rng.fork('roof-snow'));
+  }
+  private buildWinterRoofs(): void {
+    // Pillar 14 (g14: one town-wide merged mesh cost 53-131k triangles in the main AND the GTAO pass in
+    // every winter town frame, houses off screen included): each house's snow is its own geometry in one
+    // BatchPool — still one multi-draw per material, but BatchedMesh frustum-culls house by house (main
+    // and AO passes), and the detail suffix (rolls, bumps, icicles) skips the AO G-buffer.
+    const pool = new BatchPool('eaves-winter');
+    const I = new THREE.Matrix4();
+    for (const w of this.winterB ?? []) {
+      for (const [m, geo] of w.geometries(true)) {
+        geo.computeBoundingSphere();
+        const material = typeof m === 'string' ? materials.get(m) : m;
+        // (thin icicles: no shadow-pass cost)
+        new InstancedSet('eaves-winter', [{ geometry: geo, material, castShadow: false, receiveShadow: true }], pool).add(I);
+      }
+    }
+    this.winterB = null;
+    this.eaves = pool.group;
+    this.eaves.name = 'eaves-winter';
+    this.eaves.userData.perfTag = 'props';
+    this.eaves.visible = false;
+    this.root.add(this.eaves);
+    // The hall's wreath centre: townkit puts it on the doors at (0, plinth 0.6 + 1.75, D/2 + 0.36).
+    const hall = BUILDINGS.find((b) => b.kind === 'hall');
+    if (hall) {
+      const at = new THREE.Vector3(0, 0.6 + 1.75, 3.2 + 0.36).applyAxisAngle(new THREE.Vector3(0, 1, 0), hall.rot ?? 0);
+      at.add(new THREE.Vector3(hall.x, this.terrain.heightAt(hall.x, hall.z) - 0.03, hall.z));
+      this.wreaths = buildWreathDressing(this.rng.fork('wreath'), at);
+      for (const g of Object.values(this.wreaths)) {
+        g.visible = false;
+        this.root.add(g);
+      }
     }
   }
 
@@ -473,6 +605,13 @@ export class TownMap implements GameMap {
       for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) this.grid.setFlag(x, z, TileFlag.Blocked);
       this.terrain.stampCover('ao', b.x, b.z, (x1 - x0 + 1) * 0.62, 0.55, (z1 - z0 + 1) / (x1 - x0 + 1));
       this.addDoorAndSmoke(bp, b.id, b.kind === 'inn' ? 5 : b.kind === 'forge' ? 0 : 3);
+      // r15: the new districts' roofs carry winter snow packs too (fitted to the house's own spec)
+      const hs = bp.group.userData.houseSpec as Parameters<typeof roofSnowWinter>[2] | undefined;
+      if (hs && this.winterB) {
+        const w = new MeshBuilder();
+        roofSnowWinter(w, this.snowRng, hs, bp.group.matrixWorld.clone());
+        this.winterB.push(w);
+      }
       if (b.kind === 'forge') {
         // Hearth: shed collision, flames + embers, forge smoke, a flickering practical light.
         for (let z = 14; z <= 16; z++) for (let x = 82; x <= 85; x++) this.grid.setObject(x, z, { kind: 'prop', id: 'hearth', solid: true });
@@ -514,10 +653,10 @@ export class TownMap implements GameMap {
           g = buildLanternPost();
           break;
         case 'planter':
-          g = buildPlanter(r, p.colors ?? [0xff8fab]);
+          g = buildTownPlanter(r, p.colors ?? [0xff8fab]);
           break;
         case 'hedge':
-          g = buildHedge(r, p.len ?? 3);
+          g = buildTownHedge(r, p.len ?? 3);
           break;
         case 'barrel':
           g = buildBarrel();
@@ -545,10 +684,11 @@ export class TownMap implements GameMap {
           g = buildCafeSet();
           break;
         case 'sandwichBoard':
-          g = buildSandwichBoard(p.colors?.[0]);
+          g = buildChalkAFrame(p.colors?.[0]);
           break;
       }
       this.addProp(g, p.x, p.z, p.rot ?? 0, p.solid);
+      if (FAR_CLUTTER.has(p.kind)) this.staticRoots[this.staticRoots.length - 1]!.userData.clutter = true;
       if (p.kind === 'noticeBoard') {
         // The notes on the board, painted (a separate quad: the board itself merges into the batches).
         const o = buildNoticeOverlay();
@@ -566,6 +706,11 @@ export class TownMap implements GameMap {
     this.poi.plaza = [{ x: PLAZA.x, z: PLAZA.z }];
     this.fountainFx = new FountainFX(new THREE.Vector3(PLAZA.x, this.terrain.heightAt(PLAZA.x, PLAZA.z) - 0.03, PLAZA.z));
     this.root.add(this.fountainFx.group);
+    // r12: foot-traffic wear, moss in the quiet joints, damp under the basin, petals in the corners.
+    this.plazaWear = buildPlazaWear(PLAZA.x, PLAZA.z, 8.6, (x, z) => this.terrain.heightAt(x, z));
+    this.root.add(this.plazaWear);
+    // r13: rain puddles in the square's low spots (near-mirror; hidden under winter snow).
+    this.plazaWear.add(buildPlazaPuddles(PLAZA.x, PLAZA.z, (x, z) => this.terrain.heightAt(x, z)));
   }
 
   private buildExtraProps(): void {
@@ -631,6 +776,12 @@ export class TownMap implements GameMap {
         case 'sawhorse':
           g = buildSawhorse(r);
           break;
+        case 'scaffold':
+          g = buildScaffold(r);
+          break;
+        case 'hallBanner':
+          g = buildHallBanner();
+          break;
         case 'lumber':
           g = buildLumber(r);
           break;
@@ -641,7 +792,7 @@ export class TownMap implements GameMap {
           g = buildCafeSet();
           break;
         case 'planter':
-          g = buildPlanter(r, p.colors ?? [0xff8fab]);
+          g = buildTownPlanter(r, p.colors ?? [0xff8fab]);
           break;
         case 'mailbox':
           g = buildMailbox();
@@ -650,7 +801,7 @@ export class TownMap implements GameMap {
           g = buildSwing();
           break;
         case 'hedge':
-          g = buildHedge(r, p.len ?? 3);
+          g = buildTownHedge(r, p.len ?? 3);
           break;
         case 'kettleSign':
           g = buildKettleSign();
@@ -663,7 +814,7 @@ export class TownMap implements GameMap {
           break;
         case 'chalkBoard':
         case 'sandwichBoard':
-          g = buildSandwichBoard(p.colors?.[0]);
+          g = buildChalkAFrame(p.colors?.[0]);
           break;
         case 'wheelbarrow':
           g = buildWheelbarrow();
@@ -679,6 +830,12 @@ export class TownMap implements GameMap {
           g = buildFlowerRing(r, r0, r1, (a0 * Math.PI) / 180, (a1 * Math.PI) / 180);
           break;
         }
+        case 'picnic':
+          g = buildPicnic(r, p.colors?.[0]);
+          break;
+        case 'wildflowers':
+          g = buildWildflowers(r, p.colors);
+          break;
         case 'fence': {
           const y0 = this.terrain.heightAt(p.x, p.z) - 0.03;
           g = buildFence([p.pts ?? []], (lx, lz) => this.terrain.heightAt(lx + p.x, lz + p.z) - y0, r);
@@ -703,6 +860,7 @@ export class TownMap implements GameMap {
       // Street boards stand on their own tile: villagers path round them instead of through them.
       const solid = p.solid ?? (p.kind === 'sandwichBoard' || p.kind === 'chalkBoard' ? ([[Math.floor(p.x), Math.floor(p.z)]] as [number, number][]) : undefined);
       this.addProp(g, p.x, p.z, p.rot ?? 0, solid, { lights, y });
+      if (FAR_CLUTTER.has(p.kind)) this.staticRoots[this.staticRoots.length - 1]!.userData.clutter = true;
       if (!['hedge', 'dock', 'rowboat', 'laundry', 'fence', 'flowerRing'].includes(p.kind)) this.terrain.stampCover('ao', p.x, p.z, p.kind === 'stall' ? 1.6 : p.kind === 'well' ? 1.2 : 0.6, 0.6);
     }
     // The dock is walkable: a short jetty over the water.
@@ -726,7 +884,9 @@ export class TownMap implements GameMap {
     this.festoons = new Festoons(spans, this.rng.fork('festoons'));
     this.root.add(this.festoons.group);
     // Winter: snowmen on the plaza lawns and in the schoolyard (hidden the rest of the year).
-    this.snowmen = buildSnowmen(this.rng.fork('snowmen'), SNOWMEN, (x, z) => this.terrain.heightAt(x, z));
+    const goods = EXTRA_PROPS.filter((p) => p.kind === 'produce').map((p) => [p.x, p.z, p.rot ?? 0] as [number, number, number]);
+    const carts = ([...TOWN_PROPS, ...EXTRA_PROPS] as { kind: string; x: number; z: number; rot?: number }[]).filter((p) => p.kind === 'flowerCart').map((p) => [p.x, p.z, p.rot ?? 0] as [number, number, number]);
+    this.snowmen = buildSnowmen(this.rng.fork('snowmen'), SNOWMEN, (x, z) => this.terrain.heightAt(x, z), goods, carts);
     this.snowmen.visible = false;
     this.root.add(this.snowmen);
   }
@@ -778,8 +938,30 @@ export class TownMap implements GameMap {
         tris[k] = (tris[k] ?? 0) + n * ((m as THREE.Mesh).castShadow ? 2 : 1);
       });
     this.propTris = tris;
+    // r6b: world boxes of everything standing taller than a knee (awnings, parasols, stalls, signs,
+    // walls) before the batches swallow them — the talk / event lens keeps itself and its sight lines
+    // out of them (r6 critic: June's talk lens sat inside the Copper Kettle's terrace awning).
+    const occ: number[] = [];
+    const bb = new THREE.Box3();
     for (const o of this.staticRoots) {
-      const k = cellOf(o.position.x, o.position.z);
+      o.updateMatrixWorld(true);
+      o.traverse((m) => {
+        const mesh = m as THREE.Mesh;
+        if (!mesh.isMesh || !mesh.geometry || (mesh as THREE.InstancedMesh).isInstancedMesh) return;
+        const mn = (mesh.material as THREE.Material | undefined)?.name ?? '';
+        if (mn === 'windowCard' || mn === 'lampGlow' || mn === 'glass') return;
+        const g = mesh.geometry;
+        if (!g.boundingBox) g.computeBoundingBox();
+        bb.copy(g.boundingBox!).applyMatrix4(mesh.matrixWorld);
+        const gy = this.terrain.heightAt((bb.min.x + bb.max.x) / 2, (bb.min.z + bb.max.z) / 2);
+        if (bb.max.y - gy < 0.95 || bb.max.y - bb.min.y < 0.12) return;
+        if (bb.max.x - bb.min.x > 16 || bb.max.z - bb.min.z > 16) return;
+        occ.push(bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z);
+      });
+    }
+    this.occluders = new Float32Array(occ);
+    for (const o of this.staticRoots) {
+      const k = (o.userData.clutter && FAR_CLUTTER_M > 0 ? 'c:' : '') + cellOf(o.position.x, o.position.z);
       let list = cells.get(k);
       if (!list) cells.set(k, (list = []));
       list.push(o);
@@ -788,16 +970,27 @@ export class TownMap implements GameMap {
     const I = new THREE.Matrix4();
     // Glass, glow cards, window boxes and hearth coals add nothing to the shadow map: skip that pass
     // for them (one fewer draw call each per frame).
-    const NO_SHADOW = new Set(['windowCard', 'lampGlow', 'glass', 'boxFlower', 'forgeCoals', 'stillWater', 'brass', 'copper']);
+    const NO_SHADOW = new Set(['windowCard', 'lampGlow', 'glass', 'boxFlower', 'forgeCoals', 'stillWater', 'brass', 'copper', 'shopSign']);
     for (const [k, list] of cells) {
       const merged = mergeStatic(list, `town-${k}`);
+      let cx = 0;
+      let cz = 0;
+      for (const o of list) {
+        cx += o.position.x / list.length;
+        cz += o.position.z / list.length;
+      }
+      const sets: InstancedSet[] = [];
       for (const m of merged.children as THREE.Mesh[]) {
         const mat = m.material as THREE.Material;
         const set = new InstancedSet(m.name, [{ geometry: m.geometry, material: mat, castShadow: m.castShadow && !NO_SHADOW.has(mat.name), receiveShadow: m.receiveShadow }], pool);
         set.add(I);
+        sets.push(set);
       }
+      if (k.startsWith('c:')) this.clutterCells.push({ x: cx, z: cz, sets, on: true });
     }
     pool.group.userData.perfTag = 'props';
+    // r16: talk / event lenses screen-door the street props between the lens and the speakers.
+    for (const m of pool.meshes) for (const mt of Array.isArray(m.material) ? m.material : [m.material]) installLensCut(mt);
     this.root.add(pool.group);
   }
 
@@ -816,6 +1009,12 @@ export class TownMap implements GameMap {
     });
     for (const [sp, x, z, s] of [...moved, ...EXTRA_TREES]) {
       if (!clear(x, z) && !EXTRA_TREES.some((t) => t[1] === x && t[2] === z)) continue;
+      if (sp === 'blossom') {
+        const c = this.cherries.add(x, this.terrain.heightAt(x, z) - 0.05, z, s);
+        this.grid.setObject(Math.floor(x), Math.floor(z), { kind: 'tree', id: sp, solid: true, onRemove: () => this.cherries.remove(c) });
+        this.terrain.stampCover('ao', x, z, 1.1 * s, 0.7);
+        continue;
+      }
       const h = this.trees.add(sp, x, this.terrain.heightAt(x, z) - 0.05, z, s);
       this.grid.setObject(Math.floor(x), Math.floor(z), { kind: 'tree', id: sp, solid: true, onRemove: () => this.trees.remove(h) });
       this.terrain.stampCover('ao', x, z, 1.1 * s, 0.7);
@@ -828,7 +1027,10 @@ export class TownMap implements GameMap {
         if (d < 1.2 || this.exitMask(jx, jz) > 0.2 || r.next() < 0.2) continue;
         if (this.riverDist(jx, jz) < RIVER_BANK + 1.2) continue;
         if (this.terrain.slopeAt(jx, jz) < 0.75) continue;
-        const sp = r.next() < 0.35 ? 'pine' : r.next() < 0.5 ? 'oak' : r.next() < 0.75 ? 'maple' : 'blossom';
+        // (r14: no generic blossoms on the rim — the town's cherries are hand-grown (cherry.ts) and the
+        // rim's blob blossom batch cost two draws in every town frame)
+        // (same rng draws as before: the rim's layout is unchanged)
+        const sp = r.next() < 0.35 ? 'pine' : r.next() < 0.5 ? 'oak' : r.next() < 2 ? 'maple' : 'oak';
         this.trees.add(sp, jx, this.terrain.heightAt(jx, jz) - 0.08, jz, 0.85 + r.next() * 0.45, undefined, d > 3.5 ? 1 : 0);
       }
     }
@@ -927,7 +1129,8 @@ export class TownMap implements GameMap {
       const l = new THREE.PointLight(c, 0, 9, 1.6);
       l.position.set(x, y, z);
       this.root.add(l);
-      this.festivalLights.push({ light: l, max, seed: Math.random() * 10 });
+      // (r18 determinism: a golden-ratio phase per light, no Math.random left in the town)
+      this.festivalLights.push({ light: l, max, seed: ((this.festivalLights.length * 0.618034) % 1) * 10 });
     }
   }
 
@@ -955,6 +1158,24 @@ export class TownMap implements GameMap {
 
   update(dt: number, game: Game): void {
     this.pools.update();
+    // (r15: the ground pools read gold, not orange, and a touch quieter — the lamp glass stays the hot spot)
+    const pool = this.pools.group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | undefined;
+    if (pool) {
+      // (r21: a richer, more saturated gold at dusk — "push saturation into the lamp pools")
+      if (pool.material.color.getHex() !== 0xffb46a) pool.material.color.setHex(0xffb46a);
+      pool.material.opacity *= 0.9;
+    }
+    if (FAR_CLUTTER_M > 0) {
+      // Hysteresis (±2 m) so a cell on the edge never flickers while the lens drifts.
+      const cp = game.rc.camera.position;
+      for (const c of this.clutterCells) {
+        const d = Math.hypot(c.x - cp.x, c.z - cp.z);
+        const on = c.on ? d < FAR_CLUTTER_M + 2 : d < FAR_CLUTTER_M - 2;
+        if (on === c.on) continue;
+        c.on = on;
+        for (const st of c.sets) st.setVisible(on);
+      }
+    }
     this.grass.update(game.rc.rig.focus);
     const h = game.rc.renderer.domElement.height;
     // Chimney plumes only near the view (each is a draw call; off-screen ones stop simulating).
@@ -982,17 +1203,74 @@ export class TownMap implements GameMap {
     }
   }
 
+  private wear: THREE.Group | null = null;
+
+  /** Winter wear (built on the first winter day): routes from every villager's winter day. */
+  private buildWear(): void {
+    const at = (name: string): { x: number; z: number } | null => {
+      if (name.startsWith('door:')) return this.poi[name.slice(5)]?.[0] ?? null;
+      const sp = (SPOTS as Record<string, readonly [number, number, unknown]>)[name];
+      return sp ? { x: sp[0], z: sp[1] } : null;
+    };
+    const paths: { x: number; z: number }[][] = [];
+    for (const def of Object.values(NPCS)) {
+      const list = def.winterSchedule ?? def.schedule;
+      for (let i = 0; i + 1 < list.length; i++) {
+        const a = at(list[i]![1]);
+        const b = at(list[i + 1]![1]);
+        if (!a || !b) continue;
+        const p = findPath(this.grid, a.x, a.z, b.x, b.z);
+        if (p.length > 1) paths.push(p);
+      }
+    }
+    this.wear = buildWinterWear(
+      paths,
+      (x, z) => this.terrain.heightAt(x, z),
+      (x, z) => this.streetValue(x, z),
+      { samples: this.riverSamples, half: RIVER_HALF, waterY: WATER_Y, skip: (x, z) => !!this.bridgeAt(x, z) },
+      this.rng.fork('winter-wear'),
+      Object.values(SPOTS as Record<string, readonly [number, number, unknown]>).map(([x, z]) => ({ x, z })),
+    );
+    this.root.add(this.wear);
+  }
+
   setSeason(season: Season): void {
-    // The basin freezes over in winter: no running water.
+    if (this.wreaths) for (const [k, g] of Object.entries(this.wreaths)) g.visible = k === season;
+    // The basin freezes over in winter: no running water — an ice sheet, frozen jets and icicles (r12).
     if (this.fountainFx) this.fountainFx.group.visible = season !== 'winter';
+    if (season === 'winter' && !this.fountainIce) {
+      this.fountainIce = buildFountainIce(new THREE.Vector3(PLAZA.x, this.terrain.heightAt(PLAZA.x, PLAZA.z) - 0.03, PLAZA.z));
+      this.root.add(this.fountainIce);
+    }
+    if (this.fountainIce) this.fountainIce.visible = season === 'winter';
+    if (this.plazaWear) this.plazaWear.visible = season !== 'winter';
+    if (season === 'winter' && !this.winterShade) {
+      const R: Partial<Record<string, number>> = { marketStall: 1.7, stall: 1.6, fountain: 2.9, bench: 1.0, lanternPost: 0.5, lamp: 0.5, lampLit: 0.5, noticeBoard: 1.1, planter: 0.8, barrel: 0.5, crateStack: 0.8, crates: 0.8, cafeSet: 1.0, flowerCart: 1.1, wheelbarrow: 0.8, well: 1.1, produce: 1.1, sacks: 0.6, hedge: 1.2, signpost: 0.4, sandwichBoard: 0.45 };
+      const props: { x: number; z: number; r: number }[] = [];
+      for (const p of [...TOWN_PROPS, ...EXTRA_PROPS] as { kind: string; x: number; z: number }[]) {
+        const r = R[p.kind];
+        if (r) props.push({ x: p.x, z: p.z, r });
+      }
+      const rects = [...BUILDINGS, ...NEW_BUILDINGS].map((b) => [b.block[0], b.block[1], b.block[2] + 1, b.block[3] + 1] as [number, number, number, number]);
+      this.winterShade = buildWinterShade({ x0: 6, z0: 2, x1: 96, z1: 56 }, rects, props, (x, z) => this.terrain.heightAt(x, z) + this.terrain.driftAt(x, z) * 0.2 + 0.03);
+      this.root.add(this.winterShade);
+    }
+    if (this.winterShade) this.winterShade.visible = season === 'winter';
     this.trees.setSeason(season);
+    this.cherries.setSeason(season);
     this.nature.setSeason(season);
     this.ambience.setSeason(season);
     this.festoons?.setSeason(season);
+    if (season === 'winter' && !this.wear) this.buildWear();
+    if (this.wear) this.wear.visible = season === 'winter';
+    // (r13 critic: dry blades poking through the snow read as scattered twigs) — the lawns lie under a
+    // clean snow cover in winter; the grass field sleeps (and costs nothing).
+    this.grass.group.visible = season !== 'winter';
     if (this.snowmen) {
       const on = season === 'winter';
       this.snowmen.visible = on;
       if (this.swept) this.swept.visible = on;
+      if (this.eaves) this.eaves.visible = on;
       for (const [x, z] of SNOWMEN) this.grid.setObject(Math.floor(x), Math.floor(z), on ? { kind: 'prop', id: 'snowman', solid: true } : null);
     }
   }

@@ -12,7 +12,7 @@
  *                     ['act', seq, x, z]                   harvest-by-hand intent (predicted)
  *                     ['gold', seq, delta]                 purse change (host may deny a spend: ['gdeny'])
  *                     ['psave', seq, data, counts]         personal save (versioned; on every backpack change)
- *                     ['chat', text] · ['emo', id] · ['bed', 0|1] · ['look', look, name] · ['ping', t]
+ *                     ['chat', text] · ['typ', 0|1] · ['emo', id] · ['bed', 0|1] · ['look', look, name] · ['ping', t]
  *                     ['need'] · ['hello', {name, look, pid, fresh, rejoin}]
  *   host → farmhands  ['s', t, [[id, map, xcm, zcm, yawc, anim]]]   20 Hz host sample (host frame clock)
  *                     ['did', id, itemId|'@act', x, z, facing]  another farmer acted (replayed + animated)
@@ -21,7 +21,7 @@
  *                     ['farm', [[tile, state], ...]]   farm tile deltas (≤ 5 Hz, only when something changed)
  *                     ['full', {save, debris, digest}] whole farm (join, rejoin, every morning)
  *                     ['cal', day, season, year, hour, weather] 1 Hz · ['gold', total, {id: seq}]
- *                     ['roster', [...]] · ['beds', [ids]] · ['sleep'] · ['chat', id, text] · ['emo', id, emote]
+ *                     ['roster', [...]] · ['beds', [ids]] · ['sleep'] · ['chat', id, text] · ['typ', id, 0|1] · ['emo', id, emote]
  *                     ['welcome', {...}] · ['pong', t]
  *   worker ↔ worker   ['~ping', t] / ['~pong', t]  network RTT, answered in the socket worker (transport.ts)
  *
@@ -53,7 +53,7 @@ import { CoopDemo } from './demo';
 import { NetBridge } from './bridge';
 import { IMPACT, type ActionKind } from '../entities/farmer-actions';
 import { applyLookToPlayer } from '../entities/remote-farmer';
-import { DEFAULT_LOOK, isDefaultLook, loadProfile, saveProfile, sanitizeLook, hex, PRESET_LOOKS, type FarmerLook, type FarmerProfile } from '../entities/remote-look';
+import { DEFAULT_LOOK, DEMO_HOST_LOOK, isDefaultLook, loadProfile, saveProfile, sanitizeLook, hex, PRESET_LOOKS, type FarmerLook, type FarmerProfile } from '../entities/remote-look';
 import { EmoteBubble, EMOTES, renderEmoteOverlay, type EmoteId } from '../entities/remote-emotes';
 import { itemDef } from '../data/items';
 import { CROPS } from '../data/crops';
@@ -101,8 +101,15 @@ export interface NetStats {
   drift: number;
   /** Full-farm resyncs asked for mid-day (a tile we couldn't rebuild); join / morning syncs aren't counted. */
   needs: number;
+  /**
+   * Mispredictions: tiles our own prediction (a swing / seed / harvest we played instantly) or a
+   * replayed `did` got wrong and the host's word had to overwrite (visible pops; should stay ~0).
+   */
+  mispredicts: number;
   /** Last drift fixes, `tile:ours→host's` (diagnostics). */
   driftLog: string[];
+  /** Last mispredictions, `tile:ours→host's` (diagnostics). */
+  mispredictLog: string[];
   fullSyncs: number;
   corrections: number;
   refunds: number;
@@ -125,6 +132,8 @@ export interface NetApi {
   /** Host: remove a farmhand from the farm (frees their slot; they can't rejoin for a minute). */
   kick(id: number): void;
   chat(text: string): void;
+  /** Typing in the chat box (volatile: a "…" bubble over your head for everyone). */
+  typing(on: boolean): void;
   emote(id: EmoteId): void;
   /** Ready for bed (co-op: the day ends when everyone is). */
   goToBed(where: 'house' | 'cabin'): void;
@@ -156,7 +165,7 @@ export interface DayTally {
   name: string;
   look: FarmerLook;
   isMe: boolean;
-  /** [harvested, watered, tilled, sown] */
+  /** [harvested, watered, tilled, sown, shipped gold] (older peers send the first four) */
   n: number[];
 }
 
@@ -170,7 +179,9 @@ declare module '../core/events' {
   interface GameEvents {
     'net:status': { role: Role; status: string; code: string | null };
     'net:roster': { players: PlayerView[] };
-    'net:chat': { id: number; name: string; text: string; color: string; system?: boolean };
+    'net:chat': { id: number; name: string; text: string; color: string; system?: boolean; seq?: number; pending?: boolean };
+    /** The host confirmed a farmhand's chat line `seq` (the log stops showing it as "sending…"). */
+    'net:chatack': { seq: number };
     'net:emote': { id: number; emote: EmoteId };
     'net:beds': { ready: number[]; total: number; sleeping: boolean };
     'net:error': { text: string };
@@ -283,6 +294,8 @@ export class NetSystem implements System, NetApi {
   private token: string | null = null;
   serverUrl = defaultServerUrl();
   private prof: FarmerProfile = { name: 'Farmer', look: DEFAULT_LOOK };
+  /** Demo staging: the staged host's look (null = the profile's). */
+  private sessionLook: FarmerLook | null = null;
   /** Name the lobby gave us (deduped: "Ash 2"). */
   private sessionName: string | null = null;
   private pid = '';
@@ -302,6 +315,8 @@ export class NetSystem implements System, NetApi {
   private lastTickAt = 0;
   /** Frame clock: when the latest rendered frame sampled the player (ms, performance.now()). */
   private frameAt = 0;
+  /** Sim time of the player's position this frame (frame clock − fixed-step accumulator), monotonic. */
+  private simAt = 0;
   private frameNo = 0;
   private sentFrame = -1;
   private appRtt = 0;
@@ -323,9 +338,9 @@ export class NetSystem implements System, NetApi {
   private bedWhere: 'house' | 'cabin' = 'house';
   private applyingGold = false;
   private hostBeds = new Set<number>();
-  private counters = { reconciles: 0, drift: 0, needs: 0, fullSyncs: 0, corrections: 0, refunds: 0, goldDenied: 0 };
+  private counters = { reconciles: 0, mispredicts: 0, drift: 0, needs: 0, fullSyncs: 0, corrections: 0, refunds: 0, goldDenied: 0 };
   /** Our own work today: [harvested, watered, tilled, sown] (farmhands report it to the host). */
-  private today = [0, 0, 0, 0];
+  private today = [0, 0, 0, 0, 0];
   private todayDirty = false;
   private todaySentAt = 0;
   /** Host: each farmhand's reported tally for today. */
@@ -357,6 +372,7 @@ export class NetSystem implements System, NetApi {
    */
   private replayTiles = new Map<number, number>();
   private hostTiles = new Map<number, string>();
+  private sleepSlots = new Set<number>();
   private goldPending: GoldPending[] = [];
   private giveOk = false;
   private predictUntil = 0;
@@ -365,6 +381,8 @@ export class NetSystem implements System, NetApi {
   private needFullAt = 0;
   private welcomed = false;
   private hostName = 'Host';
+  /** Heart event id we're watching as a spectator (farmhand), else null. */
+  private spectating: string | null = null;
   private lastPos = { x: 0, z: 0, map: '', t: 0 };
   private teleported = false;
   private planted = -1;
@@ -448,12 +466,13 @@ export class NetSystem implements System, NetApi {
     game.events.on('inventory:change', () => this.markPersonal());
     game.events.on('day:start', () => this.onDayStart());
     game.events.on('map:change', () => this.refreshCabins());
+    this.cabins.onCue = (name, x, z) => game.services.audio?.playAt(name, x, z, { map: 'farm' });
     game.events.on('demo:stage', ({ showcase, name }) => this.demo.stage(name, showcase));
     game.events.on('game:pause', ({ paused }) => {
       // Co-op never stops the shared clock for a menu (the host's time is everyone's time).
       if (paused && this._role !== 'solo' && game.hud.openPanelName) queueMicrotask(() => this.game.setPaused(false));
     });
-    for (const n of ['soil:tilled', 'soil:watered', 'crop:planted', 'crop:harvested', 'crop:withered', 'crop:giant', 'tool:impact', 'crow:eat', 'player:interact'] as EventName[]) {
+    for (const n of ['soil:tilled', 'soil:watered', 'crop:planted', 'crop:harvested', 'crop:withered', 'crop:giant', 'crop:stage', 'soil:fertilized', 'tool:impact', 'crow:eat', 'player:interact'] as EventName[]) {
       game.events.on(n, () => (this.farmDirty = true));
     }
     // "Farm today": count our own farm work (not other farmers' work replayed on our farm).
@@ -464,6 +483,12 @@ export class NetSystem implements System, NetApi {
         this.todayDirty = true;
       }),
     );
+    // (r7) …and what we put in the bin (gold value), so the card says who shipped what.
+    game.events.on('shipping:add', ({ value }) => {
+      if (this._role === 'solo' || this.sync.inRemote || this.demo.active) return;
+      this.today[4] = (this.today[4] ?? 0) + Math.max(0, Math.round(value || 0));
+      this.todayDirty = true;
+    });
     game.events.on('game:ready', () => this.autoStart());
     // Name tags / chat bubbles follow this frame's camera (placed after the render, even when paused).
     this.remotes.localBubble = () => this.myBubble;
@@ -518,9 +543,22 @@ export class NetSystem implements System, NetApi {
   }
 
   /** Staged demos (net/demo.ts): the host's display name while a solo farm plays co-op; null restores. */
+  /** coop-farm stills: jump the scripted work loop to `t` s (debug: `services.net.demoSeek(12)`). */
+  demoSeek(t: number): void {
+    this.ui.clearLog();
+    this.demo.seek(t);
+  }
+
   demoName(n: string | null): void {
     if (this._role !== 'solo') return;
     this.sessionName = n && this.prof.name === 'Farmer' ? n : null;
+    // (r7) One staged host everywhere: the coop-lobby creator, the farm / bedtime / emote demos, the
+    // roster, lobby and day-end chips all show Saffron's auburn bob + straw hat (unless you made a farmer).
+    const look = this.sessionName && isDefaultLook(this.prof.look) ? DEMO_HOST_LOOK : null;
+    if (look !== this.sessionLook) {
+      this.sessionLook = look;
+      this.applyLocalLook();
+    }
     this.emitRoster();
   }
 
@@ -539,14 +577,20 @@ export class NetSystem implements System, NetApi {
   private applyLocalLook(): void {
     this.undoLook?.();
     this.undoLook = null;
-    if (!isDefaultLook(this.prof.look)) this.undoLook = applyLookToPlayer(this.game.player, this.prof.look);
+    const look = this.myLook();
+    if (!isDefaultLook(look)) this.undoLook = applyLookToPlayer(this.game.player, look);
+  }
+
+  /** The look everyone sees for us: the profile's, or the staged host's (Saffron) in a demo. */
+  myLook(): FarmerLook {
+    return this.sessionLook ?? this.prof.look;
   }
 
   players(): PlayerView[] {
     const me: PlayerView = {
       id: this.id || 1,
       name: this.myName(),
-      look: this.prof.look,
+      look: this.myLook(),
       isHost: this._role !== 'client',
       isMe: true,
       ready: this.asleep,
@@ -597,6 +641,7 @@ export class NetSystem implements System, NetApi {
       farmTiles: this._role === 'client' ? this.hostTiles.size : this.sentTiles.size,
       ...this.counters,
       driftLog: this.driftLog.slice(),
+      mispredictLog: this.mispredictLog.slice(),
     };
   }
 
@@ -816,9 +861,41 @@ export class NetSystem implements System, NetApi {
   chat(text: string): void {
     const s = text.trim().slice(0, 140);
     if (!s) return;
+    if (this._role === 'client') {
+      // Farmhand chat is acked by the host ('cack'): the log shows "sending…" until then, and an unacked
+      // line is re-sent (the host de-dupes by seq) — a slow or blipping link is visible, never silent.
+      const seq = ++this.chatSeq;
+      this.showChat(this.id || 1, s, true, seq);
+      this.chatPending.set(seq, s);
+      this.toHost(['chat', s, seq]);
+      const resend = (left: number): void => {
+        setTimeout(() => {
+          if (!this.chatPending.has(seq) || this._role !== 'client') return;
+          this.toHost(['chat', s, seq]);
+          if (left > 1) resend(left - 1);
+        }, 6000);
+      };
+      resend(3);
+      return;
+    }
     this.showChat(this.id || 1, s);
-    if (this._role === 'client') this.toHost(['chat', s]);
-    else if (this._role === 'host') this.toAll(['chat', this.id, s]);
+    if (this._role === 'host') this.toAll(['chat', this.id, s]);
+  }
+  private chatSeq = 0;
+  private chatPending = new Map<number, string>();
+  /** Host: the last chat seqs seen per farmhand (re-sent lines are acked again, never shown twice). */
+  private chatSeen = new Map<number, number[]>();
+
+  typing(on: boolean): void {
+    this.showTyping(this.id || 1, on);
+    if (this._role === 'client') this.toHost(['typ', on ? 1 : 0]);
+    else if (this._role === 'host') this.toAll(['typ', this.id, on ? 1 : 0]);
+  }
+
+  /** "…" bubble over a farmer who is typing (ours too). */
+  showTyping(id: number, on: boolean): void {
+    if (id === (this.id || 1)) this.remotes.typingLocal(on);
+    else this.remotes.get(id)?.say.typing(on);
   }
 
   emote(id: EmoteId): void {
@@ -1055,7 +1132,12 @@ export class NetSystem implements System, NetApi {
       const p = this.remotes.add(from, name, look);
       p.away = false;
       this.pidOf.set(from, pid);
-      if (!this.cabinOf.has(from)) this.cabinOf.set(from, this.freeCabin());
+      const newCabin = !this.cabinOf.has(from);
+      if (newCabin) {
+        this.cabinOf.set(from, this.freeCabin());
+        // (r8) a new friend's cabin is raised in front of everyone (a rejoin keeps the standing one)
+        if (isNew) this.cabins.raise(this.cabinOf.get(from)!);
+      }
       p.cabin = this.cabinOf.get(from)!;
       this.refreshCabins();
       const spawn = p.cabin >= 0 ? cabinFront(p.cabin) : { x: 32, z: 20.5 };
@@ -1078,6 +1160,7 @@ export class NetSystem implements System, NetApi {
           full: full ? { ...full, digest: [...this.sync.digest()] } : null,
           psave: ps,
           reps: this.bridge.snapshots(),
+          raised: newCabin && isNew ? 1 : 0,
         },
       ]);
       this.broadcastRoster();
@@ -1149,8 +1232,23 @@ export class NetSystem implements System, NetApi {
       case 'chat': {
         const text = String(d[1] ?? '').slice(0, 140);
         if (!text) return;
+        const seq = Number(d[2]) || 0;
+        if (seq) {
+          this.to(from, ['cack', seq]);
+          const seen = this.chatSeen.get(from) ?? [];
+          if (seen.includes(seq)) return;
+          seen.push(seq);
+          if (seen.length > 32) seen.shift();
+          this.chatSeen.set(from, seen);
+        }
         this.showChat(from, text);
         this.toOthers(from, ['chat', from, text]);
+        return;
+      }
+      case 'typ': {
+        const on = d[1] === 1;
+        this.showTyping(from, on);
+        this.toOthers(from, ['typ', from, on ? 1 : 0]);
         return;
       }
       case 'emo': {
@@ -1161,7 +1259,7 @@ export class NetSystem implements System, NetApi {
         return;
       }
       case 'day': {
-        this.tallies.set(from, d.slice(1, 5).map((v) => Math.max(0, Math.min(9999, Math.round(Number(v) || 0)))));
+        this.tallies.set(from, [0, 1, 2, 3, 4].map((i) => Math.max(0, Math.min(i === 4 ? 999999 : 9999, Math.round(Number(d[i + 1]) || 0)))));
         return;
       }
       case 'bed': {
@@ -1206,6 +1304,21 @@ export class NetSystem implements System, NetApi {
     }
   }
 
+  /**
+   * Host: how many of `itemId` farmhand `id` carries, from their last personal save (null = not a known
+   * farmhand). Other pods' host-side intent checks use it (animals: hay refunds, milk pail / shears).
+   */
+  peerItemCount(id: number, itemId: string): number | null {
+    if (this._role !== 'host') return null;
+    const pid = this.pidOf.get(id);
+    const ps = pid ? this.psaves.get(pid) : undefined;
+    const slots = (ps?.data.inventory as { slots?: ({ id: string; qty: number } | null)[] } | undefined)?.slots;
+    if (!Array.isArray(slots)) return null;
+    let n = 0;
+    for (const s of slots) if (s && s.id === itemId) n += Math.max(0, s.qty | 0);
+    return n;
+  }
+
   /** Host mirror of a farmhand's consumables (seeds, fertilizer, sprinklers). */
   private setStock(id: number, data: Record<string, unknown>, counts?: Record<string, number>): void {
     const m = new Map<string, number>();
@@ -1241,7 +1354,11 @@ export class NetSystem implements System, NetApi {
       const give = (id: string, qty: number, quality: number): void => this.to(p.id, ['give', id, qty, quality]);
       const changed = itemId === '@act' ? this.sync.applyHarvest(x, z, give) : this.sync.applyUse(itemId, x, z, facing, give);
       if (changed && stock && isConsumable(itemId)) stock.set(itemId, Math.max(0, (stock.get(itemId) ?? 0) - 1));
-      this.farmDirty = true;
+      // The delta goes out at the impact frame, not on the next 5 Hz tick: the other farmhands settle
+      // their replay of this swing at the same impact time, and a delta still in the host's queue then
+      // would revert their (correct) replay for a frame or two — a visible soil / crop pop.
+      if (changed) this.sendFarmDelta();
+      else this.farmDirty = true;
       this.to(p.id, ['ack', seq, changed ? 1 : 2, this.sync.tiles(tiles)]);
     });
   }
@@ -1270,7 +1387,7 @@ export class NetSystem implements System, NetApi {
   }
 
   private rosterPayload(): unknown[] {
-    const me = [this.id, this.myName(), this.prof.look, this.hostBeds.has(this.id) ? 1 : 0, 0, -1, 0];
+    const me = [this.id, this.myName(), this.myLook(), this.hostBeds.has(this.id) ? 1 : 0, 0, -1, 0];
     const rest = [...this.remotes.list.values()].map((p) => [p.id, p.name, p.look, p.ready ? 1 : 0, Math.round(p.ping), p.cabin, p.away ? 1 : 0]);
     return [me, ...rest];
   }
@@ -1298,7 +1415,7 @@ export class NetSystem implements System, NetApi {
   /** Host: end the day for everyone, handing out the day's "Farm today" tally with the order. */
   private hostSleep(): void {
     const rows: number[][] = [[this.id, ...this.today]];
-    for (const p of this.remotes.list.values()) if (!p.away) rows.push([p.id, ...(this.tallies.get(p.id) ?? [0, 0, 0, 0])]);
+    for (const p of this.remotes.list.values()) if (!p.away) rows.push([p.id, ...(this.tallies.get(p.id) ?? [0, 0, 0, 0, 0])]);
     this.toAll(['sleep', rows]);
     this.setTally(rows);
     this.sleepNow();
@@ -1310,11 +1427,11 @@ export class NetSystem implements System, NetApi {
     for (const r of rows as unknown[]) {
       if (!Array.isArray(r)) continue;
       const id = Number(r[0]);
-      const n = r.slice(1, 5).map((v) => Math.max(0, Math.min(9999, Math.round(Number(v) || 0))));
+      const n = [0, 1, 2, 3, 4].map((i) => Math.max(0, Math.min(i === 4 ? 999999 : 9999, Math.round(Number(r[i + 1]) || 0))));
       const isMe = id === this.id;
       const p = this.remotes.get(id);
       if (!isMe && !p) continue;
-      out.push({ id, name: isMe ? this.myName() : p!.name, look: isMe ? this.prof.look : p!.look, isMe, n });
+      out.push({ id, name: isMe ? this.myName() : p!.name, look: isMe ? this.myLook() : p!.look, isMe, n });
     }
     this.lastTally = out.length > 1 ? out : null;
   }
@@ -1334,6 +1451,17 @@ export class NetSystem implements System, NetApi {
     else this.to(to, msg);
   }
 
+  /** Host: broadcast the tiles that changed since the last delta. */
+  private sendFarmDelta(others = this.remotes.list.size > 0): void {
+    this.farmDirty = false;
+    const dg = this.sync.digest();
+    const changes: [number, string][] = [];
+    for (const [i, s] of dg) if (this.sentTiles.get(i) !== s) changes.push([i, s]);
+    for (const i of this.sentTiles.keys()) if (!dg.has(i)) changes.push([i, '']);
+    this.sentTiles = dg;
+    if (changes.length && others) this.toAll(['farm', changes]);
+  }
+
   /** Host: periodic sends (interval ticker). */
   private hostTick(ms: number): void {
     const g = this.game;
@@ -1342,7 +1470,7 @@ export class NetSystem implements System, NetApi {
       this.sentFrame = this.frameNo;
       const pl = g.player;
       const row = [this.id, g.world.current?.id ?? '', cm(pl.position.x), cm(pl.position.z), Math.round(pl.rig.body.rotation.y * 100), this.localAnim()];
-      this.toAll(['s', this.frameAt, [row]]);
+      this.toAll(['s', this.simAt, [row]]);
     }
     if (this.goldDirty) {
       this.goldDirty = false;
@@ -1354,13 +1482,7 @@ export class NetSystem implements System, NetApi {
       this.tDrift += FARM_MS;
       if (this.farmDirty || this.tDrift >= 2000) {
         this.tDrift = 0;
-        this.farmDirty = false;
-        const dg = this.sync.digest();
-        const changes: [number, string][] = [];
-        for (const [i, s] of dg) if (this.sentTiles.get(i) !== s) changes.push([i, s]);
-        for (const i of this.sentTiles.keys()) if (!dg.has(i)) changes.push([i, '']);
-        this.sentTiles = dg;
-        if (changes.length && others) this.toAll(['farm', changes]);
+        this.sendFarmDelta(others);
       }
     }
     this.tCal += ms;
@@ -1416,7 +1538,10 @@ export class NetSystem implements System, NetApi {
           const lk = sanitizeLook(look);
           const fresh = !this.remotes.get(id);
           const p = this.remotes.add(id, name, lk);
-          if (fresh && this.welcomed && id !== this.hostId) this.chatSystem(`<b>${esc(name)}</b> joined the farm`, 'good');
+          if (fresh && this.welcomed && id !== this.hostId) {
+            this.chatSystem(`<b>${esc(name)}</b> joined the farm`, 'good');
+            if (cabin >= 0 && !this.cabinOf.has(id)) this.cabins.raise(cabin);
+          }
           if (JSON.stringify(p.look) !== JSON.stringify(lk)) p.setLook(lk);
           p.isHost = id === this.hostId;
           p.ready = ready === 1;
@@ -1440,20 +1565,15 @@ export class NetSystem implements System, NetApi {
         }
         const tiles = this._role === 'client' ? this.affected(itemId, x, z, facing) : [];
         for (const i of tiles) this.replayTiles.set(i, (this.replayTiles.get(i) ?? 0) + 1);
+        const heard = performance.now();
+        // The tile as it was when the stroke was announced: if the host's delta lands before the
+        // replay, the replay still voices the stroke as it landed (farmsync.applyUse).
+        const heardKey = this._role === 'client' && itemId !== '@act' ? this.sync.tileKey(x, z) : undefined;
         this.later(IMPACT[act.kind] * 1000, () => {
           if (itemId === '@act') this.sync.applyHarvest(x, z);
-          else this.sync.applyUse(itemId, x, z, facing);
+          else this.sync.applyUse(itemId, x, z, facing, undefined, false, heardKey);
           // Now settle those tiles on the host's word (normally a no-op: the replay matched it).
-          for (const i of tiles) {
-            const n = (this.replayTiles.get(i) ?? 1) - 1;
-            if (n > 0) {
-              this.replayTiles.set(i, n);
-              continue;
-            }
-            this.replayTiles.delete(i);
-            if (!this.pendingTiles.has(i) && this.hostTiles.has(i)) this.reconcile(i, this.hostTiles.get(i)!);
-            else if (!this.pendingTiles.has(i)) this.reconcile(i, '');
-          }
+          for (const i of tiles) this.settleReplay(i, heard, 0);
         });
         return;
       }
@@ -1469,11 +1589,13 @@ export class NetSystem implements System, NetApi {
           g.events.emit('item:give', { itemId: pd.spent, qty: 1 });
           this.giveOk = false;
         }
+        const at = performance.now();
         for (const [i, s] of tiles) {
           this.hostTiles.set(i, s);
+          this.hostTileAt.set(i, at);
           if ((this.pendingTiles.get(i) ?? 0) <= seq) {
             this.pendingTiles.delete(i);
-            this.reconcile(i, s);
+            this.reconcile(i, s, undefined, 'mispredict');
           }
         }
         return;
@@ -1486,9 +1608,11 @@ export class NetSystem implements System, NetApi {
         return;
       }
       case 'farm': {
+        const at = performance.now();
         for (const [i, s] of d[1] as [number, string][]) {
           if (s) this.hostTiles.set(i, s);
           else this.hostTiles.delete(i);
+          this.hostTileAt.set(i, at);
           if (!this.pendingTiles.has(i) && !this.replayTiles.has(i) && !this.rolling) this.reconcile(i, s);
         }
         return;
@@ -1540,9 +1664,18 @@ export class NetSystem implements System, NetApi {
         this.counters.corrections++;
         return;
       }
+      case 'cack': {
+        const seq = Number(d[1]);
+        if (this.chatPending.delete(seq)) this.game.events.emit('net:chatack', { seq });
+        return;
+      }
       case 'chat': {
         const [, id, text] = d as [string, number, string];
         this.showChat(id, String(text).slice(0, 140));
+        return;
+      }
+      case 'typ': {
+        this.showTyping(Number(d[1]), d[2] === 1);
         return;
       }
       case 'emo': {
@@ -1618,6 +1751,11 @@ export class NetSystem implements System, NetApi {
     this.applyCal(w.cal, true);
     this.settleGold(w.gold, w.goldAck ?? 0);
     if (w.full) this.applyFull(w.full);
+    // (r8) a first join: our new cabin is raised in front of us too, and we wave hello as it lands
+    if (first && w.raised === 1 && w.cabin >= 0) {
+      this.cabins.raise(w.cabin, null, true);
+      this.later(1300, () => this._role === 'client' && this.emote('happy'));
+    }
     this.refreshCabins();
     this.setStatus('playing');
     this.flushPersonal();
@@ -1654,21 +1792,61 @@ export class NetSystem implements System, NetApi {
     this.counters.fullSyncs++;
     this.sync.applyFull(f);
     this.hostTiles = new Map(f.digest);
+    this.fullAt = performance.now();
+    this.awaitMorning = 0;
     this.pendingTiles.clear();
     this.replayTiles.clear();
     this.pending.clear();
   }
 
   private driftLog: string[] = [];
+  private mispredictLog: string[] = [];
+  /** Farmhand: when the host last told us each tile's state (farm delta / ack / full). */
+  private hostTileAt = new Map<number, number>();
+  private fullAt = 0;
+  /** Farmhand: our day rolled before the host's morning farm arrived (drift checks wait for it). */
+  private awaitMorning = 0;
 
-  private reconcile(i: number, s: string, have?: string, drift = false): void {
+  /**
+   * Farmhand: a replayed swing has landed on tile `i` (its 'did' arrived at `heard`). Settle it on the
+   * host's state — but if the host hasn't spoken about the tile since the swing started and our
+   * replay disagrees, its delta for this very swing is still on the wire (the host applies at the
+   * same impact frame we do): wait for it (≤ ~0.45 s) instead of reverting a correct replay.
+   */
+  private settleReplay(i: number, heard: number, tries: number): void {
+    const n = (this.replayTiles.get(i) ?? 1) - 1;
+    if (n > 0 && tries === 0) {
+      this.replayTiles.set(i, n);
+      return;
+    }
+    if (this.pendingTiles.has(i)) {
+      this.replayTiles.delete(i);
+      return;
+    }
+    const want = this.hostTiles.get(i) ?? '';
+    if (tries < 3 && Math.max(this.hostTileAt.get(i) ?? 0, this.fullAt) < heard && (this.sync.tiles([i])[0]?.[1] ?? '') !== want) {
+      this.later(150, () => this.settleReplay(i, heard, tries + 1));
+      return;
+    }
+    this.replayTiles.delete(i);
+    this.reconcile(i, want, undefined, 'mispredict');
+  }
+
+  /**
+   * Settle tile `i` on the host's state `s`. `kind` says why it's being looked at, for the counters:
+   * 'edit' = host news (another farmer's work), 'mispredict' = our prediction / replay of an action
+   * just landed and had better already match, 'drift' = the periodic check with nothing in flight.
+   */
+  private reconcile(i: number, s: string, have?: string, kind: 'edit' | 'mispredict' | 'drift' = 'edit'): void {
     const ok = this.sync.reconcileTile(i, s, have);
     if (this.sync.lastChanged) {
-      if (drift) {
-        this.counters.drift++;
-        this.driftLog.push(`${i}:${this.sync.lastHave}→${s}`);
-        if (this.driftLog.length > 24) this.driftLog.shift();
-      } else this.counters.reconciles++;
+      if (kind === 'edit') this.counters.reconciles++;
+      else {
+        const log = kind === 'drift' ? this.driftLog : this.mispredictLog;
+        this.counters[kind === 'drift' ? 'drift' : 'mispredicts']++;
+        log.push(`${i}:${this.sync.lastHave}→${s}`);
+        if (log.length > 24) log.shift();
+      }
     }
     if (!ok) this.requestFull();
   }
@@ -1684,6 +1862,7 @@ export class NetSystem implements System, NetApi {
   /** Farmhand: compare our farm to the host's mirror and fix drift (never touching predicted tiles). */
   private driftCheck(): void {
     if (!this.welcomed || this.rolling) return;
+    if (this.awaitMorning && performance.now() - this.awaitMorning < 8000) return;
     const local = this.sync.digest();
     let n = 0;
     const check = (i: number): void => {
@@ -1692,7 +1871,7 @@ export class NetSystem implements System, NetApi {
       const have = local.get(i) ?? '';
       if (have !== want) {
         n++;
-        this.reconcile(i, want, have, true);
+        this.reconcile(i, want, have, 'drift');
       }
     };
     for (const i of this.hostTiles.keys()) check(i);
@@ -1716,7 +1895,7 @@ export class NetSystem implements System, NetApi {
       this.history.push({ seq, x: pl.position.x, z: pl.position.z });
       if (this.history.length > 60) this.history.shift();
       // To everyone: the host validates it, the other farmhands interpolate it on our clock.
-      this.toAll(['st', seq, this.frameAt, map, cm(pl.position.x), cm(pl.position.z), Math.round(pl.rig.body.rotation.y * 100), anim, Math.round(g.services.energy?.value() ?? 0), Math.round(this.rtt())]);
+      this.toAll(['st', seq, this.simAt, map, cm(pl.position.x), cm(pl.position.z), Math.round(pl.rig.body.rotation.y * 100), anim, Math.round(g.services.energy?.value() ?? 0), Math.round(this.rtt())]);
     }
     this.tPing += ms;
     if (this.tPing >= PING_MS) {
@@ -1981,6 +2160,9 @@ export class NetSystem implements System, NetApi {
       const f = this.heldFull;
       this.heldFull = null;
       if (f) this.applyFull(f);
+      // Our night ran first: until the host's morning farm lands, our overnight rolls (weeds, crows)
+      // are expected to differ from the host's — that's not drift to "fix" tile by tile.
+      else this.awaitMorning = performance.now();
     };
     const endDay = (): void => {
       // Crops only grow while the farming system sees the farm: end the day with it in view.
@@ -2023,7 +2205,9 @@ export class NetSystem implements System, NetApi {
 
   private localAnim(): number {
     const g = this.game;
-    if (this.asleep && this.bedWhere === 'cabin') return 4;
+    // In bed (cabin or farmhouse) = off the map for everyone else: no avatar + tag left standing
+    // wherever goToBed was called (r3: the host's avatar stayed on the farm path).
+    if (this.asleep) return 4;
     const st = g.services.fishing?.state();
     if (st && st !== 'idle') return 3;
     const pos = g.player.position;
@@ -2035,14 +2219,14 @@ export class NetSystem implements System, NetApi {
   }
 
   /** Speech bubble over the farmer + a line in the chat log (`log: false` = bubble only, demos). */
-  showChat(id: number, text: string, log = true): void {
+  showChat(id: number, text: string, log = true, seq?: number): void {
     const isMe = id === (this.id || 1);
     const p = this.remotes.get(id);
     const name = isMe ? this.myName() : (p?.name ?? '?');
-    const look = isMe ? this.prof.look : (p?.look ?? DEFAULT_LOOK);
+    const look = isMe ? this.myLook() : (p?.look ?? DEFAULT_LOOK);
     if (isMe) this.remotes.sayLocal(text);
     else p?.chat(text);
-    if (log) this.game.events.emit('net:chat', { id, name, text, color: hex(look.scarf) });
+    if (log) this.game.events.emit('net:chat', seq ? { id, name, text, color: hex(look.scarf), seq, pending: true } : { id, name, text, color: hex(look.scarf) });
   }
 
   private chatSystem(html: string, kind: 'good' | 'bad' | 'info'): void {
@@ -2062,6 +2246,17 @@ export class NetSystem implements System, NetApi {
 
   emitRoster(): void {
     this.game.events.emit('net:roster', { players: this.players() });
+    // (r7) Our own name pill whenever other farmers can be on screen with us (co-op, staged demos).
+    const coop = this._role !== 'solo' || this.demo.active;
+    this.remotes.local.pill(coop ? this.myName() : null, hex(this.myLook().scarf), this._role !== 'client');
+  }
+
+  /** Demos: raise `slot`'s cabin on its next appearance (`hold` s freezes the still there). */
+  raiseCabin(slot: number, hold: number | null = null): void {
+    this.cabins.raise(slot, hold);
+  }
+  raisingCabins(): number[] {
+    return this.cabins.raisingSlots();
   }
 
   /** Cabins for every farmhand slot in use (plus demo bots). */
@@ -2069,20 +2264,46 @@ export class NetSystem implements System, NetApi {
     const slots = new Map<number, number>();
     for (const [id, slot] of this.cabinOf) {
       if (slot < 0) continue;
-      const look = id === this.id ? this.prof.look : this.remotes.get(id)?.look;
+      const look = id === this.id ? this.myLook() : this.remotes.get(id)?.look;
       slots.set(slot, (look ?? PRESET_LOOKS[slot % PRESET_LOOKS.length]!).scarf);
     }
     if (extra) for (const [k, v] of extra) slots.set(k, v);
     const farm = this.sync.farmMap();
+    const g = this.sync.grid();
+    const claimed: number[] = [];
     for (const s of slots.keys()) {
       const site = CABIN_SITES[s];
-      if (site) this.sync.claimFootprint(site.x0, site.z0, site.x0 + 2, site.z0 + 2);
+      if (!site) continue;
+      this.sync.claimFootprint(site.x0, site.z0, site.x0 + 2, site.z0 + 2);
+      this.sync.clearDoorstep(site.x0, site.z0 + 3, site.x0 + 2);
+      if (g) for (let z = site.z0; z <= site.z0 + 3; z++) for (let x = site.x0; x <= site.x0 + 2; x++) if (g.inBounds(x, z)) claimed.push(g.idx(x, z));
+    }
+    // Every machine clears a cabin's footprint itself (quietly), so the debris that stood there must not
+    // read as drift: the host flushes the cleared tiles at once (not on the 2 s heartbeat), and a farmhand
+    // takes the cleared state into its mirror of the host's farm (r4: a stone on a fresh cabin site was
+    // caught by the drift check + a mid-day resync before the host's heartbeat delta arrived).
+    if (claimed.length) {
+      if (this._role === 'host') this.farmDirty = true;
+      else if (this._role === 'client')
+        for (const [i, st] of this.sync.tiles(claimed)) {
+          if (st) this.hostTiles.set(i, st);
+          else this.hostTiles.delete(i);
+        }
     }
     this.cabins.set(farm, slots);
   }
 
   later(ms: number, fn: () => void): void {
-    this.timers.push({ at: performance.now() + ms, fn });
+    this.timers.push({ at: performance.now() + this.seqSkew + ms, fn });
+  }
+
+  /**
+   * Hand-stepped sequence captures (shot.mjs --frames with a held loop): the demo's timers run on the
+   * stepped time, not the wall clock (each still in a capture is `every` ms of loop time apart).
+   */
+  private seqSkew = 0;
+  advanceSeqClock(ms: number): void {
+    this.seqSkew += ms;
   }
 
   private autoStart(): void {
@@ -2103,8 +2324,12 @@ export class NetSystem implements System, NetApi {
     this.frameTimes[this.frameIdx] = dt * 1000;
     this.frameIdx = (this.frameIdx + 1) % this.frameTimes.length;
     this.frameCount++;
-    const now = frameClock();
+    const now = frameClock(game.frameTs) + this.seqSkew;
     this.frameAt = now;
+    // The position we sample is the fixed-step sim's, which trails the frame clock by the step
+    // accumulator: stamp samples with the sim's own time so a 17 ms frame that ran 0 or 2 steps
+    // doesn't read as a 0x / 2x pace on every receiver (the r5 mp-adv walk surge).
+    this.simAt = Math.max(this.simAt, now - game.simLag * 1000);
     this.frameNo++;
     if (this.timers.length) {
       let due = false;
@@ -2138,8 +2363,28 @@ export class NetSystem implements System, NetApi {
       }
     }
     if (this._role !== 'solo') this.bridge.tick(dt);
+    // Spectating the host's heart event (farmhand in town): our own farmer + bubbles step out of the
+    // scene, and a "watching <host>'s scene" chip says why the controls are off.
+    if (this._role === 'client' && this.frameNo % 12 === 0) {
+      const npcs = game.services.npcs as { coop?: () => { spectating: string | null } } | undefined;
+      const sp = npcs?.coop?.().spectating ?? null;
+      if (sp !== this.spectating) {
+        this.spectating = sp;
+        if (!(this.asleep && this.bedWhere === 'cabin')) game.player.root.visible = !sp;
+        this.ui.spectating(sp ? this.hostName : null);
+      }
+    }
     this.demo.update(dt, game.time);
     this.remotes.update(dt, game.time, !this.demo.active, now);
+    // Zzz over the cabins of farmhands who've turned in (incl. our own cabin while we wait in it).
+    const sleeping = this.sleepSlots;
+    sleeping.clear();
+    if (this._role !== 'solo' || this.demo.active) {
+      for (const p of this.remotes.list.values()) if (p.ready && p.cabin >= 0 && (p.map === 'cabin' || p.farmer.anim === 'hidden')) sleeping.add(p.cabin);
+      const mine = this.cabinOf.get(this.id);
+      if (this.asleep && this.bedWhere === 'cabin' && mine !== undefined && mine >= 0) sleeping.add(mine);
+    }
+    this.cabins.sleepers(game.world.current?.id === 'farm' ? (game.world.current ?? null) : null, sleeping, dt, game.time, game.lighting.night, game.rc.renderer.domElement.height);
     this.myBubble?.update(dt, game.time);
     this.ui.update(dt);
   }
@@ -2177,6 +2422,8 @@ interface Welcome {
   full: FullState | null;
   psave: PSave | null;
   reps?: Record<string, unknown>;
+  /** (r8) 1 = this farmer's cabin was just built for them (a first join, not a rejoin): raise it on arrival. */
+  raised?: number;
 }
 
 function esc(s: string): string {
@@ -2190,8 +2437,11 @@ function esc(s: string): string {
  * farmers on it keeps their motion even when CPU time before the net update varies frame to frame.
  * Falls back to performance.now() outside a rendered frame (tests stepping by hand, hidden tab).
  */
-function frameClock(): number {
+function frameClock(ts = NaN): number {
   const now = performance.now();
+  // Inside the game loop: the frame's own rAF timestamp, however long the frame's work took (a > 250 ms
+  // frame on a saturated box fell back to performance.now() and mixed clocks: one frame 'moved' 0.3 s).
+  if (Number.isFinite(ts) && ts <= now) return ts;
   const t = typeof document !== 'undefined' ? Number(document.timeline?.currentTime) : NaN;
   return Number.isFinite(t) && t <= now && now - t < 250 ? t : now;
 }

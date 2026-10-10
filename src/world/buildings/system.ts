@@ -185,12 +185,52 @@ export class BuildingSystem implements System, BuildingsApi {
     const c = COSTS[kind];
     if (!c) return;
     const eco = this.game.services.economy;
-    if (this.built.has(kind) || this.orders.has(kind) || !eco || !eco.spend(c.gold, `build:${kind}`)) {
-      // Lost the race (or the purse ran dry): the materials go back to that farmer.
-      this.game.events.emit('buildings:grant', { peer, items: [{ itemId: 'wood', qty: c.wood }, { itemId: 'stone', qty: c.stone }].filter((i) => i.qty > 0) });
+    // r12: the farmhand's materials are checked against the host's mirror of their backpack (sent
+    // 250 ms after a change, so the order arrives ahead of the post-spend copy and the mirror still
+    // holds the pre-order count). A mirror that has not moved since their last accepted order still
+    // carries that order's wood / stone: it is debited, so one stale backpack can't pay twice. An
+    // unknown farmhand (no mirror) or one who never had the materials: refused, nothing handed back
+    // beyond what the mirror shows they own (a forged order can't mint wood).
+    const have = (id: 'wood' | 'stone'): number | null => {
+      const n = this.peerCount(peer, id);
+      if (n == null) return null;
+      const d = this.peerDebit.get(`${peer}:${id}`);
+      return d && d.seen === n ? n - d.spent : n;
+    };
+    const wood = have('wood');
+    const stone = have('stone');
+    const refund = (w: number, st: number): void => {
+      const items = [{ itemId: 'wood', qty: Math.max(0, Math.min(c.wood, w)) }, { itemId: 'stone', qty: Math.max(0, Math.min(c.stone, st)) }].filter((i) => i.qty > 0);
+      if (items.length) this.game.events.emit('buildings:grant', { peer, items });
+    };
+    if (wood == null || stone == null || wood < c.wood || stone < c.stone) {
+      this.rejected++;
+      refund(wood ?? 0, stone ?? 0);
       return;
     }
+    if (this.built.has(kind) || this.orders.has(kind) || !eco || !eco.spend(c.gold, `build:${kind}`)) {
+      // Lost the race (or the purse ran dry): the materials go back to that farmer.
+      refund(c.wood, c.stone);
+      return;
+    }
+    for (const id of ['wood', 'stone'] as const) {
+      const key = `${peer}:${id}`;
+      const n = this.peerCount(peer, id) ?? 0;
+      const d = this.peerDebit.get(key);
+      this.peerDebit.set(key, { seen: n, spent: (d && d.seen === n ? d.spent : 0) + c[id] });
+    }
     this.placeOrder(kind);
+  }
+
+  /** Host: carpenter orders from farmhands refused (no materials in their mirrored backpack). */
+  rejected = 0;
+  private peerDebit = new Map<string, { seen: number; spent: number }>();
+
+  /** Host mirror of a farmhand's backpack (net layer; null = not a known farmhand). */
+  private peerCount(peer: string, itemId: string): number | null {
+    const net = this.game.services.net as unknown as { peerItemCount?: (id: number, item: string) => number | null } | undefined;
+    const n = net?.peerItemCount?.(Number(peer), itemId);
+    return typeof n === 'number' ? n : null;
   }
 
   receiveGrant(items: { itemId: string; qty: number }[]): void {
@@ -310,8 +350,25 @@ export class BuildingSystem implements System, BuildingsApi {
     }
   }
 
+  /** r20: our interiors widen the tilt-shift's clear band while we're inside (restored on leaving). */
+  private lensInside = false;
+
   update(dt: number, game: Game): void {
     if (game.world.current?.id === 'farm') this.farm?.update(dt, game);
+    // A room is a whole diorama in frame: the default lens (clear band 0.26, 0.7 strength) smeared the
+    // back wall — grandmother's portrait, the shelves, the coop's nest boxes, the stall row — into mush.
+    // Held every frame while inside one of our rooms (a demo stage elsewhere resets the lens after load).
+    const id = game.world.current?.id;
+    const ours = id === 'house' || id === 'coop' || id === 'barn';
+    if (ours) {
+      game.rc.tiltBand = 0.42;
+      game.rc.tiltStrength = 0.4;
+      this.lensInside = true;
+    } else if (this.lensInside) {
+      game.rc.tiltBand = 0.26;
+      game.rc.tiltStrength = 0.7;
+      this.lensInside = false;
+    }
   }
 
   // ───────────────────────────────────────────── demos
@@ -319,8 +376,15 @@ export class BuildingSystem implements System, BuildingsApi {
   private stageDemo(showcase: string[]): void {
     const wants = showcase.includes('animals');
     if (wants) {
+      // 'no-coop' (r12 animals-overnight): the coop plot stays empty so the demo can order it.
+      const skip = showcase.includes('no-coop') ? 'coop' : null;
+      if (skip) {
+        this.orders.delete(skip);
+        if (this.built.delete(skip)) this.demoBuilt.delete(skip);
+        this.refreshFarm();
+      }
       for (const k of ['coop', 'barn'] as const) {
-        if (!this.built.has(k)) {
+        if (k !== skip && !this.built.has(k)) {
           this.demoBuilt.add(k);
           this.complete(k);
         }

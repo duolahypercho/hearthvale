@@ -247,6 +247,8 @@ function emoteTexture(e: Emote): THREE.Texture {
 interface Actor {
   id: string;
   villager: Villager | null;
+  /** Stage-cheated by `face { at }`: keeps that angle while speaking (no auto turn to the farmer). */
+  held?: boolean;
   /** Head height for emotes (world units above the feet). */
   headY: number;
   path: THREE.Vector3[];
@@ -501,7 +503,7 @@ export class CutsceneSystem implements System, CutsceneApi {
     // Hold on the frame: the next line of dialogue (if any) is shown complete.
     const rest = mark >= 0 ? cmds.slice(mark + 1) : [];
     // ...unless the action carries on first (a blocking walk / camera move): an establishing frame has no text.
-    const stop = rest.findIndex((c) => (c.do === 'walk' || c.do === 'cam' || c.do === 'rail') && c.wait !== false);
+    const stop = rest.findIndex((c) => (c.do === 'walk' || c.do === 'cam' || c.do === 'rail' || c.do === 'fade') && c.wait !== false);
     const ni = rest.findIndex((c, i) => (stop < 0 || i < stop) && (c.do === 'say' || c.do === 'choice' || c.do === 'caption' || c.do === 'letter'));
     const next = ni >= 0 ? rest[ni] : undefined;
     if (next?.do === 'choice') {
@@ -657,9 +659,11 @@ export class CutsceneSystem implements System, CutsceneApi {
   private async exec(c: Cmd, hold: boolean): Promise<string | void> {
     const g = this.game;
     switch (c.do) {
-      case 'fade':
-        await this.overlay.fade(c.to === 'black', this.fast ? 0 : (c.dur ?? 0.8));
+      case 'fade': {
+        const f = this.overlay.fade(c.to === 'black', this.fast ? 0 : (c.dur ?? 0.8));
+        if (c.wait !== false) await f;
         return;
+      }
       case 'letterbox':
         this.overlay.letterbox(c.on, this.fast);
         this.boxed = c.on;
@@ -742,7 +746,7 @@ export class CutsceneSystem implements System, CutsceneApi {
       case 'say': {
         const who = this.speaker(c.who, c.mood);
         this.speakerId = c.who;
-        const listener = this.actors.get(c.who)?.villager;
+        const listener = this.actors.get(c.who)?.held ? null : this.actors.get(c.who)?.villager;
         const pl = g.player.position;
         if (listener) listener.talkTo = pl;
         this.lineNo++;
@@ -765,7 +769,8 @@ export class CutsceneSystem implements System, CutsceneApi {
         this.skipping = false;
         // Co-op: the host decides for the shared valley; a farmhand watches the options, locked.
         const guest = g.services.story?.role() === 'guest';
-        const pick = guest && !hold ? await this.overlay.choice(who, c.text, c.options, false, 'Waiting for the host to decide…', (r) => (this.remotePick = r)) : await this.overlay.choice(who, c.text, c.options, hold);
+        const hostName = g.services.net?.players().find((p) => p.isHost && !p.isMe)?.name ?? 'Your host';
+        const pick = guest && !hold ? await this.overlay.choice(who, c.text, c.options, false, `${hostName.replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`)} is choosing for the valley…`, (r) => (this.remotePick = r)) : await this.overlay.choice(who, c.text, c.options, hold);
         this.remotePick = null;
         if (pick < 0) return;
         if (sp) sp.talkTo = null;
@@ -785,7 +790,8 @@ export class CutsceneSystem implements System, CutsceneApi {
           return;
         }
         if (this.fast) return;
-        await this.overlay.caption(c.text, c.sub, c.dur ?? 3, false, c.low);
+        if (c.wait === false) void this.overlay.caption(c.text, c.sub, c.dur ?? 3, false, c.low);
+        else await this.overlay.caption(c.text, c.sub, c.dur ?? 3, false, c.low);
         return;
       case 'letter': {
         if (hold) {
@@ -915,6 +921,7 @@ export class CutsceneSystem implements System, CutsceneApi {
     a.path = path.map(([x, z]) => new THREE.Vector3(x, 0, z));
     a.arrive = facing;
     a.speed = speed ?? (a.villager ? 1.5 : 2.4);
+    a.held = false;
     if (a.villager) a.villager.talkTo = null;
     if (this.fast) {
       this.finishWalk(a);
@@ -967,6 +974,7 @@ export class CutsceneSystem implements System, CutsceneApi {
       yaw = Math.atan2(at[0] - p.x, at[1] - p.z);
       exact = true;
     }
+    a.held = !!at;
     if (a.villager) a.villager.setYaw(yaw);
     else {
       this.game.player.setFacing(facing ?? this.yawToFacing(yaw));
@@ -1433,7 +1441,47 @@ export class CutsceneSystem implements System, CutsceneApi {
     }
     // Heads the safe-area guard could not keep below the letterbox this session (played scenes only).
     for (const s of this.safeLog) issues.push(`head clipped by letterbox — ${s}`);
+    issues.push(...CutsceneSystem.overlapAudit(all));
     return issues;
+  }
+
+  /**
+   * Static blocking check: replays every scene's marks (actor / walk end / crowd / map / remove) and
+   * reports any two actors standing closer than 0.85 m at a beat the audience sees (a mark, a line,
+   * an emote) — chibi rigs interpenetrate below that.
+   */
+  static overlapAudit(all: [string, Cmd[]][]): string[] {
+    const out: string[] = [];
+    for (const [id, cmds] of all) {
+      const pos = new Map<string, [number, number]>();
+      const seen = new Set<string>();
+      cmds.forEach((c, i) => {
+        if (c.do === 'map') pos.set('player', [c.x, c.z]);
+        else if (c.do === 'actor') pos.set(c.id, [c.x, c.z]);
+        else if (c.do === 'walk') pos.set(c.id, c.path[c.path.length - 1]!);
+        else if (c.do === 'remove') pos.delete(c.id);
+        else if (c.do === 'crowd')
+          c.ids.forEach((cid, k) => {
+            const t = c.ids.length > 1 ? k / (c.ids.length - 1) : 0.5;
+            const a = THREE.MathUtils.degToRad(c.a0 + (c.a1 - c.a0) * t);
+            const r = c.radius + (k % 2 ? 0.55 : 0);
+            pos.set(cid, [c.x + Math.sin(a) * r, c.z + Math.cos(a) * r]);
+          });
+        else if (c.do === 'mark' || c.do === 'say' || c.do === 'emote' || c.do === 'choice') {
+          const ps = [...pos.entries()];
+          for (let a = 0; a < ps.length; a++)
+            for (let b = a + 1; b < ps.length; b++) {
+              const d = Math.hypot(ps[a]![1][0] - ps[b]![1][0], ps[a]![1][1] - ps[b]![1][1]);
+              const key = `${ps[a]![0]}|${ps[b]![0]}`;
+              if (d < 0.85 && !seen.has(key)) {
+                seen.add(key);
+                out.push(`${id}#${i}: ${ps[a]![0]} and ${ps[b]![0]} ${d.toFixed(2)} m apart`);
+              }
+            }
+        }
+      });
+    }
+    return out;
   }
 
   // ─────────────────────────────── per frame
@@ -1466,6 +1514,22 @@ export class CutsceneSystem implements System, CutsceneApi {
     p.position.y = this.game.world.heightAt(p.position.x, p.position.z);
     pv.velocity?.set((dx / d) * a.speed, 0, (dz / d) * a.speed);
     if (pv.targetYaw !== undefined) pv.targetYaw = Math.atan2(dx, dz);
+  }
+
+  /**
+   * Program warm-up (pillar 14): a hidden stand-in villager rides along in every map, so the map
+   * load's RenderContext.compile() (which now builds hidden objects too) has the actor programs ready
+   * before a scene spawns its cast. Without it a map with no villagers (the Hall) compiled 'villager'
+   * mid-celebration (bundle-complete r4: 0.2-0.9 s frames).
+   */
+  onMapChange(_id: string, game: Game): void {
+    const map = game.world.current;
+    if (!map || map.root.getObjectByName('cutscene-warm')) return;
+    const v = new Villager(NPCS.marigold);
+    v.root.name = 'cutscene-warm';
+    v.root.visible = false;
+    aoOptIn(v.root, true);
+    map.root.add(v.root);
   }
 
   update(dt: number): void {
@@ -1511,8 +1575,17 @@ export class CutsceneSystem implements System, CutsceneApi {
     }
     // Held lantern practical follows its bearer.
     if (lantern?.prop) {
-      lantern.prop.getWorldPosition(this.lanternLight.position);
-      this.lanternLight.position.y += 0.1;
+      // Film cheat: the practical's light is rigged a little above it and towards the lens, so it keys
+      // the faces (the bearer's and whoever stands with them) instead of only their knees.
+      const lp = this.lanternLight.position;
+      lantern.prop.getWorldPosition(lp);
+      const cp = this.game.rc.camera.position;
+      const dx = cp.x - lp.x;
+      const dz = cp.z - lp.z;
+      const dl = Math.hypot(dx, dz) || 1;
+      lp.x += (dx / dl) * 1.15;
+      lp.z += (dz / dl) * 1.15;
+      lp.y += 0.45;
       const flick = 0.9 + Math.sin(this.clock * 11) * 0.05 + Math.sin(this.clock * 23.7) * 0.04;
       this.lanternLight.intensity = 5.5 * flick * (0.35 + this.game.lighting.night * 0.65);
     } else this.lanternLight.intensity = 0;

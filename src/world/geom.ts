@@ -219,6 +219,56 @@ export function boxUV(g: THREE.BufferGeometry, scale = 1): THREE.BufferGeometry 
 
 interface Part {
   geo: THREE.BufferGeometry;
+  /** Shadow / AO detail (pillar 14): too small to cast a shadow texel run or occlude in the half-res AO. */
+  small: boolean;
+}
+
+/**
+ * Detail parts (pillar 14). A builder part whose bounding sphere is under DETAIL_R (moss clumps, petals,
+ * leaf beads, rivets, slipped tiles, spars) is merged AFTER every larger part of its material, and the
+ * merged geometry records the larger parts' prefix as `userData.shadowCount`. Depth-only passes (the sun's
+ * shadow map and its static cache refreshes, the half-res GTAO G-buffer) draw just that prefix: a 6 cm
+ * bead covers ~3 shadow texels and its shadow lands on the surface it sits on, so nothing visible is lost,
+ * while the colour pass still draws every part. `?detailr=<m>` overrides (0 = off, for A/B).
+ */
+export const DETAIL_R = ((): number => {
+  try {
+    const q = new URLSearchParams(location.search).get('detailr');
+    if (q !== null && q !== '' && Number.isFinite(+q)) return +q;
+  } catch {
+    /* not in a browser */
+  }
+  return 0.075;
+})();
+
+function isSmall(g: THREE.BufferGeometry): boolean {
+  if (DETAIL_R <= 0) return false;
+  g.computeBoundingSphere();
+  return (g.boundingSphere?.radius ?? Infinity) < DETAIL_R;
+}
+
+/** Copy vertices [a, b) of a non-indexed geometry (detail split in mergeStatic). */
+function sliceVerts(g: THREE.BufferGeometry, a: number, b: number): THREE.BufferGeometry {
+  const out = new THREE.BufferGeometry();
+  for (const [k, attr] of Object.entries(g.attributes) as [string, THREE.BufferAttribute][]) {
+    const n = attr.itemSize;
+    out.setAttribute(k, new THREE.BufferAttribute((attr.array as Float32Array).slice(a * n, b * n), n, attr.normalized));
+  }
+  return out;
+}
+
+/** Merge parts large-first; tag the large prefix (vertex count) when any detail part follows it. */
+function mergeParts(list: Part[]): THREE.BufferGeometry | null {
+  const big = list.filter((p) => !p.small);
+  // All-detail meshes (a hedge of leaf beads, a pebble drift) keep their shadow: together they are big.
+  if (big.length === list.length || big.length === 0) return mergeGeometries(list.map((p) => p.geo));
+  const geos = [...big.map((p) => p.geo), ...list.filter((p) => p.small).map((p) => p.geo)];
+  const merged = mergeGeometries(geos);
+  if (!merged) return null;
+  let n = 0;
+  for (const p of big) n += p.geo.attributes.position!.count;
+  merged.userData.shadowCount = n;
+  return merged;
 }
 
 /** Materials that are a tinted copy of another (see MeshBuilder.add). */
@@ -242,7 +292,8 @@ export class MeshBuilder {
     material: MaterialName | THREE.Material,
     geo: THREE.BufferGeometry,
     matrix?: THREE.Matrix4,
-    opts: { tint?: THREE.ColorRepresentation; ao?: AOFn; aoWorld?: AOFn } = {},
+    /** `detail`: force the part into the detail suffix (skips depth-only passes; see DETAIL_R). */
+    opts: { tint?: THREE.ColorRepresentation; ao?: AOFn; aoWorld?: AOFn; detail?: boolean } = {},
   ): this {
     // Material aliases: variants that only differ by base colour share one material (fewer draw
     // calls after merging); the colour moves into the vertex tint.
@@ -270,7 +321,7 @@ export class MeshBuilder {
       list = [];
       this.parts.set(material, list);
     }
-    list.push({ geo: g });
+    list.push({ geo: g, small: (opts.detail === true && DETAIL_R > 0) || isSmall(g) });
     g = g; // keep lint quiet
     return this;
   }
@@ -285,18 +336,23 @@ export class MeshBuilder {
           dst = [];
           this.parts.set(m, dst);
         }
-        dst.push({ geo: g });
+        dst.push({ geo: g, small: isSmall(g) });
       }
     }
     return this;
   }
 
-  /** Merged geometries per material (for instancing). */
-  geometries(): Map<MaterialName | THREE.Material, THREE.BufferGeometry> {
+  /**
+   * Merged geometries per material (for instancing). The detail tag is only kept for build(): an
+   * instanced template may be scaled up by its instance matrices.
+   */
+  geometries(detail = false): Map<MaterialName | THREE.Material, THREE.BufferGeometry> {
     const out = new Map<MaterialName | THREE.Material, THREE.BufferGeometry>();
     for (const [m, list] of this.parts) {
-      const merged = mergeGeometries(list.map((p) => p.geo));
-      if (merged) out.set(m, merged);
+      const merged = mergeParts(list);
+      if (!merged) continue;
+      if (!detail) delete merged.userData.shadowCount;
+      out.set(m, merged);
     }
     return out;
   }
@@ -304,7 +360,7 @@ export class MeshBuilder {
   build(opts: { castShadow?: boolean; receiveShadow?: boolean; name?: string } = {}): THREE.Group {
     const group = new THREE.Group();
     group.name = opts.name ?? 'built';
-    for (const [m, geo] of this.geometries()) {
+    for (const [m, geo] of this.geometries(true)) {
       const material = typeof m === 'string' ? materials.get(m) : m;
       const mesh = new THREE.Mesh(geo, material);
       mesh.castShadow = opts.castShadow ?? true;
@@ -325,7 +381,7 @@ export class MeshBuilder {
 export function mergeStatic(roots: THREE.Object3D[], name = 'static'): THREE.Group {
   const out = new THREE.Group();
   out.name = name;
-  const buckets = new Map<string, { material: THREE.Material; cast: boolean; recv: boolean; geos: THREE.BufferGeometry[] }>();
+  const buckets = new Map<string, { material: THREE.Material; cast: boolean; recv: boolean; geos: THREE.BufferGeometry[]; small: THREE.BufferGeometry[] }>();
   const victims: THREE.Mesh[] = [];
   for (const r of roots) {
     r.updateMatrixWorld(true);
@@ -338,24 +394,55 @@ export function mergeStatic(roots: THREE.Object3D[], name = 'static'): THREE.Gro
       const key = `${(m.material as THREE.Material).uuid}|${sig}|${m.castShadow}|${m.receiveShadow}`;
       let b = buckets.get(key);
       if (!b) {
-        b = { material: m.material as THREE.Material, cast: m.castShadow, recv: m.receiveShadow, geos: [] };
+        b = { material: m.material as THREE.Material, cast: m.castShadow, recv: m.receiveShadow, geos: [], small: [] };
         buckets.set(key, b);
       }
+      // Detail prefix (see DETAIL_R): only from a builder mesh, and only when the bake doesn't scale it up.
+      const sc = g.index ? undefined : (g.userData.shadowCount as number | undefined);
       const gg = (g.index ? g.toNonIndexed() : g.clone()).applyMatrix4(m.matrixWorld);
-      b.geos.push(gg);
+      gg.userData = {}; // clone() shares the source's userData object
+      const n = gg.attributes.position!.count;
+      if (sc !== undefined && sc > 0 && sc < n && m.matrixWorld.getMaxScaleOnAxis() <= 1.25) {
+        b.geos.push(sliceVerts(gg, 0, sc));
+        b.small.push(sliceVerts(gg, sc, n));
+        gg.dispose();
+      } else b.geos.push(gg);
       victims.push(m);
     });
   }
   for (const v of victims) v.removeFromParent();
   for (const b of buckets.values()) {
-    const merged = mergeGeometries(b.geos);
+    let big = 0;
+    for (const g of b.geos) big += g.attributes.position!.count;
+    const merged = mergeGeometries(b.small.length ? [...b.geos, ...b.small] : b.geos);
     if (!merged) continue;
+    for (const g of b.small) g.dispose();
+    delete merged.userData.mergedUserData;
+    if (b.small.length) merged.userData.shadowCount = big;
     merged.computeBoundingSphere();
     const mesh = new THREE.Mesh(merged, b.material);
     mesh.castShadow = b.cast;
     mesh.receiveShadow = b.recv;
     mesh.name = `${name}:${b.material.name || 'mat'}`;
+    if (b.small.length && b.cast) detailShadow(mesh);
     out.add(mesh);
   }
   return out;
+}
+
+/**
+ * A plain (unbatched) mesh with a detail prefix draws only that prefix into the shadow map
+ * (batched meshes do the same per instance in render/batching.ts).
+ */
+export function detailShadow(mesh: THREE.Mesh): void {
+  const sc = mesh.geometry.userData.shadowCount as number | undefined;
+  if (sc === undefined) return;
+  mesh.onBeforeShadow = function (this: THREE.Mesh) {
+    const g = this.geometry;
+    const n = g.userData.shadowCount as number | undefined;
+    if (n !== undefined) g.drawRange.count = n;
+  };
+  mesh.onAfterShadow = function (this: THREE.Mesh) {
+    this.geometry.drawRange.count = Infinity;
+  };
 }

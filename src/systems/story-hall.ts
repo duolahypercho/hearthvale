@@ -30,6 +30,8 @@ import { Rng } from '../core/rng';
 import { ROOMS, BUNDLES, type RoomDef, type RoomId } from '../data/bundles';
 import { HALL } from '../data/story-scenes';
 import { WorldHints, type HintPoint } from '../ui/journal-hint';
+import { Villager } from '../entities/villager';
+import { NPCS, type NpcId } from '../data/npcs';
 
 // ─────────────────────────────────────────────── materials (interior: no snow / rain / cloud patch)
 
@@ -437,22 +439,90 @@ class GlowPoints {
   }
 }
 
-/** Moonbeam / sunbeam through a window: an additive, softly-edged volumetric card. */
-function beamMaterial(): THREE.ShaderMaterial {
+/**
+ * Moonlight through a real opening: the light volume is swept from the window rectangle along one
+ * shared moon direction (`MOON`: metres travelled in x / z per metre of drop) down to the floor —
+ * four soft-edged sheets (top / bottom / both sides), so on screen it reads as a slanted wedge that
+ * starts at the glass and widens into its pool, never a column through the open roof.
+ */
+const MOON = { dx: 0.5, dz: 1.05 };
+interface Shaft {
+  /** Window centre x, sill y0, head y1, glass plane z, width. `round` = the rose window (disc mask). */
+  x: number;
+  y0: number;
+  y1: number;
+  z: number;
+  w: number;
+  round?: boolean;
+}
+function shaftVolume(s: Shaft): THREE.BufferGeometry {
+  const xl = s.x - s.w / 2;
+  const xr = s.x + s.w / 2;
+  const foot = (x: number, y: number): [number, number, number] => [x + MOON.dx * y, 0.03, s.z + MOON.dz * y];
+  const P = (x: number, y: number): [number, number, number] => [x, y, s.z];
+  const pos: number[] = [];
+  const uv: number[] = [];
+  // A sheet from window edge a→b down to the floor; u runs across the sheet, v along the ray.
+  const sheet = (a: [number, number, number], b: [number, number, number], fa: [number, number, number], fb: [number, number, number]): void => {
+    const q = [a, b, fb, a, fb, fa];
+    const quv = [0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1];
+    for (const v of q) pos.push(...v);
+    uv.push(...quv);
+  };
+  sheet(P(xl, s.y1), P(xr, s.y1), foot(xl, s.y1), foot(xr, s.y1));
+  sheet(P(xl, s.y0), P(xr, s.y0), foot(xl, s.y0), foot(xr, s.y0));
+  sheet(P(xl, s.y0), P(xl, s.y1), foot(xl, s.y0), foot(xl, s.y1));
+  sheet(P(xr, s.y0), P(xr, s.y1), foot(xr, s.y0), foot(xr, s.y1));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
+}
+/** The window's pool on the floor: its panes (or the rose's six petals) printed in moonlight. */
+function shaftPool(s: Shaft): THREE.BufferGeometry {
+  const xl = s.x - s.w / 2;
+  const xr = s.x + s.w / 2;
+  const f = (x: number, y: number): number[] => [x + MOON.dx * y, 0.022, s.z + MOON.dz * y];
+  const pos = [...f(xl, s.y0), ...f(xr, s.y0), ...f(xr, s.y1), ...f(xl, s.y0), ...f(xr, s.y1), ...f(xl, s.y1)];
+  const uv = [0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
+}
+function shaftMaterial(pool: boolean, round: boolean): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
-    uniforms: { uColor: { value: new THREE.Color(0x6f8fff) }, uStrength: { value: 0.5 }, uTime: { value: 0 } },
-    vertexShader: /* glsl */ `varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor; uniform float uStrength; uniform float uTime; varying vec2 vUv; varying vec3 vW;
-      float h(float x){ return fract(sin(x * 91.7) * 43758.5); }
+    uniforms: { uColor: { value: new THREE.Color(0x9ab4ff) }, uStrength: { value: 0.5 }, uTime: { value: 0 } },
+    vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: pool
+      ? /* glsl */ `
+      uniform vec3 uColor; uniform float uStrength; varying vec2 vUv;
       void main(){
-        float edge = smoothstep(0.0, 0.28, vUv.x) * smoothstep(1.0, 0.72, vUv.x);
-        float len = smoothstep(0.0, 0.18, vUv.y) * (0.35 + 0.65 * vUv.y);
-        float streak = 0.75 + 0.25 * sin(vUv.x * 23.0 + uTime * 0.3) * sin(vUv.x * 7.0 - uTime * 0.17);
+        vec2 q = vUv;
+        float a;
+        ${
+          round
+            ? `vec2 c = q * 2.0 - 1.0; float r = length(c); float ang = atan(c.y, c.x);
+               a = smoothstep(1.0, 0.82, r) * (1.0 - smoothstep(0.05, 0.0, abs(sin(ang * 3.0)) * r) * 0.85) * (1.0 - smoothstep(0.24, 0.16, r) * 0.7);`
+            : `float e = smoothstep(0.0, 0.07, q.x) * smoothstep(1.0, 0.93, q.x) * smoothstep(0.0, 0.05, q.y) * smoothstep(1.0, 0.9, q.y);
+               float mull = smoothstep(0.018, 0.032, abs(q.x - 0.5));
+               float tr = smoothstep(0.012, 0.024, abs(fract(q.y * 4.0 + 0.5) - 0.5) / 4.0);
+               a = e * mull * tr;`
+        }
+        a *= uStrength;
+        gl_FragColor = vec4(uColor * a, a);
+      }`
+      : /* glsl */ `
+      uniform vec3 uColor; uniform float uStrength; uniform float uTime; varying vec2 vUv;
+      void main(){
+        float edge = smoothstep(0.0, 0.32, vUv.x) * smoothstep(1.0, 0.68, vUv.x);
+        // Brightest just inside the glass, thinning as it spreads; a soft fade where it meets the floor.
+        float len = smoothstep(0.0, 0.08, vUv.y) * (1.0 - 0.55 * vUv.y) * smoothstep(1.0, 0.86, vUv.y);
+        float streak = 0.8 + 0.2 * sin(vUv.x * 19.0 + uTime * 0.25) * sin(vUv.x * 6.0 - uTime * 0.13);
         float a = edge * len * streak * uStrength;
         gl_FragColor = vec4(uColor * a, a);
       }`,
@@ -536,16 +606,17 @@ type Hole = [number, number, number, number, 'plank' | 'tile' | 'flag', number];
 const HOLES: Hole[] = [
   [5.7, 6.4, 0.9, 0.9, 'tile', 0],
   [26.3, 7.4, 0.9, 0.6, 'tile', 0],
-  [5.4, 11.0, 1.4, 0.55, 'plank', 0],
+  [5.4, 11.0, 1.6, 0.75, 'plank', 0],
   [25.1, 12.2, 1.1, 0.8, 'flag', 0.4],
-  [6.9, 20.3, 0.52, 1.1, 'plank', 0],
+  [6.9, 20.3, 0.8, 1.3, 'plank', 0],
   [26.0, 19.9, 1.0, 0.8, 'tile', 0],
-  // The nave: split boards along the runner up to the dais.
-  [17.1, 16.6, 0.6, 1.4, 'plank', 0],
-  [12.9, 10.2, 0.6, 1.0, 'plank', 0],
-  [14.1, 13.3, 0.62, 1.7, 'plank', 0.05],
-  [16.3, 18.9, 0.9, 0.62, 'plank', 0],
-  [15.8, 8.6, 0.55, 1.1, 'plank', -0.04],
+  // The nave: whole runs of boards gone along the old runner up to the dais (Stardew-readable decay).
+  [17.0, 16.4, 0.9, 2.0, 'plank', 0],
+  [12.9, 10.2, 0.9, 1.5, 'plank', 0],
+  [14.0, 13.3, 1.2, 2.3, 'plank', 0],
+  [16.4, 19.0, 1.2, 1.0, 'plank', 0],
+  [15.9, 8.4, 0.9, 1.5, 'plank', 0],
+  [13.2, 18.3, 0.6, 1.1, 'plank', 0],
 ];
 
 /**
@@ -612,6 +683,8 @@ interface RoomVisual {
 export class HallMap implements GameMap {
   readonly id = 'hall';
   readonly title = 'The Lantern Hall';
+  /** Roofed: no petals, leaves, rain or snow drift through the interior. */
+  readonly covered = true;
   readonly grid = new TileGrid(30, 26);
   readonly root = new THREE.Group();
   readonly spawn = { x: HALL.entrance.x, z: 20.2, facing: 'up' as const };
@@ -626,9 +699,8 @@ export class HallMap implements GameMap {
   private floorGrime!: HTMLCanvasElement;
   private floorLive!: HTMLCanvasElement;
   private floorTex!: THREE.CanvasTexture;
-  private beams: THREE.Mesh[] = [];
-  private beamMat = beamMaterial();
-  private naveBeamMat = beamMaterial();
+  /** Window shafts (volume + floor print materials) and their openings (dust motes live inside them). */
+  private shafts: { def: Shaft; vol: THREE.ShaderMaterial; pool: THREE.ShaderMaterial }[] = [];
   private windowMat: THREE.MeshStandardMaterial;
   private greatCore: THREE.MeshStandardMaterial;
   private greatLight: THREE.PointLight;
@@ -667,8 +739,7 @@ export class HallMap implements GameMap {
   private caustic: THREE.CanvasTexture | null = null;
   /** Every furniture footprint (x0, z0, x1, z1): baked as soft contact shadows into the floor. */
   private footprints: [number, number, number, number][] = [];
-  /** Moonlight pooled on the nave floor (additive decals) while the Hall is dark. */
-  private moonPools: THREE.ShaderMaterial[] = [];
+  private moteLife = new Float32Array(150 * 2);
 
   constructor(private game: Game) {
     this.root.name = 'map:hall';
@@ -703,26 +774,9 @@ export class HallMap implements GameMap {
     this.ring.renderOrder = 6;
     this.ring.userData.noAO = true;
     this.root.add(this.ring);
-    // Two shafts of moonlight from the clerestory fall across the nave and pool on the runner: a lit
-    // path from the doors to the dais while the Hall is dark.
-    for (const [x, z, rz, rx] of [[14.3, 14.6, 0.1, -0.72], [15.7, 9.4, -0.08, -0.72]] as const) {
-      const beam = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 7.5), this.naveBeamMat);
-      beam.position.set(x, 2.6, z - 1.6);
-      beam.rotation.set(rx, 0, rz);
-      beam.userData.noAO = true;
-      beam.renderOrder = 5;
-      this.beams.push(beam);
-      this.root.add(beam);
-      const pm = poolMaterial(0xa8c4ff);
-      const pool = new THREE.Mesh(new THREE.CircleGeometry(3.2, 40), pm);
-      pool.rotation.x = -Math.PI / 2;
-      pool.scale.set(0.62, 1.05, 1);
-      pool.position.set(x, 0.018, z + 0.6);
-      pool.renderOrder = 2;
-      pool.userData.noAO = true;
-      this.moonPools.push(pm);
-      this.root.add(pool);
-    }
+    // Moonlight: one shaft through each back window and one through the rose window over the dais,
+    // all on the same slant, each ending in its window printed on the floor.
+    this.addShaft({ x: HALL.dais.x, y0: 3.45, y1: 5.25, z: 3.05, w: 1.8, round: true });
     for (let i = 0; i < this.motes.n; i++) this.respawnMote(i, true);
     this.redrawDust();
   }
@@ -787,6 +841,12 @@ export class HallMap implements GameMap {
     const shell = b.build({ name: 'hall-shell' });
     shell.userData.perfTag = 'hall';
     this.root.add(shell);
+    // The unmerged dressing sources ride in the map, hidden (never drawn: the merged hall-dressing is),
+    // so the load's RenderContext.compile() builds the restored rooms' programs behind the fade
+    // instead of on the celebration's dressing swap (bundle-complete r4, pillar 14).
+    this.sources.visible = false;
+    this.sources.name = 'hall-dressing-sources';
+    this.root.add(this.sources);
   }
 
   /** The nave while the Hall is dark: its runner is split to the soil in a trail of holes up to the dais. */
@@ -1442,14 +1502,25 @@ export class HallMap implements GameMap {
     this.root.add(head);
     b.add(m.woodGrain, new THREE.TorusGeometry(w / 2 + 0.04, 0.07, 6, 18, Math.PI), mat(x, y + h, z), { tint: 0x5e3a22 });
     b.add(m.plaster, new THREE.RingGeometry(w / 2 + 0.08, w / 2 + 0.9, 18, 1, 0, Math.PI), mat(x, y + h, z - 0.02), { tint: 0xf0e2c6 });
-    // Moonbeam falling into the room.
-    const beam = new THREE.Mesh(new THREE.PlaneGeometry(w * 1.3, 7.5), this.beamMat);
-    beam.position.set(x + 0.2, y + h * 0.45 - 1.5, z + 2.3);
-    beam.rotation.set(-0.72, 0.08, 0);
-    beam.userData.noAO = true;
-    beam.renderOrder = 5;
-    this.beams.push(beam);
-    this.root.add(beam);
+    // Moonlight falling into the room from this opening.
+    this.addShaft({ x, y0: y, y1: y + h + w * 0.35, z: z + 0.02, w });
+  }
+
+  private addShaft(def: Shaft): void {
+    const vol = shaftMaterial(false, !!def.round);
+    const pool = shaftMaterial(true, !!def.round);
+    const vm = new THREE.Mesh(shaftVolume(def), vol);
+    const pm = new THREE.Mesh(shaftPool(def), pool);
+    vm.name = 'hall-moonshaft';
+    pm.name = 'hall-moonpool';
+    for (const m of [vm, pm]) {
+      m.userData.noAO = true;
+      m.frustumCulled = false;
+      this.root.add(m);
+    }
+    vm.renderOrder = 5;
+    pm.renderOrder = 2;
+    this.shafts.push({ def, vol, pool });
   }
 
   private buildGreatLantern(b: B): void {
@@ -1529,9 +1600,44 @@ export class HallMap implements GameMap {
     const m = hallMats();
     const BRASS = 0xd4a24a;
     const BRASS_D = 0x8a5a24;
-    shell.add(m.stone, bevelCylinder(0.62, 0.7, 0.2, 0.04, 16), mat(p.x, 0.1, p.z), { tint: 0xa8a090 });
-    shell.add(m.stone, bevelCylinder(0.34, 0.42, 0.8, 0.04, 8), mat(p.x, 0.6, p.z), { tint: 0xc0b6a4 });
-    shell.add(m.stone, bevelCylinder(0.5, 0.42, 0.14, 0.04, 8), mat(p.x, 1.06, p.z), { tint: 0xb0a898 });
+    // Each lantern stands on its own pedestal, matched to its cage.
+    switch (def.id) {
+      case 'seed': // a round sandstone column, verdigris band and a carved leaf collar
+        shell.add(m.stone, bevelCylinder(0.62, 0.7, 0.2, 0.04, 20), mat(p.x, 0.1, p.z), { tint: 0xc8b89a });
+        shell.add(m.stone, bevelCylinder(0.3, 0.36, 0.8, 0.04, 16), mat(p.x, 0.6, p.z), { tint: 0xd8c8a8 });
+        shell.add(m.metal, bevelCylinder(0.37, 0.37, 0.07, 0.02, 16), mat(p.x, 0.62, p.z), { tint: 0x5a9a86 });
+        for (let k = 0; k < 8; k++) shell.add(m.leaf, new THREE.SphereGeometry(0.12, 6, 4).scale(0.5, 0.25, 1), mat(p.x + Math.cos((k / 8) * Math.PI * 2) * 0.4, 0.98, p.z + Math.sin((k / 8) * Math.PI * 2) * 0.4, 0, -(k / 8) * Math.PI * 2, 0.4), { tint: 0x6a9a6a });
+        shell.add(m.stone, bevelCylinder(0.46, 0.38, 0.14, 0.04, 16), mat(p.x, 1.06, p.z), { tint: 0xc8b89a });
+        break;
+      case 'sun': // a gilded square pedestal with a sun-disc front
+        shell.add(m.stone, roundedBox(1.2, 0.2, 1.2, 0.05), mat(p.x, 0.1, p.z), { tint: 0xe0d0b0 });
+        shell.add(m.stone, roundedBox(0.66, 0.8, 0.66, 0.05), mat(p.x, 0.6, p.z), { tint: 0xf0e0c0 });
+        shell.add(m.metal, bevelCylinder(0.18, 0.18, 0.03, 0.01, 16).rotateX(Math.PI / 2), mat(p.x, 0.66, p.z + 0.34), { tint: 0xe8b84a });
+        shell.add(m.metal, roundedBox(0.92, 0.14, 0.92, 0.04), mat(p.x, 1.06, p.z), { tint: 0xd4a24a });
+        break;
+      case 'harvest': // a cider barrel stood on end, iron hoops
+        shell.add(m.woodGrain, bevelCylinder(0.62, 0.68, 0.18, 0.04, 16), mat(p.x, 0.09, p.z), { tint: 0x7a5232 });
+        shell.add(m.woodGrain, bevelCylinder(0.42, 0.42, 0.86, 0.05, 16), mat(p.x, 0.62, p.z), { tint: 0xa8743e });
+        for (const y of [0.32, 0.62, 0.92]) shell.add(m.metal, bevelCylinder(0.44, 0.44, 0.05, 0.01, 16), mat(p.x, y, p.z), { tint: 0x3a3430 });
+        shell.add(m.woodGrain, bevelCylinder(0.5, 0.46, 0.12, 0.03, 16), mat(p.x, 1.08, p.z), { tint: 0x8a5a36 });
+        break;
+      case 'hearth': // blue-grey hearthstone, frosted cap
+        shell.add(m.stone, bevelCylinder(0.62, 0.7, 0.2, 0.04, 6), mat(p.x, 0.1, p.z), { tint: 0x8a96a4 });
+        shell.add(m.stone, bevelCylinder(0.34, 0.42, 0.8, 0.04, 6), mat(p.x, 0.6, p.z), { tint: 0xa8b4c2 });
+        shell.add(m.stone, bevelCylinder(0.5, 0.42, 0.14, 0.04, 6), mat(p.x, 1.06, p.z), { tint: 0xe8f0f8 });
+        break;
+      case 'craft': // a workman's stack: a copper-bound crate on a timber block
+        shell.add(m.woodGrain, roundedBox(1.1, 0.24, 1.0, 0.04), mat(p.x, 0.12, p.z), { tint: 0x7a5232 });
+        shell.add(m.woodGrain, roundedBox(0.72, 0.78, 0.72, 0.04), mat(p.x, 0.62, p.z), { tint: 0xb0844e });
+        for (const y of [0.3, 0.95]) shell.add(m.metal, roundedBox(0.75, 0.05, 0.75, 0.01), mat(p.x, y, p.z), { tint: 0xc8743a });
+        shell.add(m.metal, roundedBox(0.88, 0.12, 0.88, 0.03), mat(p.x, 1.07, p.z), { tint: 0xb06a3a });
+        break;
+      default: // tide: a rope-wrapped mooring bollard
+        shell.add(m.stone, bevelCylinder(0.62, 0.7, 0.2, 0.04, 16), mat(p.x, 0.1, p.z), { tint: 0x7a8a8e });
+        shell.add(m.woodGrain, bevelCylinder(0.34, 0.38, 0.8, 0.04, 14), mat(p.x, 0.6, p.z), { tint: 0x5a4a3a });
+        for (let k = 0; k < 6; k++) shell.add(m.cloth, new THREE.TorusGeometry(0.37, 0.035, 6, 18), mat(p.x, 0.42 + k * 0.07, p.z, Math.PI / 2), { tint: 0xc8a878 });
+        shell.add(m.metal, bevelCylinder(0.48, 0.42, 0.14, 0.04, 16), mat(p.x, 1.06, p.z), { tint: 0x3a6a6a });
+    }
     shell.add(m.metal, bevelCylinder(0.32, 0.36, 0.08, 0.03, 16), mat(p.x, 1.17, p.z), { tint: BRASS_D });
     shell.add(m.metal, bevelCylinder(0.28, 0.31, 0.06, 0.02, 16), mat(p.x, 1.24, p.z), { tint: BRASS });
     shell.add(m.metal, bevelCylinder(0.05, 0.07, 0.14, 0.015, 10), mat(p.x, 1.4, p.z), { tint: BRASS_D });
@@ -2455,13 +2561,83 @@ export class HallMap implements GameMap {
     const r = new Rng(`sacks-${room}`);
     const f = v.frame;
     const tx = f.plinth.x + f.side * 1.25;
+    const z = f.plinth.z + 0.1;
+    const Y = 0.66;
+    const dull = (c: number): number => new THREE.Color(c).lerp(new THREE.Color(0x8a8070), 0.6).getHex();
+    // Each room lays its offerings out its own way (one item per bundle; given = full, colourful, upright).
+    const crate = (w: number, d: number, h: number, tint: number): void => {
+      b.add(m.woodGrain, roundedBox(w, 0.03, d, 0.01), mat(tx, Y, z), { tint });
+      for (const sz of [-1, 1]) b.add(m.woodGrain, roundedBox(w, h, 0.03, 0.01), mat(tx, Y, z + sz * (d / 2 - 0.015)), { tint });
+      for (const sx of [-1, 1]) b.add(m.woodGrain, roundedBox(0.03, h, d, 0.01), mat(tx + sx * (w / 2 - 0.015), Y, z), { tint });
+    };
+    const room_ = f.def.id;
+    if (room_ === 'seed') crate(0.98, 0.42, 0.12, 0x9a6a40);
+    if (room_ === 'tide') {
+      crate(0.98, 0.5, 0.1, 0x6a7a80);
+      for (let k = 0; k < 22; k++) b.add(m.glass, new THREE.IcosahedronGeometry(0.04 + r.next() * 0.03, 0), mat(tx + (r.next() - 0.5) * 0.86, Y + 0.05, z + (r.next() - 0.5) * 0.36, r.next(), r.next(), 0));
+      b.add(m.cloth, roundedBox(0.94, 0.03, 0.44, 0.01), mat(tx, Y + 0.02, z), { tint: 0xe8f2f6 });
+    }
+    if (room_ === 'sun') {
+      // A little two-tier jam shelf.
+      for (const yy of [0, 0.26]) b.add(m.woodGrain, roundedBox(1.0, 0.03, 0.3, 0.01), mat(tx, Y + yy, z - 0.08), { tint: 0xb07a48 });
+      for (const sx of [-0.49, 0.49]) b.add(m.woodGrain, roundedBox(0.03, 0.3, 0.3, 0.01), mat(tx + sx, Y, z - 0.08), { tint: 0x9a6a40 });
+    }
+    if (room_ === 'craft') b.add(m.metal, roundedBox(1.0, 0.04, 0.46, 0.015), mat(tx, Y, z), { tint: 0xb87a4a });
+    if (room_ === 'hearth') b.add(m.cloth, roundedBox(1.02, 0.015, 0.6, 0.005), mat(tx, Y + 0.002, z), { tint: 0xe8dcc8 });
     defs.forEach((def, i) => {
       const x = tx - 0.36 + i * (0.72 / Math.max(1, defs.length - 1));
       const full = !!done[i];
-      const s = lumpySphere(0.2, 1, 0.1, r, 2.2);
-      b.add(m.cloth, s, mat(x, 0.66 + (full ? 0.17 : 0.1), f.plinth.z + 0.1, 0, r.next() * 3, 0, 1, full ? 1.15 : 0.6, 1), { tint: full ? def.color : new THREE.Color(def.color).lerp(new THREE.Color(0x8a8070), 0.55).getHex() });
-      b.add(m.cloth, new THREE.ConeGeometry(0.09, 0.14, 7), mat(x, 0.66 + (full ? 0.44 : 0.28), f.plinth.z + 0.1), { tint: full ? def.color : 0x8a8070 });
-      b.add(m.metal, new THREE.TorusGeometry(0.07, 0.018, 5, 12), mat(x, 0.66 + (full ? 0.37 : 0.23), f.plinth.z + 0.1, Math.PI / 2), { tint: full ? 0xe8b84a : 0x7a6a50 });
+      const c = full ? def.color : dull(def.color);
+      switch (room_) {
+        case 'seed': {
+          // Seed packets standing in the crate (fallen flat while unfilled).
+          const pk = roundedBox(0.16, 0.22, 0.02, 0.008);
+          b.add(m.cloth, pk, full ? mat(x, Y + 0.02, z, -0.2, (r.next() - 0.5) * 0.3, 0) : mat(x, Y + 0.04, z, -Math.PI / 2 + 0.1, r.next(), 0), { tint: full ? 0xf2e6c8 : 0xb8b0a0 });
+          b.add(m.cloth, roundedBox(0.11, 0.09, 0.022, 0.006), full ? mat(x, Y + 0.1, z + 0.003, -0.2, 0, 0) : mat(x, Y + 0.05, z + 0.003, -Math.PI / 2 + 0.1, 0, 0), { tint: c });
+          break;
+        }
+        case 'sun': {
+          // Jam jars on the shelf: full and bright, or empty glass.
+          const yy = i % 2 ? 0.29 : 0.03;
+          b.add(full ? m.cloth : m.glass, bevelCylinder(0.075, 0.075, 0.17, 0.02, 12), mat(x, Y + yy, z - 0.08), { tint: c });
+          b.add(m.cloth, bevelCylinder(0.09, 0.085, 0.035, 0.01, 12), mat(x, Y + yy + 0.17, z - 0.08), { tint: full ? [0xd84a3a, 0xf0e0c0, 0x5a8ad8][i % 3]! : 0xa8a090 });
+          break;
+        }
+        case 'harvest': {
+          // A wicker basket per bundle, heaped when given.
+          b.add(m.woodGrain, bevelCylinder(0.13, 0.1, 0.12, 0.02, 12), mat(x, Y, z), { tint: 0xc89a5a });
+          b.add(m.woodGrain, new THREE.TorusGeometry(0.12, 0.012, 4, 14, Math.PI), mat(x, Y + 0.12, z, 0, 0, 0), { tint: 0xa87a44 });
+          if (full) for (let k = 0; k < 4; k++) b.add(m.cloth, lumpySphere(0.055, 0, 0.2, r), mat(x + (r.next() - 0.5) * 0.12, Y + 0.14 + (k > 2 ? 0.05 : 0), z + (r.next() - 0.5) * 0.1), { tint: [def.color, 0xd84a2a, 0xe8a030, 0x8a3a6a][k]! });
+          break;
+        }
+        case 'hearth': {
+          // Bundled herbs and a loaf / a candle per bundle on the cloth.
+          if (full) {
+            b.add(m.leaf, new THREE.ConeGeometry(0.06, 0.26, 6), mat(x, Y + 0.06, z, 0, 0, Math.PI / 2), { tint: [0x6a9a4a, 0x8aa45c, 0x5a7a3a][i % 3]! });
+            b.add(m.cloth, new THREE.TorusGeometry(0.035, 0.008, 4, 10), mat(x + 0.06, Y + 0.06, z, 0, Math.PI / 2, 0), { tint: c });
+            b.add(m.cloth, lumpySphere(0.07, 0, 0.15, r), mat(x, Y + 0.05, z + 0.17, 0, 0, 0, 1.3, 0.7, 1), { tint: 0xc8864a });
+          } else b.add(m.leaf, new THREE.ConeGeometry(0.04, 0.18, 5), mat(x, Y + 0.04, z, 0, 0, Math.PI / 2), { tint: 0x8a7a5a });
+          break;
+        }
+        case 'craft': {
+          // A gear on the tray per bundle, spools beside the given ones.
+          b.add(m.metal, bevelCylinder(0.1, 0.1, 0.03, 0.01, 10), mat(x, Y + 0.035, z - 0.06), { tint: full ? 0xd8a24a : 0x7a6a5a });
+          for (let k = 0; k < 8; k++) {
+            const a = (k / 8) * Math.PI * 2;
+            b.add(m.metal, roundedBox(0.04, 0.03, 0.04, 0.005), mat(x + Math.cos(a) * 0.11, Y + 0.035, z - 0.06 + Math.sin(a) * 0.11, 0, -a, 0), { tint: full ? 0xc8923a : 0x6a5a4a });
+          }
+          if (full) b.add(m.cloth, bevelCylinder(0.045, 0.045, 0.1, 0.01, 10), mat(x, Y + 0.02, z + 0.13), { tint: c });
+          break;
+        }
+        default: {
+          // Fish laid on ice (Tide): silver-blue bodies, a fin each.
+          if (full) {
+            const fish = lumpySphere(0.06, 1, 0.08, r);
+            b.add(m.cloth, fish, mat(x, Y + 0.08, z, 0, Math.PI / 2 + (r.next() - 0.5) * 0.4, 0, 2.6, 0.7, 1), { tint: [0x7aa4c8, 0xc8a46a, 0x9ac8b8, 0xd88a6a][i % 4]! });
+            b.add(m.cloth, new THREE.ConeGeometry(0.05, 0.08, 4), mat(x, Y + 0.08, z + 0.17, Math.PI / 2, 0, 0, 1, 1, 0.3), { tint: 0x5a7a9a });
+          }
+        }
+      }
     });
     const g = b.build({ name: `hall-sacks-${room}` });
     v.sacks.add(g);
@@ -2751,13 +2927,51 @@ export class HallMap implements GameMap {
         const nx = Math.max(1, Math.round((hw * PX) / s));
         const nzz = Math.max(1, Math.round((hd * PX) / s));
         for (let i = 0; i < nx; i++) for (let j = 0; j < nzz; j++) if (!((i === 0 || i === nx - 1) && (j === 0 || j === nzz - 1)) || r.next() < 0.5) path.rect(-nx * s * 0.5 + i * s, -nzz * s * 0.5 + j * s, s + 0.5, s + 0.5);
+      } else if (kind === 'plank') {
+        // Whole boards gone, cut on the floor's own seams with staggered broken ends (the middle
+        // boards longest): the hole reads as missing planks, not a blot.
+        const ew = hx < 12 && hz > 9 && hz < 15;
+        const pwM = ew ? 0.36 : hx < 12 ? 0.26 : hx > 18 ? 0.3 : 0.3;
+        const origin = ew ? 9 : hx < 12 ? 2 : 12;
+        const across = ew ? hd : hw;
+        const along = ew ? hw : hd;
+        const n = Math.max(2, Math.round(across / pwM));
+        const c0 = ew ? hz : hx;
+        const start = origin + Math.round((c0 - (n * pwM) / 2 - origin) / pwM) * pwM - c0;
+        for (let i = 0; i < n; i++) {
+          const mid = 1 - Math.abs(i - (n - 1) / 2) / (n / 2 + 0.5);
+          const L = along * (0.45 + 0.55 * mid) * (0.8 + r.next() * 0.4) * PX;
+          const off = (r.next() - 0.5) * along * 0.35 * PX;
+          const a0 = (start + i * pwM) * PX;
+          // Broken ends: a short jagged tooth at each end of the strip.
+          const tooth = (r.next() - 0.5) * pwM * 0.8 * PX;
+          const w = pwM * PX;
+          const sp = new Path2D();
+          if (ew) {
+            sp.moveTo(off - L / 2, a0);
+            sp.lineTo(off + L / 2, a0);
+            sp.lineTo(off + L / 2 + tooth, a0 + w * 0.5);
+            sp.lineTo(off + L / 2, a0 + w);
+            sp.lineTo(off - L / 2, a0 + w);
+            sp.lineTo(off - L / 2 - tooth, a0 + w * 0.5);
+          } else {
+            sp.moveTo(a0, off - L / 2);
+            sp.lineTo(a0, off + L / 2);
+            sp.lineTo(a0 + w * 0.5, off + L / 2 + tooth);
+            sp.lineTo(a0 + w, off + L / 2);
+            sp.lineTo(a0 + w, off - L / 2);
+            sp.lineTo(a0 + w * 0.5, off - L / 2 - tooth);
+          }
+          sp.closePath();
+          path.addPath(sp);
+        }
       } else {
         const n = 16;
         for (let i = 0; i <= n; i++) {
           const a = (i / n) * Math.PI * 2;
-          const jag = kind === 'plank' ? 0.65 + r.next() * 0.45 : 0.8 + r.next() * 0.25;
-          const px = Math.cos(a) * hw * 0.5 * PX * (kind === 'plank' ? Math.min(1, 1.25 * jag) : jag);
-          const pz = Math.sin(a) * hd * 0.5 * PX * (kind === 'plank' ? 1 : jag);
+          const jag = 0.8 + r.next() * 0.25;
+          const px = Math.cos(a) * hw * 0.5 * PX * jag;
+          const pz = Math.sin(a) * hd * 0.5 * PX * jag;
           if (i === 0) path.moveTo(px, pz);
           else path.lineTo(px, pz);
         }
@@ -2765,18 +2979,34 @@ export class HallMap implements GameMap {
       }
       g.save();
       g.clip(path);
+      // Soil in a readable mid-brown (it was crushed under a 50 % black wash): solid earth with the dirt
+      // texture multiplied in for grain, clods and a few pebbles, darkening only under the board edges.
+      const soil = g.createRadialGradient(0, 0, 0, 0, 0, Math.max(hw, hd) * 0.6 * PX);
+      soil.addColorStop(0, '#3e2814');
+      soil.addColorStop(1, '#22150a');
+      g.fillStyle = soil;
+      g.fillRect(-hw * PX, -hd * PX, hw * 2 * PX, hd * 2 * PX);
       if (pat) {
         pat.setTransform(new DOMMatrix().scale(0.6));
         g.fillStyle = pat;
-      } else g.fillStyle = '#6a4a30';
-      g.fillRect(-hw * PX, -hd * PX, hw * 2 * PX, hd * 2 * PX);
-      g.fillStyle = 'rgba(24,14,6,0.5)';
-      g.fillRect(-hw * PX, -hd * PX, hw * 2 * PX, hd * 2 * PX);
-      const sh = g.createRadialGradient(0, 0, Math.min(hw, hd) * 0.1 * PX, 0, 0, Math.max(hw, hd) * 0.62 * PX);
-      sh.addColorStop(0, 'rgba(10,6,2,0)');
-      sh.addColorStop(1, 'rgba(10,6,2,0.8)');
-      g.fillStyle = sh;
-      g.fillRect(-hw * PX, -hd * PX, hw * 2 * PX, hd * 2 * PX);
+        g.globalAlpha = 0.18;
+        g.globalCompositeOperation = 'overlay';
+        g.fillRect(-hw * PX, -hd * PX, hw * 2 * PX, hd * 2 * PX);
+        g.globalCompositeOperation = 'source-over';
+        g.globalAlpha = 1;
+      }
+      for (let k = 0; k < 14; k++) {
+        g.fillStyle = r.next() < 0.6 ? 'rgba(60,38,20,0.45)' : 'rgba(170,150,120,0.5)';
+        g.beginPath();
+        g.ellipse((r.next() - 0.5) * hw * PX, (r.next() - 0.5) * hd * PX, (0.02 + r.next() * 0.03) * PX, (0.015 + r.next() * 0.025) * PX, r.next() * 3, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.restore();
+      g.save();
+      g.clip(path);
+      g.strokeStyle = 'rgba(14,8,3,0.6)';
+      g.lineWidth = 0.09 * PX;
+      g.stroke(path);
       g.restore();
       g.strokeStyle = kind === 'plank' ? 'rgba(214,170,112,0.85)' : 'rgba(200,190,170,0.6)';
       g.lineWidth = kind === 'plank' ? 3 : 2;
@@ -2786,6 +3016,53 @@ export class HallMap implements GameMap {
       g.translate(2, 3);
       g.stroke(path);
       g.restore();
+    }
+    // Creeping vines out of the holes and along the wall feet: a wandering stem, paired leaves.
+    const vine = (x: number, z: number, ang: number, len: number): void => {
+      let px = X(x);
+      let pz = Z(z);
+      let a = ang;
+      const steps = Math.round(len * 6);
+      g.lineCap = 'round';
+      for (let k = 0; k < steps; k++) {
+        a += (r.next() - 0.5) * 0.7;
+        const nx = px + Math.cos(a) * 0.17 * PX;
+        const nz = pz + Math.sin(a) * 0.17 * PX;
+        g.strokeStyle = 'rgba(52,70,30,0.9)';
+        g.lineWidth = Math.max(1.5, 0.025 * PX * (1 - k / steps) + 1);
+        g.beginPath();
+        g.moveTo(px, pz);
+        g.lineTo(nx, nz);
+        g.stroke();
+        for (const sd of [-1, 1]) {
+          if (r.next() < 0.25) continue;
+          const la = a + sd * (0.9 + r.next() * 0.5);
+          const ls = (0.05 + r.next() * 0.04) * PX * (1 - (k / steps) * 0.5);
+          const lx = nx + Math.cos(la) * ls * 0.9;
+          const lz = nz + Math.sin(la) * ls * 0.9;
+          g.fillStyle = ['#4f7a2e', '#5f8c36', '#3f6828', '#6c9a40'][Math.floor(r.next() * 4)]!;
+          g.beginPath();
+          g.ellipse(lx, lz, ls, ls * 0.55, la, 0, Math.PI * 2);
+          g.fill();
+          g.fillStyle = 'rgba(200,230,150,0.25)';
+          g.beginPath();
+          g.ellipse(lx - ls * 0.2, lz - ls * 0.2, ls * 0.45, ls * 0.2, la, 0, Math.PI * 2);
+          g.fill();
+        }
+        px = nx;
+        pz = nz;
+      }
+    };
+    for (const [hx, hz, hw, hd] of HOLES) {
+      const nv = 1 + Math.floor(r.next() * 2);
+      for (let k = 0; k < nv; k++) {
+        const a = r.next() * Math.PI * 2;
+        vine(hx + Math.cos(a) * hw * 0.4, hz + Math.sin(a) * hd * 0.4, a, 0.9 + r.next() * 1.3);
+      }
+    }
+    for (let k = 0; k < 10; k++) {
+      const west = k % 2 === 0;
+      vine(west ? 2.15 : 27.85, 4 + r.next() * 16, west ? 0 : Math.PI, 0.8 + r.next() * 1.2);
     }
     return out;
   }
@@ -2860,18 +3137,22 @@ export class HallMap implements GameMap {
   }
 
   private respawnMote(i: number, anywhere: boolean): void {
-    // Motes drift in the three window beams and the two nave shafts (where they catch the light).
-    const k = i % 5;
-    const nave = k >= 3;
-    const w = nave ? (k === 3 ? 15.0 : 14.6) : [7, 15, 23][k]!;
-    this.motes.pos[i * 3] = w + (Math.random() - 0.5) * (nave ? 1.6 : 2.2);
-    this.motes.pos[i * 3 + 1] = anywhere ? Math.random() * 4 : 3.8 + Math.random() * 0.6;
-    this.motes.pos[i * 3 + 2] = nave ? (k === 3 ? 14.6 : 9.4) + (Math.random() - 0.5) * 2.4 : 3.5 + Math.random() * 5.5;
-    this.moteVel[i * 3] = (Math.random() - 0.5) * 0.05;
-    this.moteVel[i * 3 + 1] = -0.03 - Math.random() * 0.05;
-    this.moteVel[i * 3 + 2] = (Math.random() - 0.2) * 0.06;
-    this.motes.size[i] = 0.05 + Math.random() * 0.05;
+    // A random point inside a random shaft: a point on its window, then part-way down the ray.
+    const sh = this.shafts[i % Math.max(1, this.shafts.length)]?.def;
+    if (!sh) return;
+    const y = sh.y0 + Math.random() * (sh.y1 - sh.y0);
+    const k = 0.12 + Math.random() * 0.8;
+    const x = sh.x + (Math.random() - 0.5) * sh.w * 0.8;
+    this.motes.pos[i * 3] = x + MOON.dx * y * k;
+    this.motes.pos[i * 3 + 1] = y * (1 - k);
+    this.motes.pos[i * 3 + 2] = sh.z + MOON.dz * y * k;
+    this.moteVel[i * 3] = (Math.random() - 0.5) * 0.03;
+    this.moteVel[i * 3 + 1] = (Math.random() - 0.6) * 0.03;
+    this.moteVel[i * 3 + 2] = (Math.random() - 0.5) * 0.03;
+    this.motes.size[i] = 0.03 + Math.random() * 0.035;
     this.motes.alpha[i] = 0;
+    this.moteLife[i * 2] = anywhere ? Math.random() * 6 : 0;
+    this.moteLife[i * 2 + 1] = 5 + Math.random() * 4;
   }
 
   update(dt: number, game: Game): void {
@@ -2931,31 +3212,34 @@ export class HallMap implements GameMap {
     this.hearthLight.intensity = this.hearthFire.active ? 5.5 * (0.8 + Math.sin(t * 13) * 0.1 + Math.sin(t * 29) * 0.08) : 0;
     const h = game.rc.renderer.domElement.height;
     this.hearthFire.update(dt, h);
-    // Beams: cool moonlight when dark, faint warm dust-light when restored.
+    // Shafts: cool moonlight when dark (a warm afternoon sunbeam by day), thinning as the rooms relight.
     const hour = game.calendar.hour;
     const day = hour > 7 && hour < 18.5 ? 1 : 0;
-    this.beamMat.uniforms.uTime!.value = t;
-    (this.beamMat.uniforms.uColor!.value as THREE.Color).setHex(day ? 0xffe2b0 : 0x7a98ff).lerp(new THREE.Color(0xffc890), frac * 0.6);
-    this.beamMat.uniforms.uStrength!.value = (day ? 0.45 : 1.05) * (1 - frac * 0.7);
-    this.naveBeamMat.uniforms.uTime!.value = t;
-    (this.naveBeamMat.uniforms.uColor!.value as THREE.Color).copy(this.beamMat.uniforms.uColor!.value as THREE.Color);
-    this.naveBeamMat.uniforms.uStrength!.value = (day ? 0.3 : 0.62) * Math.max(0, 1 - frac * 1.4);
-    for (const pm of this.moonPools) {
-      (pm.uniforms.uColor!.value as THREE.Color).setHex(day ? 0xffe8c0 : 0xa8c4ff);
-      pm.uniforms.uI!.value = (day ? 0.14 : 0.32) * Math.max(0, 1 - frac * 1.3);
+    const shaftCol = new THREE.Color(day ? 0xffe2b0 : 0x9cb6ff).lerp(new THREE.Color(0xffc890), frac * 0.6);
+    const fade = Math.max(0, 1 - frac * 1.25);
+    for (const sh of this.shafts) {
+      const k = sh.def.round ? 0.8 : 1;
+      sh.vol.uniforms.uTime!.value = t;
+      (sh.vol.uniforms.uColor!.value as THREE.Color).copy(shaftCol);
+      sh.vol.uniforms.uStrength!.value = (day ? 0.36 : 0.6) * k * (0.25 + 0.75 * fade);
+      (sh.pool.uniforms.uColor!.value as THREE.Color).copy(shaftCol);
+      sh.pool.uniforms.uStrength!.value = (day ? 0.32 : 0.5) * k * (0.2 + 0.8 * fade);
     }
-    this.windowMat.emissive.setHex(day ? 0xcfe4ff : 0x4a68c0);
-    this.windowMat.emissiveIntensity = day ? 1.1 : 0.9;
-    // Dust motes drift down through the beams.
+    this.windowMat.emissive.setHex(day ? 0xcfe4ff : 0x5a78c8);
+    this.windowMat.emissiveIntensity = day ? 1.1 : 1.0;
+    // Dust motes: only inside the shafts, warm specks turning slowly in the light.
     for (let i = 0; i < this.motes.n; i++) {
       const p = this.motes.pos;
-      p[i * 3]! += (this.moteVel[i * 3]! + Math.sin(t * 0.7 + i) * 0.02) * dt;
+      p[i * 3]! += (this.moteVel[i * 3]! + Math.sin(t * 0.7 + i) * 0.012) * dt;
       p[i * 3 + 1]! += this.moteVel[i * 3 + 1]! * dt;
       p[i * 3 + 2]! += this.moteVel[i * 3 + 2]! * dt;
-      this.motes.alpha[i] = Math.min(1, this.motes.alpha[i]! + dt * 0.5) * (0.55 + 0.45 * Math.sin(t * 2 + i * 1.7)) * (1 - frac * 0.5);
-      const c = day ? [1.6, 1.5, 1.25] : [1.2, 1.45, 2.3];
+      const life = (this.moteLife[i * 2]! += dt);
+      const span = this.moteLife[i * 2 + 1]!;
+      const env = Math.min(1, life / 1.5, Math.max(0, span - life) / 1.5);
+      this.motes.alpha[i] = env * (0.6 + 0.4 * Math.sin(t * 2 + i * 1.7)) * fade * 0.8;
+      const c = day ? [1.5, 1.35, 1.05] : [1.25, 1.15, 0.95];
       this.motes.col.set(c, i * 3);
-      if (p[i * 3 + 1]! < 0.2) this.respawnMote(i, false);
+      if (life > span) this.respawnMote(i, false);
     }
     this.motes.flush(h);
     // Glowmoths: orbit lit lanterns (more per lit room), swarm on ignition.
@@ -3173,6 +3457,15 @@ export class LanternHallSystem implements System {
       if (map === 'hall') this.sync();
     });
     game.events.on('player:interact', ({ x, z }) => this.interact(x, z));
+    // Every room celebration cuts out to the square: build the town behind the altar / a quiet moment
+    // in the Hall, so that cut is a 0.6 s dip through black, never a 1.7 s first-load hitch.
+    const warmTown = (): void => void game.world.prewarm('town');
+    game.events.on('ui:open', ({ name }) => {
+      if (name.startsWith('bundles')) warmTown();
+    });
+    game.events.on('map:change', ({ map }) => {
+      if (map === 'hall') window.setTimeout(() => game.world.current?.id === 'hall' && !game.services.cutscene?.playing && warmTown(), 3000);
+    });
     game.events.on('quest:room', ({ roomId }) => {
       if (this.game.services.cutscene) this.pending.add(roomId as RoomId);
       this.sync();
@@ -3213,6 +3506,47 @@ export class LanternHallSystem implements System {
   update(dt: number): void {
     this.hints.update();
     if (this.dust?.group.parent) this.dust.update(dt);
+    this.updateGuests(dt);
+  }
+
+  /**
+   * A restored Hall is a used Hall: once three lanterns burn, a few neighbours drop in — Odessa at the
+   * Great Lantern, Linus and June chatting between the pews. They step out while a scene plays (the cast
+   * may be them) and leave when the Hall is dark again.
+   */
+  private guests: Villager[] = [];
+  private updateGuests(dt: number): void {
+    const g = this.game;
+    const h = this.hall;
+    const here = g.world.current?.id === 'hall' && !!h;
+    const lit = h ? [...h.rooms.values()].filter((v) => v.target > 0.5).length : 0;
+    const want = here && lit >= 3 && !g.services.cutscene?.playing;
+    if (!want) {
+      if (this.guests.length) {
+        for (const v of this.guests) v.root.removeFromParent();
+        this.guests = [];
+      }
+      return;
+    }
+    if (!this.guests.length) {
+      const SPOTS: [NpcId, number, number, number, number][] = [
+        ['odessa', 13.5, 7.7, 15, 5.2],
+        ['linus', 16.5, 11.5, 17.6, 12.9],
+        ['june', 17.6, 12.9, 16.5, 11.5],
+      ];
+      for (const [id, x, z, fx, fz] of SPOTS) {
+        const def = NPCS[id];
+        if (!def) continue;
+        const v = new Villager(def);
+        v.root.name = `npc:${id}`;
+        v.position.set(x, 0, z);
+        v.setYaw(Math.atan2(fx - x, fz - z));
+        if (id !== 'odessa') v.talkTo = new THREE.Vector3(fx, 0, fz);
+        h!.root.add(v.root);
+        this.guests.push(v);
+      }
+    }
+    for (const v of this.guests) v.update(dt, () => 0, true);
   }
 
   private houseDust(on: boolean): void {
@@ -3283,25 +3617,27 @@ export class LanternHallSystem implements System {
     const office = new THREE.Color(0xeaf4ff);
     L.sun.color.copy(cool).lerp(warm, w).lerp(office, cold);
     L.sun.intensity = 1.25 - w * 0.55 + cold * 0.5;
-    L.hemi.color.set(0x5a6aa8).lerp(new THREE.Color(0xffd8b0), w).lerp(new THREE.Color(0xdde8f4), cold);
-    L.hemi.groundColor.set(0x2a2230).lerp(new THREE.Color(0x5a3a28), w).lerp(new THREE.Color(0x4a5460), cold);
-    // Dark: 30 % less cold fill than before, so the moon shafts and the farmer's lantern carry the frame.
-    L.hemi.intensity = 0.6 + w * 0.35 + cold * 0.35;
-    L.bounce.intensity = 0.12 + w * 0.2;
+    // Dark is a cool *mid-value* (floor boards ~30 % luminance): a beloved place gone to seed, its
+    // decay readable, not an unlit level. The shafts and the farmer's lantern add accents on top.
+    const d = 1 - w0;
+    L.hemi.color.set(0x8c9ccc).lerp(new THREE.Color(0xffd8b0), w).lerp(new THREE.Color(0xdde8f4), cold);
+    L.hemi.groundColor.set(0x4a4450).lerp(new THREE.Color(0x5a3a28), w).lerp(new THREE.Color(0x4a5460), cold);
+    L.hemi.intensity = 0.95 + d * 0.55 + cold * 0.35;
+    L.bounce.intensity = 0.12 + w * 0.2 + d * 0.1;
     L.bounce.color.set(0xffb070).lerp(new THREE.Color(0xcfe0f0), cold);
     const bg = new THREE.Color(0x0a0c16).lerp(new THREE.Color(0x160e0a), w).lerp(new THREE.Color(0x0e1418), cold);
     L.fog.color.copy(bg);
     L.fog.near = 60;
     L.fog.far = 140;
     (rc.scene.background as THREE.Color).copy(bg);
-    rc.scene.environmentIntensity = 0.18 + w * 0.12 + cold * 0.1;
+    rc.scene.environmentIntensity = 0.18 + w * 0.12 + cold * 0.1 + d * 0.14;
     rc.renderer.toneMappingExposure = 1.22 - w * 0.02 + cold * 0.06;
     const g = rc.post.grade.uniforms;
-    (g.uLift!.value as THREE.Vector3).set(0.02 + w * 0.02, 0.022 + w * 0.01 + cold * 0.01, 0.05 - w * 0.02 + cold * 0.01);
+    (g.uLift!.value as THREE.Vector3).set(0.02 + w * 0.02 + d * 0.012, 0.022 + w * 0.01 + cold * 0.01 + d * 0.016, 0.05 - w * 0.02 + cold * 0.01 + d * 0.01);
     (g.uGain!.value as THREE.Vector3).set(0.96 + w * 0.12 - cold * 0.04, 0.98 + w * 0.02 + cold * 0.02, 1.08 - w * 0.14 + cold * 0.06);
     g.uSaturation!.value = 1.02 + w * 0.1 - cold * 0.3;
     g.uContrast!.value = 1.08 - cold * 0.04;
-    g.uVignette!.value = 0.62 - w * 0.12 - cold * 0.2;
+    g.uVignette!.value = 0.5 - w * 0.0 - cold * 0.2;
     rc.post.setBloom(0.55 + w * 0.15, 0.9);
   }
 }

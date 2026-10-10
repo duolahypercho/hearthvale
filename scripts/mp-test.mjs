@@ -124,10 +124,10 @@ const waitFor = async (page, fn, arg, timeout = 20000) => {
 
 // ── remote-farmer playout (pure, no browser): jitter / spikes / stalls never step backwards ──
 {
-  const { torture, CASES } = await import('./mp-interp.mjs');
+  const { torture, CASES, passes } = await import('./mp-interp.mjs');
   const rs = CASES.map((c) => ({ c, r: torture(c) }));
-  const bad = rs.filter(({ c, r }) => !(r.back === 0 && r.pops === 0 && r.snaps === 0 && (c.maxSd == null || r.sd <= c.maxSd)));
-  check('playout torture: no backward steps / pops over jitter, spikes and a stall', bad.length === 0, rs.map(({ c, r }) => `${c.name.split(',')[0]} back ${r.back} pops ${r.pops} maxV ${r.maxV} sd ${r.sd}`).join(' · '));
+  const bad = rs.filter(({ c, r }) => !passes(c, r));
+  check('playout torture: no backward steps / pops over jitter, spikes, a stall, busy / frozen senders (≤ 1.45x pace)', bad.length === 0, rs.map(({ c, r }) => `${c.name.split(',')[0]} back ${r.back} pops ${r.pops} maxV ${r.maxV} sd ${r.sd}`).join(' · '));
 }
 
 let host, a, b;
@@ -324,8 +324,177 @@ try {
     window.__game.game.services.net.chat('hello from Bea');
     window.__game.game.services.net.emote('heart');
   });
-  const gotChat = await waitFor(host, () => (window.__mpChat ?? []).includes('hello from Bea'), null, 10000);
+  // Chat is acked + re-sent (net 'cack'): give a loaded machine (appRtt of seconds) a longer window.
+  const gotChat = await waitFor(host, () => (window.__mpChat ?? []).includes('hello from Bea'), null, 25000);
   check('chat reaches the host', gotChat, gotChat ? '' : JSON.stringify(await net(b, () => window.__game.game.services.net.stats())));
+  // The farmhand's own line shows "sending…" until the host's ack ('cack') lands, then settles.
+  const acked = await waitFor(b, () => !document.querySelector('.coop-log .ln.pending'), null, 25000);
+  check("farmhand's chat line is acked by the host (no 'sending…' left)", acked);
+
+  // ── town (town pod): a farmhand's gift is host-authoritative and everyone sees it land; heart
+  // events are mirrored to farmhands in town as spectators ──────────
+  {
+    const backTo = await Promise.all([host, b].map((pg) => net(pg, () => ({ x: window.__game.game.player.position.x, z: window.__game.game.player.position.z }))));
+    await Promise.all([host, b].map((pg) => net(pg, () => window.__game.teleport('town', 32, 30.5))));
+    await waitFor(host, () => window.__game.game.world.current?.id === 'town', null, 30000);
+    await waitFor(b, () => window.__game.game.world.current?.id === 'town', null, 30000);
+    await sleep(1500);
+    // The nearest villager standing outdoors (as the host sees the town).
+    const target = await net(host, () => {
+      const ps = window.__game.game.services.npcs.positions();
+      ps.sort((p, q) => Math.hypot(p.x - 32, p.z - 30.5) - Math.hypot(q.x - 32, q.z - 30.5));
+      return ps[0] ?? null;
+    });
+    check('town: villagers stream to the farmhand', !!target, JSON.stringify(target));
+    if (target) {
+      await net(b, (t) => {
+        const g = window.__game.game;
+        g.player.teleport(t.x + 0.4, t.z + 1.3);
+        window.__game.give('parsnip', 1);
+        return g.services.relationships.gift(t.id, 'parsnip');
+      }, target);
+      const landed = await waitFor(host, (arg) => window.__game.game.services.npcs.coop().gifts.some((g) => g.id === arg.id && g.from === arg.from), { id: target.id, from: idB }, 10000);
+      // The villager turns over a few frames: wait (<= 2.5 s) for the turn to settle before sampling.
+      await waitFor(host, (arg) => {
+        const n = window.__game.game.services.npcs;
+        const c = n.coop();
+        const pos = n.positions().find((p) => p.id === arg.id);
+        const held = c.held.find((h) => h.id === arg.id);
+        const yaw = c.facing[arg.id];
+        if (!held || !pos || !Number.isFinite(yaw)) return false;
+        const want = Math.atan2(held.x - pos.x, held.z - pos.z);
+        return Math.abs(Math.atan2(Math.sin(yaw - want), Math.cos(yaw - want))) < 0.6;
+      }, { id: target.id }, 2500);
+      const seen = await net(host, (arg) => {
+        const n = window.__game.game.services.npcs;
+        const c = n.coop();
+        const pos = n.positions().find((p) => p.id === arg.id);
+        const held = c.held.find((h) => h.id === arg.id);
+        const yaw = c.facing[arg.id];
+        const want = held && pos ? Math.atan2(held.x - pos.x, held.z - pos.z) : NaN;
+        const off = Math.abs(Math.atan2(Math.sin(yaw - want), Math.cos(yaw - want)));
+        return { gifts: c.gifts.length, held: !!held, off: Number.isFinite(off) ? off : 9, pts: window.__game.game.services.relationships.remotePoints(arg.from, arg.id) };
+      }, { id: target.id, from: idB });
+      check("town: the host sees the farmhand's gift land (hearts / puff FX)", landed, JSON.stringify(seen));
+      check('town: the villager turns to the farmhand who gave it', seen.held && seen.off < 0.6, `held ${seen.held}, ${(seen.off * 57.3).toFixed(0)}° off`);
+      const synced = await waitFor(b, (arg) => window.__game.game.services.relationships.points(arg.id) === arg.pts, { id: target.id, pts: seen.pts }, 8000);
+      const bp = await net(b, (id) => window.__game.game.services.relationships.points(id), target.id);
+      check("town: friendship is host-authoritative (farmhand's points = the host's ledger)", synced && seen.pts > 0, `host ledger ${seen.pts}, farmhand ${bp}`);
+    }
+    // Heart event: the host plays it, the farmhand in town watches (title card + lines).
+    await net(host, () => {
+      window.__mpEv = 'run';
+      void window.__game.game.services.npcs.playEvent('wren-2').then(() => (window.__mpEv = 'done'));
+    });
+    const watching = await waitFor(b, () => window.__game.game.services.npcs.coop().spectating === 'wren-2', null, 15000);
+    check('town: a heart event the host plays is mirrored to the farmhand (spectator)', watching);
+    // Let the first spoken line reach the spectator before the still (r3's shot caught only the title).
+    for (let i = 0; i < 3; i++) {
+      await sleep(900);
+      await host.keyboard.press('Space');
+    }
+    await sleep(1200);
+    await snap(b, `${outDir}/town-spectator.png`);
+    // Click through the host's scene (finish + advance each line, first option on the choice).
+    for (let i = 0; i < 80 && (await net(host, () => window.__mpEv)) !== 'done'; i++) {
+      await host.keyboard.press('Space');
+      await sleep(180);
+    }
+    const ended = await waitFor(b, () => window.__game.game.services.npcs.coop().spectating === null, null, 10000);
+    check('town: the spectator view closes with the host\'s scene', ended);
+    await Promise.all([host, b].map((pg, i) => net(pg, (p) => window.__game.teleport('farm', p.x, p.z), backTo[i])));
+    await waitFor(host, () => window.__game.game.world.current?.id === 'farm', null, 30000);
+    await waitFor(b, () => window.__game.game.world.current?.id === 'farm', null, 30000);
+    await sleep(1000);
+  }
+
+  // ── animals (animals pod): Ash pets a cow standing in an overlapping cluster → the host credits the cow ──
+  {
+    const herd = await net(host, () => {
+      const g = window.__game.game;
+      g.services.buildings.complete('barn');
+      const A = g.services.animals;
+      const cow = A['add']('cow', 1, 'Clover', 600);
+      const sheep = A['add']('sheep', 0, 'Tansy', 600);
+      A['st'].doors.barn = true;
+      A['respawn']();
+      // Pin the pair overlapping: the sheep's body right against the cow's shoulder.
+      const at = { cow: [44.2, 39.2, 1.5], sheep: [45.15, 39.55, -2.2] };
+      for (const l of A['live']) {
+        const k = l.rec?.species;
+        const s = at[k];
+        if (!s) continue;
+        l.actor.area = { x0: s[0] - 0.02, z0: s[1] - 0.02, x1: s[0] + 0.02, z1: s[1] + 0.02 };
+        l.actor.curious = false;
+        l.actor.calm = true;
+        l.actor.place(s[0], s[1], s[2]);
+        l.actor.settle();
+      }
+      A['touch']();
+      return { cow: cow.id, sheep: sheep.id, live: A['live'].filter((l) => l.rec).length };
+    });
+    check('animals: host staged a cow + sheep on the pasture', herd.live >= 2, JSON.stringify(herd));
+    await net(a, () => window.__game.teleport('farm', 44.0, 40.6));
+    const seen = await waitFor(a, (ids) => window.__game.game.services.animals['live'].filter((l) => l.rec && (l.rec.id === ids.cow || l.rec.id === ids.sheep)).length === 2, herd, 15000);
+    check('animals: the farmhand sees the herd', seen);
+    await sleep(1500);
+    const pick = await net(a, (ids) => {
+      const A = window.__game.game.services.animals;
+      const cow = A['live'].find((l) => l.rec?.id === ids.cow);
+      if (!cow) return null;
+      const p = cow.actor.pos;
+      // Click the cow's body on its sheep-side flank (inside both footprints' reach).
+      window.__game.game.events.emit('player:interact', { x: p.x + 0.35, z: p.z + 0.1 });
+      return { x: +p.x.toFixed(2), z: +p.z.toFixed(2) };
+    }, herd);
+    const credited = await waitFor(host, (ids) => {
+      const r = window.__game.game.services.animals.roster();
+      return r.find((x) => x.id === ids.cow)?.petted === true;
+    }, herd, 8000);
+    const after = await net(host, (ids) => window.__game.game.services.animals.roster().filter((x) => x.id === ids.cow || x.id === ids.sheep).map((x) => `${x.name}:${x.friendship}:${x.petted ? 'petted' : '-'}`).join(' '), herd);
+    check('animals: the farmhand\'s pet credits the cow they clicked, not the overlapping sheep', credited && /Tansy:600:-/.test(after), `${JSON.stringify(pick)} ${after}`);
+  }
+
+  // ── animals + carpenter (r12): hostile farmhand intents from the wrong map / out of reach / without
+  // materials are refused by the host (eggs on the farm, a far truffle + pet bowl, hay into the coop from
+  // the pasture, the barn door from across the paddock, a coop order with an empty backpack) ──
+  {
+    const before = await net(host, () => {
+      const g = window.__game.game;
+      const A = g.services.animals;
+      A['st'].eggs = [{ nest: 0, item: 'egg', q: 0 }];
+      A['st'].truffles = [{ x: 30, z: 20, q: 1 }];
+      A['st'].pet.bowl = false;
+      A['st'].hay.coop = [false, false, false, false, false, false];
+      g.services.economy.set(99999);
+      return { door: !!A['st'].doors.barn, rejA: A.rejected ?? 0, rejB: g.services.buildings.rejected ?? 0 };
+    });
+    await net(a, () => {
+      const g = window.__game.game;
+      const inv = g.services.inventory;
+      inv.remove('wood', inv.count('wood'));
+      inv.remove('stone', inv.count('stone'));
+    });
+    await sleep(900); // the farmhand's backpack mirror (psave) reaches the host
+    await net(a, () => {
+      const ev = window.__game.game.events;
+      const send = (intent) => ev.emit('animals:intent', { intent });
+      send({ kind: 'eggs' });
+      send({ kind: 'truffle', x: 30, z: 20 });
+      send({ kind: 'bowl' });
+      send({ kind: 'feed', home: 'coop', hay: 6 });
+      send({ kind: 'door', home: 'barn' });
+      ev.emit('buildings:intent', { intent: { kind: 'order', building: 'coop' } });
+    });
+    await sleep(2000);
+    const after = await net(host, () => {
+      const g = window.__game.game;
+      const A = g.services.animals;
+      return { eggs: A['st'].eggs.length, truffles: A['st'].truffles.length, bowl: A['st'].pet.bowl, hay: A['st'].hay.coop.filter(Boolean).length, door: !!A['st'].doors.barn, coop: g.services.buildings.pending('coop') || g.services.buildings.has('coop'), rejA: A.rejected ?? 0, rejB: g.services.buildings.rejected ?? 0 };
+    });
+    check('animals: hostile farmhand intents (wrong map / out of reach) are refused by the host', after.eggs === 1 && after.truffles === 1 && !after.bowl && after.hay === 0 && after.door === before.door && after.rejA - before.rejA >= 5, JSON.stringify(after));
+    check('carpenter: a farmhand order without wood / stone in their backpack is refused', !after.coop && after.rejB - before.rejB >= 1, JSON.stringify(after));
+  }
 
   // ── Ash leaves → back on their own farm (own purse), then comes back ──
   await net(a, () => window.__game.game.services.net.leave());
@@ -415,6 +584,26 @@ try {
   check('farmhand sees farmhand walk: no backward steps, no pops (per frame)', motion.back === 0 && motion.maxV <= Math.max(2, motion.walk * 2), `${motion.back} backward frames, fastest frame ${motion.maxV} m/s vs walk ${motion.walk} m/s`);
   const perf = await Promise.all([host, a, b].map((p) => net(p, () => window.__game.info().perf)));
   check('render budget with 3 farmers in view (host)', perf[0].drawCalls <= 300, `${perf[0].drawCalls} draw calls, ${(perf[0].triangles / 1e6).toFixed(2)}M tris`);
+  // r7: a name pill never shows over a HUD card (clock, roster, hotbar, energy, chat) — it fades out.
+  const tagHud = await Promise.all([host, a, b].map((p) => net(p, async () => {
+    const HUD = '.h-clock, .hv-toolbar, .hv-energy, .coop-roster:not(.hv-hidden), .coop-log > *, .coop-chat-row:not(.hv-hidden)';
+    let frames = 0, hits = 0, seen = 0;
+    const t0 = performance.now();
+    while (performance.now() - t0 < 1500) {
+      await new Promise((r) => requestAnimationFrame(r));
+      frames++;
+      const huds = [...document.querySelectorAll(HUD)].map((e) => e.getBoundingClientRect()).filter((r) => r.width > 4 && r.height > 4);
+      for (const t of document.querySelectorAll('.coop-tag.on:not(.dim) > .coop-name')) {
+        if (getComputedStyle(t.parentElement).opacity < 0.5 || t.offsetParent === null) continue;
+        const r = t.getBoundingClientRect();
+        if (r.width < 4) continue;
+        seen++;
+        if (huds.some((h) => r.left < h.right && r.right > h.left && r.top < h.bottom && r.bottom > h.top)) hits++;
+      }
+    }
+    return { frames, seen, hits };
+  })));
+  check('name pills never sit over a HUD card (every client)', tagHud.every((q) => q.hits === 0) && tagHud.some((q) => q.seen > 0), tagHud.map((q, i) => `${['host', 'ash', 'bea'][i]} ${q.hits} hits / ${q.seen} pills`).join(' · '));
 
   // Pose for the photo (distinct spots, facing the camera), then each client's view.
   await net(host, (t) => { window.__game.teleport('farm', t.x + 2.6, t.z + 2.4); window.__game.facing('down'); }, T1);
@@ -583,8 +772,12 @@ try {
   results.push({ name: 'fps (host, 3 headless browsers sharing one GPU)', ok: true, detail: `${fpsHost.toFixed(1)} fps avg` });
   console.log(`• fps host ${fpsHost.toFixed(1)} (3 headless pages share one GPU; see npm run perf for the real gate)`);
   const st2 = await Promise.all([a, b].map((p) => net(p, () => window.__game.game.services.net.stats())));
-  for (const [i, s2] of st2.entries()) log(`${['ash', 'bea'][i]} farm sync: ${s2.reconciles} host edits, ${s2.drift} drift, ${s2.needs} mid-day resyncs, ${s2.fullSyncs} full syncs`, s2.driftLog.join(' '));
-  check('steady-state farm drift ≈ 0 (prediction agrees with the host)', st2.every((s2) => s2.drift <= 2 && s2.needs <= 1), st2.map((s2, i) => `${['ash', 'bea'][i]} drift ${s2.drift}, resyncs ${s2.needs}`).join(' · '));
+  for (const [i, s2] of st2.entries()) log(`${['ash', 'bea'][i]} farm sync: ${s2.reconciles} host edits, ${s2.mispredicts} mispredicts, ${s2.drift} drift, ${s2.needs} mid-day resyncs, ${s2.fullSyncs} full syncs`, `drift [${s2.driftLog.join(' ')}] mispredict [${(s2.mispredictLog ?? []).join(' ')}]`);
+  check('steady-state farm drift = 0 (prediction agrees with the host)', st2.every((s2) => s2.drift === 0 && s2.needs <= 1), st2.map((s2, i) => `${['ash', 'bea'][i]} drift ${s2.drift}, resyncs ${s2.needs}`).join(' · '));
+  // Every swing / seed / harvest a farmhand predicted or replayed already matched the host when the
+  // host's word arrived (a mismatch is a visible pop of soil or crop). The sowing race above loses one
+  // tile on purpose (its refund), so allow a couple.
+  check('predictions + replays match the host (≤ 3 visible pops per farmhand)', st2.every((s2) => (s2.mispredicts ?? 0) <= 3), st2.map((s2, i) => `${['ash', 'bea'][i]} ${s2.mispredicts} [${(s2.mispredictLog ?? []).slice(-6).join(' ')}]`).join(' · '));
   const relayStats = await relay.health();
   log('relay', JSON.stringify(relayStats));
   writeFileSync(resolve(outDir, 'mp-results.json'), JSON.stringify({ at: new Date().toISOString(), results, stats, frameMs: fps, relay: relayStats, errors }, null, 2));

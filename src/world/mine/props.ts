@@ -10,6 +10,7 @@ import type { Rng } from '../../core/rng';
 import { MeshBuilder, roundedBox, bevelCylinder, mat, lumpySphere, boxUV, mergeStatic } from '../geom';
 import { buildCrate, buildBarrel } from '../props/structures';
 import { globalUniforms } from '../../render/uniforms';
+import { occlusionPatch } from './occlude';
 import { patchMaterial, after, before } from '../../render/patch';
 import type { FloorLayout } from './gen';
 import { BIOMES } from './biomes';
@@ -105,8 +106,13 @@ function shaftMaterial(color: THREE.Color): THREE.ShaderMaterial {
         float edge = smoothstep(0.0, 0.35, vUv.x) * smoothstep(1.0, 0.65, vUv.x);
         float fall = smoothstep(0.0, 0.25, vUv.y) * smoothstep(1.0, 0.55, vUv.y);
         float streak = 0.6 + 0.4 * n(vec2(vUv.x * 7.0, vUv.y * 1.5 - uTime * 0.12));
-        float motes = step(0.985, h(floor(vec2(vUv.x * 40.0, vUv.y * 60.0 + uTime * 3.0)))) * 1.5;
-        float a = edge * fall * (streak + motes) * 0.22;
+        // Dust in the beam: round, dim specks drifting slowly down (square cells in metres, never
+        // stretched into rain streaks).
+        vec2 mc = vec2(vUv.x * 1.9, vUv.y * 7.5 + uTime * 0.18) * 11.0;
+        vec2 mi = floor(mc);
+        float md = length(fract(mc) - 0.5 - (vec2(h(mi + 3.1), h(mi + 7.7)) - 0.5) * 0.5);
+        float motes = step(0.93, h(mi)) * smoothstep(0.2, 0.06, md) * 0.9;
+        float a = edge * fall * (streak * 0.55 + motes) * 0.16;
         gl_FragColor = vec4(uColor * a, a);
       }`,
   });
@@ -144,20 +150,8 @@ function fgFade(src: THREE.Material): THREE.Material {
     const ob = src.onBeforeCompile.bind(src);
     patchMaterial(c, `orig:${src.customProgramCacheKey()}`, (sh, r) => ob(sh, r));
   }
-  patchMaterial(c, 'mine-fg-fade', (shader) => {
-    shader.uniforms.uFgH = FG_FADE.uFgH;
-    let fs = before(shader.fragmentShader, 'void main() {', 'uniform float uFgH;');
-    // (was a screen-door dither: in a still it printed a visible stipple mesh over the boulders)
-    fs = after(
-      fs,
-      '#include <dithering_fragment>',
-      `{
-        float fgk = 1.0 - smoothstep(uFgH * 0.04, uFgH * 0.2, gl_FragCoord.y);
-        gl_FragColor.rgb *= 1.0 - fgk * 0.6;
-      }`,
-    );
-    shader.fragmentShader = fs;
-  });
+  // Foreground lift + farmer / monster see-through (world/mine/occlude.ts).
+  occlusionPatch(c, true, true);
   fgCache.set(src, c);
   return c;
 }
@@ -170,6 +164,64 @@ export interface MineProps {
   ladderUp: THREE.Vector3;
   elevator: THREE.Vector3 | null;
   dispose(): void;
+}
+
+/**
+ * (r6) A basalt / obsidian column with columnar jointing: 2-3 stacked hex drums, each its own
+ * irregular hexagon (rim verts pushed in / out ±14 %, so faces catch the light differently), a
+ * small twist and slip per drum, and the joints between drums returned as thin rings (drawn as
+ * dim ember seams). Local space: centred on the origin, height `hh` along +Y.
+ */
+function basaltColumn(r: Rng, hh: number, rTop: number, rBot: number, color?: (t: number, c: THREE.Color) => void): { drums: THREE.BufferGeometry[]; joints: THREE.BufferGeometry[] } {
+  const cuts = [0];
+  const n = hh > 1.3 ? 3 : 2;
+  for (let k = 1; k < n; k++) cuts.push((k / n + (r.next() - 0.5) * 0.18) * hh);
+  cuts.push(hh);
+  const prof = Array.from({ length: 6 }, () => 0.86 + r.next() * 0.28);
+  const drums: THREE.BufferGeometry[] = [];
+  const joints: THREE.BufferGeometry[] = [];
+  const c = new THREE.Color();
+  for (let k = 0; k < cuts.length - 1; k++) {
+    const y0 = cuts[k]!;
+    const y1 = cuts[k + 1]! - (k < cuts.length - 2 ? 0.025 : 0);
+    const t0 = y0 / hh;
+    const t1 = y1 / hh;
+    const ra = rBot + (rTop - rBot) * t0;
+    const rb = rBot + (rTop - rBot) * t1;
+    const g = new THREE.CylinderGeometry(rb, ra, y1 - y0, 6, 1).toNonIndexed();
+    const pa = g.attributes.position as THREE.BufferAttribute;
+    // per-drum wobble on the shared profile: the column stays one crystal, each drum chipped
+    const wob = Array.from({ length: 6 }, (_, i) => prof[i]! * (0.94 + r.next() * 0.12));
+    for (let i = 0; i < pa.count; i++) {
+      const x = pa.getX(i);
+      const z = pa.getZ(i);
+      const rr = Math.hypot(x, z);
+      if (rr < 1e-4) continue;
+      const ai = Math.round(((Math.atan2(z, x) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 3)) % 6;
+      pa.setXYZ(i, x * wob[ai]!, pa.getY(i), z * wob[ai]!);
+    }
+    g.computeVertexNormals();
+    const tw = (r.next() - 0.5) * 0.22;
+    g.applyMatrix4(new THREE.Matrix4().makeRotationY(tw).setPosition((r.next() - 0.5) * 0.03, (y0 + y1) / 2 - hh / 2, (r.next() - 0.5) * 0.03));
+    if (color) {
+      const col = new Float32Array(pa.count * 3);
+      for (let i = 0; i < pa.count; i++) {
+        color((pa.getY(i) + hh / 2) / hh, c);
+        // each drum a touch different in value
+        c.multiplyScalar(0.9 + (k % 2) * 0.14);
+        col.set([c.r, c.g, c.b], i * 3);
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    }
+    drums.push(g);
+    if (k < cuts.length - 2) {
+      const jr = rb * 0.97;
+      const j = new THREE.CylinderGeometry(jr, jr, 0.035, 6, 1, true);
+      j.applyMatrix4(new THREE.Matrix4().makeRotationY(tw).setPosition(0, y1 + 0.012 - hh / 2, 0));
+      joints.push(j);
+    }
+  }
+  return { drums, joints };
 }
 
 let obsidianMat: THREE.MeshStandardMaterial | null = null;
@@ -208,7 +260,15 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
 
   // ── ladder up + daylight shaft ──────────────────────────────────
   const lx = L.ladderUp.x + 0.5;
-  const lz = L.ladderUp.z + 1.02;
+  // Foot set against the actual rock face (the shell wanders ±0.4 m around the tile edge): a
+  // ladder standing proud of the wall read as a flat cut-out floating in front of it.
+  let lz = L.ladderUp.z + 1.02;
+  for (let zz = L.ladderUp.z + 1.6; zz > L.ladderUp.z + 0.4; zz -= 0.05) {
+    if (surfaceAt(lx, zz) - heightAt(lx, zz + 0.6) > 0.25) {
+      lz = zz + 0.16;
+      break;
+    }
+  }
   const ly = heightAt(lx, lz + 0.3);
   {
     const lb = new MeshBuilder();
@@ -285,6 +345,8 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
   }
 
   // ── decor ───────────────────────────────────────────────────────
+  /** Lantern halo centres (one camera-facing additive sheet for all of them). */
+  const halos: THREE.Vector3[] = [];
   for (const d of L.decor) {
     const y = heightAt(d.x, d.z);
     const r = rng;
@@ -299,11 +361,26 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
         pb.add('metal', roundedBox(0.23, 0.05, 0.23, 0.01), mat(0, 0.5, 0), { tint: 0x6a625a });
         pb.add('metal', roundedBox(0.23, 0.05, 0.23, 0.01), mat(0, Hh - 0.35, 0), { tint: 0x6a625a });
         if (d.kind === 'lanternPost') {
+          halos.push(new THREE.Vector3(0, 1.64, 0.52).applyAxisAngle(new THREE.Vector3(0, 1, 0), d.rot).add(new THREE.Vector3(d.x, y, d.z)));
           pb.add('woodDark', roundedBox(0.08, 0.08, 0.55, 0.02), mat(0, 1.95, 0.3), { tint: woodTint });
           pb.add('metal', new THREE.CylinderGeometry(0.008, 0.008, 0.16, 4), mat(0, 1.83, 0.52));
           lanternInto(pb, 0, 1.62, 0.52, 1.15);
         }
         place(pb.build({ name: d.kind }), d.x, d.z, d.rot);
+        break;
+      }
+      case 'wallLantern': {
+        // An iron bracket driven into the cliff, a timber backboard, the lantern hanging off the
+        // arm; its halo goes into the shared halo sheet (one additive draw).
+        const wb = new MeshBuilder();
+        wb.add('woodDark', boxUV(roundedBox(0.34, 0.9, 0.1, 0.03), 1), mat(0, 1.95, -0.32), { tint: woodTint });
+        wb.add('metal', roundedBox(0.05, 0.05, 0.62, 0.012), mat(0, 2.28, -0.06), { tint: 0x5a524c });
+        wb.add('metal', roundedBox(0.04, 0.4, 0.04, 0.01), mat(0, 2.1, -0.24, 0.75, 0, 0), { tint: 0x5a524c });
+        for (const yy of [1.62, 2.22]) wb.add('metal', new THREE.CylinderGeometry(0.03, 0.03, 0.04, 8), mat(0, yy, -0.26, Math.PI / 2, 0, 0), { tint: 0x8a8278 });
+        wb.add('metal', new THREE.CylinderGeometry(0.008, 0.008, 0.14, 4), mat(0, 2.18, 0.2));
+        lanternInto(wb, 0, 1.98, 0.2, 1.25);
+        place(wb.build({ name: 'wallLantern' }), d.x, d.z, 0);
+        halos.push(new THREE.Vector3(d.x, heightAt(d.x, d.z) + 2.0, d.z + 0.24));
         break;
       }
       case 'rail': {
@@ -415,11 +492,12 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
           const a = (k / n) * Math.PI * 2 + r.next();
           const dd = k === 0 ? 0 : 0.28 + r.next() * 0.1;
           const hgt = (k === 0 ? 1.8 : 0.7 + r.next() * 0.9) * d.scale;
-          const g = new THREE.CylinderGeometry(0.2, 0.22, hgt, 6, 1);
-          g.translate(0, hgt / 2, 0);
           const x = d.x + Math.cos(a) * dd;
           const z = d.z + Math.sin(a) * dd;
-          b.add('stone', g, mat(x, heightAt(x, z) - 0.05, z, 0, r.next(), 0), { tint: 0x3a3032, aoWorld: (p) => 0.5 + 0.5 * THREE.MathUtils.smoothstep(p.y - y, 0, 1.0) });
+          const col = basaltColumn(r, hgt, 0.2, 0.22);
+          const ryc = r.next();
+          for (const g of col.drums) b.add('stone', g, mat(x, heightAt(x, z) - 0.05 + hgt / 2, z, 0, ryc, 0), { tint: 0x3a3032, aoWorld: (p) => 0.5 + 0.5 * THREE.MathUtils.smoothstep(p.y - y, 0, 1.0) });
+          for (const g of col.joints) glowB.add(glowMaterial(), g, mat(x, heightAt(x, z) - 0.05 + hgt / 2, z, 0, ryc, 0), { tint: 0x4a1404 });
           // Bevelled basalt crown (a flat red hex read as plastic) with a small ember heart.
           const ry = r.next();
           const topc = new THREE.CylinderGeometry(0.15, 0.205, 0.07, 6);
@@ -508,6 +586,12 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
     disposables.push(pool.geometry, pool.material as THREE.Material);
   }
 
+  if (halos.length) {
+    const hm = haloSheet(halos, L.biome === 'lava' ? 0xffb070 : 0xffb060);
+    group.add(hm);
+    disposables.push(hm.geometry, hm.material as THREE.Material);
+  }
+
   const built: THREE.Group[] = [];
   for (const [builder, name] of [
     [b, 'mine-decor'],
@@ -546,6 +630,55 @@ export function buildProps(L: FloorLayout, rng: Rng, heightAt: H, surfaceAt: H =
 }
 
 /** Local copy of the lantern kit so the mine keeps its own emissive (always lit underground). */
+/**
+ * Bloom halos for lanterns: quads facing the fixed mine camera (yaw 0, pitched ~42° down) merged
+ * into one additive mesh; a soft core + wide falloff with a gentle flicker, capped below white.
+ */
+function haloSheet(at: THREE.Vector3[], color: number): THREE.Mesh {
+  const quads: THREE.BufferGeometry[] = [];
+  const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.73, 0, 0));
+  at.forEach((p, i) => {
+    const g = new THREE.PlaneGeometry(1.5, 1.5);
+    g.applyQuaternion(tilt);
+    g.translate(p.x, p.y, p.z);
+    const ph = new Float32Array(g.attributes.position!.count).fill(i * 1.7);
+    g.setAttribute('aPh', new THREE.BufferAttribute(ph, 1));
+    quads.push(g.toNonIndexed());
+  });
+  const merged = new THREE.BufferGeometry();
+  for (const n of ['position', 'uv', 'aPh']) {
+    const size = n === 'position' ? 3 : n === 'uv' ? 2 : 1;
+    const arr = new Float32Array(quads.reduce((a, g) => a + g.attributes.position!.count, 0) * size);
+    let o = 0;
+    for (const g of quads) {
+      arr.set(g.attributes[n]!.array as Float32Array, o);
+      o += g.attributes[n]!.array.length;
+    }
+    merged.setAttribute(n, new THREE.BufferAttribute(arr, size));
+  }
+  quads.forEach((g) => g.dispose());
+  merged.computeBoundingSphere();
+  const m = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: { uTime: globalUniforms.uTime, uCol: { value: new THREE.Color(color) } },
+    vertexShader: `attribute float aPh; varying vec2 vUv; varying float vPh; void main(){ vUv = uv - 0.5; vPh = aPh; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform float uTime; uniform vec3 uCol; varying vec2 vUv; varying float vPh;
+      void main(){
+        float d = length(vUv) * 2.0;
+        float fl = 0.88 + 0.08 * sin(uTime * 9.0 + vPh) + 0.04 * sin(uTime * 23.0 + vPh * 3.0);
+        float a = (pow(max(0.0, 1.0 - d), 3.0) * 0.55 + smoothstep(0.22, 0.0, d) * 0.35) * fl;
+        gl_FragColor = vec4(uCol * a, a);
+      }`,
+  });
+  const mesh = new THREE.Mesh(merged, m);
+  mesh.name = 'mine-lantern-halos';
+  mesh.renderOrder = 8;
+  mesh.userData.noAO = true;
+  return mesh;
+}
+
 function lanternInto(b: MeshBuilder, x: number, y: number, z: number, s = 1): void {
   b.add('metal', roundedBox(0.2 * s, 0.05 * s, 0.2 * s, 0.015), mat(x, y + 0.14 * s, z));
   b.add('metal', new THREE.ConeGeometry(0.15 * s, 0.1 * s, 4), mat(x, y + 0.21 * s, z, 0, Math.PI / 4, 0));
@@ -841,18 +974,13 @@ function wallDressing(L: FloorLayout, r: Rng, heightAt: H, surfaceAt: H, B: Buil
         const hh = 1.4 + r.next() * 1.6;
         const tz = faceZ(x, zb, hh) ?? fz;
         const by = heightAt(x, fz + 0.2);
-        const g = new THREE.CylinderGeometry(0.2 + r.next() * 0.06, 0.24, hh, 6, 1);
-        const col = new Float32Array(g.attributes.position!.count * 3);
-        const c = new THREE.Color();
-        const pa = g.attributes.position as THREE.BufferAttribute;
-        for (let i = 0; i < pa.count; i++) {
-          const t = (pa.getY(i) + hh / 2) / hh;
-          c.setHex(0x1a1420).lerp(new THREE.Color(0x3a2e44), t * 0.6);
-          col.set([c.r, c.g, c.b], i * 3);
-        }
-        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        const lo = new THREE.Color(0x1a1420);
+        const hi = new THREE.Color(0x3a2e44);
+        const colm = basaltColumn(r, hh, 0.2 + r.next() * 0.06, 0.24, (t, c) => c.copy(lo).lerp(hi, t * 0.6));
         const th = Math.atan2(tz - fz, hh);
-        B.rockB.add(obsidianMaterial(), g.toNonIndexed(), mat(x, by + hh / 2 - 0.05, (fz + tz) / 2 + 0.22, th, r.next(), 0));
+        const ryc = r.next();
+        for (const g of colm.drums) B.rockB.add(obsidianMaterial(), g, mat(x, by + hh / 2 - 0.05, (fz + tz) / 2 + 0.22, th, ryc, 0));
+        for (const g of colm.joints) B.glowB.add(glowMaterial(), g, mat(x, by + hh / 2 - 0.05, (fz + tz) / 2 + 0.22, th, ryc, 0), { tint: 0x5a1a06 });
         // Bevelled obsidian crown (a flat glowing red hex cap read as plastic) + a small ember heart.
         const ry = r.next();
         const capG = new THREE.CylinderGeometry(0.15, 0.215, 0.08, 6);

@@ -66,6 +66,36 @@ export class Butterfly {
     this.pickTarget();
   }
 
+  /** Seconds of startled flight left (faster, higher, no landing). */
+  private flee = 0;
+
+  /**
+   * Startle: a butterfly within `r` of (x, z) bolts away from it (tool swings, a farmer at work)
+   * and settles somewhere at least `r` + 1.5 m off — never perched on a working blade.
+   */
+  scare(x: number, z: number, r: number): void {
+    const dx = this.pos.x - x;
+    const dz = this.pos.z - z;
+    const d = Math.hypot(dx, dz);
+    if (d > r) return;
+    const a = d > 1e-3 ? Math.atan2(dz, dx) : Math.random() * Math.PI * 2;
+    const go = r + 1.5 + Math.random() * 1.5;
+    this.target.set(x + Math.cos(a) * go, 0, z + Math.sin(a) * go);
+    this.rest = 0;
+    this.flee = 1.2;
+  }
+
+  /** Keep clear of (x, z) without a startle (demo stills: nothing perches near the work). */
+  avoid(x: number, z: number, r: number, snap = false): void {
+    if (Math.hypot(this.pos.x - x, this.pos.z - z) < r) {
+      this.scare(x, z, r);
+      if (snap) {
+        this.pos.x = this.target.x;
+        this.pos.z = this.target.z;
+      }
+    } else if (Math.hypot(this.target.x - x, this.target.z - z) < r) this.pickTarget();
+  }
+
   private pickTarget(): void {
     const s = this.spots[Math.floor(Math.random() * this.spots.length)]!;
     this.target.set(s.x + (Math.random() - 0.5) * 2, 0, s.z + (Math.random() - 0.5) * 2);
@@ -76,25 +106,35 @@ export class Butterfly {
     const dist = d.length();
     if (this.rest > 0) {
       this.rest -= dt;
-      this.wings.scale.x = 0.55 + Math.sin(t * 3 + this.phase) * 0.3;
+      // Resting: wings folded up together (a thin sliver from the high camera — flat open wings with
+      // their eye-spots read as "88" glyphs on the soil), opening now and then for a slow bask.
+      this.wings.scale.x = 0.1 + Math.pow(Math.max(0, Math.sin(t * 0.9 + this.phase)), 6) * 0.55;
       if (this.rest <= 0) this.pickTarget();
     } else {
       if (dist < 0.3) {
         this.rest = 1 + Math.random() * 3;
+        this.flee = 0;
       } else {
         d.normalize();
         const wob = new THREE.Vector3(Math.sin(t * 2.3 + this.phase), 0, Math.cos(t * 1.9 + this.phase)).multiplyScalar(0.6);
-        this.pos.addScaledVector(d.add(wob).normalize(), dt * 1.1);
+        if (this.flee > 0) this.flee -= dt;
+        this.pos.addScaledVector(d.add(wob.multiplyScalar(this.flee > 0 ? 0.4 : 1)).normalize(), dt * (this.flee > 0 ? 3.2 : 1.1));
         this.root.rotation.y = Math.atan2(d.x, d.z);
       }
       this.wings.scale.x = 0.25 + Math.abs(Math.sin(t * 13 + this.phase)) * 0.85;
     }
     const g = this.heightAt(this.pos.x, this.pos.z);
-    const hover = this.rest > 0 ? 0.32 : 0.55 + Math.sin(t * 3.1 + this.phase) * 0.18 + Math.sin(t * 7 + this.phase) * 0.05;
+    const hover = (this.rest > 0 ? 0.32 : 0.55 + Math.sin(t * 3.1 + this.phase) * 0.18 + Math.sin(t * 7 + this.phase) * 0.05) + (this.flee > 0 ? 0.6 * Math.min(1, this.flee) : 0);
     this.pos.y += (g + hover - this.pos.y) * Math.min(1, dt * 4);
     this.root.position.copy(this.pos);
   }
 }
+
+/**
+ * Other farmers the songbirds keep clear of (co-op avatars, staged farmhands): registered by
+ * whoever places them. The local player is passed to `update` directly.
+ */
+export const farmerBubbles = new Set<THREE.Object3D>();
 
 export class Songbird {
   readonly root = new THREE.Group();
@@ -136,7 +176,21 @@ export class Songbird {
     this.yaw = rng.next() * 6;
   }
 
-  update(dt: number, t: number, player: THREE.Vector3): void {
+  update(dt: number, t: number, player: THREE.Vector3, snap = false): void {
+    // (Farming r20) The nearest farmer — the local player or any registered co-op avatar — is the
+    // one to flee (a bird used to land on a farmhand's watering-can spout). In staged stills a bird
+    // inside a farmer's bubble is whisked away at once instead of hanging mid-flight in frame.
+    for (const f of farmerBubbles) {
+      if (!f.parent) continue;
+      const fp = f.position;
+      if (Math.hypot(fp.x - this.pos.x, fp.z - this.pos.z) < Math.hypot(player.x - this.pos.x, player.z - this.pos.z)) player = fp;
+    }
+    if (snap && Math.hypot(player.x - this.pos.x, player.z - this.pos.z) < 3.2) {
+      this.flying = 4;
+      this.vel.set(0, 3, 0);
+      this.pos.y = this.heightAt(this.pos.x, this.pos.z) + 40;
+      this.root.visible = false;
+    }
     const g = this.heightAt(this.pos.x, this.pos.z);
     if (this.flying > 0) {
       this.flying -= dt;
@@ -153,7 +207,7 @@ export class Songbird {
       if (this.pos.y > g + 6) this.root.visible = false;
     } else {
       this.root.visible = true;
-      if (player.distanceTo(this.pos) < 2.2) {
+      if (Math.hypot(player.x - this.pos.x, player.z - this.pos.z) < 2.2) {
         this.flying = 4;
         const away = this.pos.clone().sub(player).setY(0).normalize();
         this.vel.set(away.x * 4, 2.5, away.z * 4);

@@ -50,15 +50,17 @@ function gullBody(): THREE.BufferGeometry {
   const body = new THREE.SphereGeometry(0.16, 12, 8);
   body.scale(1.9, 0.95, 1.0);
   // Off-white (never pure white: a gull seen from above at noon must not bloom into a light bulb).
-  paint(body, 0xdcdcd4);
+  paint(body, 0xe6e6e0);
   // Grey mantle over the whole back, so from the high camera a gull reads grey-backed, white-bellied.
   const back = new THREE.SphereGeometry(0.163, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.5);
   back.scale(1.86, 0.9, 0.97);
   back.translate(-0.02, 0.012, 0);
-  paint(back, 0xa8b2bc);
+  // (r8: a cooler, darker mantle — the old pale grey went sandy-tan under the afternoon sun and a
+  // gliding gull read as a flat paper cut-out on the shallows.)
+  paint(back, 0x8a98ac);
   const head = new THREE.SphereGeometry(0.1, 10, 8);
   head.translate(0.28, 0.1, 0);
-  paint(head, 0xe2e2da);
+  paint(head, 0xeeeee8);
   const beak = new THREE.ConeGeometry(0.03, 0.14, 6);
   beak.rotateZ(-Math.PI / 2);
   beak.translate(0.42, 0.085, 0);
@@ -98,12 +100,14 @@ function gullWing(): THREE.BufferGeometry {
   g.rotateX(Math.PI / 2); // shape XY → XZ
   const pos = g.attributes.position as THREE.BufferAttribute;
   const col = new Float32Array(pos.count * 3);
-  const grey = new THREE.Color(0xb0bac4);
-  const black = new THREE.Color(0x22242a);
-  const white = new THREE.Color(0xdcdcd6);
+  // r8: cool slate-grey mantle (stays grey under warm light), long black primaries with a white
+  // mirror spot near the tip.
+  const grey = new THREE.Color(0x8a98ac);
+  const black = new THREE.Color(0x1c1e24);
+  const white = new THREE.Color(0xe4e4de);
   for (let i = 0; i < pos.count; i++) {
     const z = Math.abs(pos.getZ(i));
-    const c = z > 0.56 ? black : z > 0.52 ? white : grey;
+    const c = z > 0.66 ? (z > 0.69 ? black : white) : z > 0.47 ? black : grey;
     c.toArray(col, i * 3);
     // gentle camber
     pos.setY(i, Math.sin((z / 0.72) * Math.PI) * 0.03);
@@ -178,6 +182,15 @@ function crabGeo(): THREE.BufferGeometry {
   return merge(parts);
 }
 
+/** Gulls keep this far (m) from a busy angler's head and their line of sight to the camera. */
+const KEEP_R = 3.2;
+/** Gull scale: the model's 1.6 m span → ≈ 0.6 m in the air (smaller than a farmer, never a kite). */
+const GULL_FLY_S = 0.38;
+/** Perched gulls read a little bigger (a story beat on the pier lamp, ≈ 0.35 m long). */
+const GULL_PERCH_S = 0.6;
+/** Wheeling gulls: few, and high (≥ 6 m over the sea: never through the fishing lane / the lens). */
+const N_FLY = 3;
+
 interface Gull {
   perch: THREE.Vector3 | null;
   cx: number;
@@ -251,7 +264,7 @@ export class BeachLife {
     applyWorldFx(mat, { snowUp: 0 });
     const wingMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide });
     wingMat.name = 'gullWing';
-    const nG = 7 + perches.length;
+    const nG = N_FLY + perches.length;
     this.gullBody = new THREE.InstancedMesh(gullBody(), mat, nG);
     this.wingL = new THREE.InstancedMesh(gullWing(), wingMat, nG);
     this.wingR = new THREE.InstancedMesh(gullWing(), wingMat, nG);
@@ -261,13 +274,13 @@ export class BeachLife {
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.group.add(im);
     }
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < N_FLY; i++) {
       this.gulls.push({
         perch: null,
-        cx: 30 + rng.next() * 40,
-        cz: 46 + rng.next() * 14,
-        r: 6 + rng.next() * 9,
-        h: 3.4 + rng.next() * 3.2,
+        cx: 24 + i * 18 + rng.next() * 8,
+        cz: 50 + rng.next() * 14,
+        r: 7 + rng.next() * 8,
+        h: 6.6 + rng.next() * 2.6,
         speed: (0.35 + rng.next() * 0.2) * (rng.next() < 0.5 ? 1 : -1),
         ang: rng.next() * Math.PI * 2,
         flapT: rng.next() * 10,
@@ -280,7 +293,7 @@ export class BeachLife {
       });
     }
     for (const p of perches) {
-      this.gulls.push({ perch: p.clone(), cx: p.x, cz: p.z + 8, r: 7, h: 7, speed: 0.45, ang: rng.next() * 6, flapT: 0, pos: p.clone(), yaw: rng.next() * 6.28, bank: 0, look: 0, lookT: rng.next() * 3, fly: 0 });
+      this.gulls.push({ perch: p.clone().setY(p.y - 0.29 * (1 - GULL_PERCH_S)), cx: p.x, cz: p.z + 8, r: 7, h: 7.5, speed: 0.45, ang: rng.next() * 6, flapT: 0, pos: p.clone(), yaw: rng.next() * 6.28, bank: 0, look: 0, lookT: rng.next() * 3, fly: 0 });
     }
     const crabMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 });
     crabMat.name = 'crab';
@@ -320,7 +333,7 @@ export class BeachLife {
    * 12 % of the view height fades out instead of photobombing the shot. `hour`: gulls roost after
    * 20:00 (gone till dawn) and all but two crabs stay in their burrows at night.
    */
-  update(dt: number, t: number, player: THREE.Vector3, viewportH: number, cam?: THREE.PerspectiveCamera, hour = 12): void {
+  update(dt: number, t: number, player: THREE.Vector3, viewportH: number, cam?: THREE.PerspectiveCamera, hour = 12, keepOut: readonly THREE.Vector3[] = []): void {
     const night = hour >= 20 || hour < 5.5;
     const tanHalf = cam ? Math.tan(THREE.MathUtils.degToRad(cam.fov * 0.5)) : 1;
     // Gulls.
@@ -360,6 +373,26 @@ export class BeachLife {
           g.lookT = 1 + this.rng.next() * 3;
         }
       }
+      // Keep clear of any farmer fighting / showing off a fish: never within KEEP_R of the farmer's
+      // head-and-held-fish column, nor of the line of sight from it up to the camera (a gull wheeling
+      // through the hero's face ruins the catch). Pushed sideways, smoothly, perched birds included.
+      if (keepOut.length && flying) {
+        for (const f of keepOut) {
+          const a = this.v2.set(f.x, f.y + 1.6, f.z);
+          const ab = cam ? this.v3.copy(cam.position).sub(a) : this.v3.set(0, 1, 0);
+          const len = ab.length();
+          ab.divideScalar(len || 1);
+          const tq = THREE.MathUtils.clamp(this.v1.copy(g.pos).sub(a).dot(ab), -1.5, cam ? len : 2);
+          const closest = a.addScaledVector(ab, tq);
+          const off = this.v1.copy(g.pos).sub(closest);
+          const d = off.length();
+          if (d < KEEP_R) {
+            if (d < 1e-3) off.set(1, 0, 0);
+            else off.divideScalar(d);
+            g.pos.addScaledVector(off, (KEEP_R - d) * Math.min(1, dt * 10));
+          }
+        }
+      }
       // Flap/glide cycle.
       g.flapT += dt;
       const cyc = g.flapT % 5;
@@ -370,13 +403,14 @@ export class BeachLife {
       let want = night ? 0 : 1;
       if (cam && want > 0) {
         const d = Math.max(0.1, cam.position.distanceTo(g.pos));
-        const frac = 0.95 / (2 * d * tanHalf);
+        const frac = (1.6 * GULL_FLY_S) / (2 * d * tanHalf);
         want = THREE.MathUtils.clamp((0.12 - frac) / 0.03, 0, 1);
       }
       const vis = (this.gullVis[i] = (this.gullVis[i] ?? want) + (want - (this.gullVis[i] ?? want)) * Math.min(1, dt * 3));
       this.e.set(g.bank, g.yaw + (flying ? 0 : g.look * 0.3), 0, 'YXZ');
       this.q.setFromEuler(this.e);
-      this.s.setScalar(vis < 0.02 ? 0.0001 : vis);
+      const gs = g.perch ? THREE.MathUtils.lerp(GULL_PERCH_S, GULL_FLY_S, Math.abs(g.fly)) : GULL_FLY_S;
+      this.s.setScalar(vis < 0.02 ? 0.0001 : vis * gs);
       this.m.compose(g.pos, this.q, this.s);
       this.gullBody.setMatrixAt(i, this.m);
       for (const [im, side] of [[this.wingL, 1], [this.wingR, -1]] as const) {

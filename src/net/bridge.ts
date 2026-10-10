@@ -7,6 +7,8 @@
  *                         applySnapshot() · farmhand `<x>:intent` → host applyIntent(peer, intent) ·
  *                         host `<x>:grant` {peer, items} → that farmhand receiveGrant(items) ·
  *                         animals: host poses() at 4 Hz → farmhands applyPoses()
+ *   kintara               setAuthority(isHost) · host `kintara:changed` → snapshot() → farmhands applySnapshot() · farmhand
+ *                         `kintara:intent` → host applyIntent(peer, intent) · host `kintara:grant` {peer, items} → receiveGrant()
  *   story                 setRole('host'|'guest'|'solo') · `story:dirty` → netState() → applyNetState() ·
  *                         `story:scene` → guests playRemote(scene) · `story:choice` → guests
  *                         cutscene.resolveRemoteChoice(index)
@@ -42,6 +44,7 @@ const REPS: Rep[] = [
   { service: 'animals', changed: 'animals:changed', intent: 'animals:intent', grant: 'animals:grant', get: 'snapshot', apply: 'applySnapshot' },
   { service: 'buildings', changed: 'buildings:changed', intent: 'buildings:intent', grant: 'buildings:grant', get: 'snapshot', apply: 'applySnapshot' },
   { service: 'story', changed: 'story:dirty', get: 'netState', apply: 'applyNetState' },
+  { service: 'kintara', changed: 'kintara:changed', intent: 'kintara:intent', grant: 'kintara:grant', get: 'snapshot', apply: 'applySnapshot' },
 ];
 
 export interface BridgeLink {
@@ -114,6 +117,7 @@ export class NetBridge {
     call(this.svc('mineNet'), 'setLink', role === 'solo' ? null : { send: (to: number | '*' | 'host', d: unknown[]) => (to === 'host' ? this.link.toHost(d) : to === '*' ? this.link.toAll(d) : this.link.to(to, d)) });
     call(this.svc('animals'), 'setAuthority', isHost);
     call(this.svc('buildings'), 'setAuthority', isHost);
+    call(this.svc('kintara'), 'setAuthority', isHost);
     call(this.svc('story'), 'setRole', role === 'host' ? 'host' : role === 'client' ? 'guest' : 'solo');
     const fishing = this.svc('fishing');
     if (role === 'client') {
@@ -210,7 +214,13 @@ export class NetBridge {
       }
       case 'froll': {
         if (role !== 'host') return true;
-        const roll = call(this.svc('fishing'), 'hostRoll', from, d[2]);
+        let roll: unknown = null;
+        try {
+          roll = call(this.svc('fishing'), 'hostRoll', from, d[2]);
+        } catch (e) {
+          console.warn(`[net] farmhand ${from}: fishing roll failed`, e);
+        }
+        // Always answer (an explicit null = no bite), so the farmhand's float never waits on a timeout.
         this.link.to(from, ['frolled', d[1], roll ?? null]);
         return true;
       }
@@ -224,7 +234,12 @@ export class NetBridge {
       }
       case 'fclaim': {
         if (role === 'host') {
-          const ok = call(this.svc('fishing'), 'validateCatch', from, d[1]);
+          let ok: unknown = false;
+          try {
+            ok = call(this.svc('fishing'), 'validateCatch', from, d[1]);
+          } catch {
+            ok = false;
+          }
           if (ok === false) console.warn(`[net] farmhand ${from}: catch claim did not match an issued roll`);
         }
         return true;

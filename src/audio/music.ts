@@ -20,11 +20,11 @@
  */
 import { DEFAULT_WIDTH, type AudioGraph } from './graph';
 import { Composer, type Piece, type ThemeDef, type TrackName } from './composer';
-import { INSERTS, INSTRUMENTS, TAIL, type InstrumentName } from './instruments';
+import { INSERTS, INSTRUMENTS, TAIL, noteKeys, sfxPalette, type InstrumentName } from './instruments';
 import { THEMES } from './themes';
 import { Rand, hashString } from './dsp';
 import { PiecePrefetch } from './prefetch';
-import { loudnessTrim } from './loudness';
+import { loudnessTrim, toneTrim } from './loudness';
 import { PLAYLISTS, songFor } from './select';
 import { MODES, chordPcs, parseChord, voiceChord, type ModeName } from './theory';
 
@@ -43,11 +43,22 @@ export const MUSIC_LOOKAHEAD = 1.5;
 export const MUSIC_SCHED = { staleAfter: 0.25 };
 /** Worker wait cap at song start (s): after this the song is composed on the frame rather than kept silent. */
 const WORKER_WAIT = 1.5;
+/** The same cap for scene cues (event-*): the old song is still fading, the actors are talking. */
+const WORKER_WAIT_SCENE = 4;
 /** Scheduling diagnostics (all players): notes played slightly late, notes skipped as stale. */
 export const MUSIC_STATS = { late: 0, skipped: 0 };
+/**
+ * Demo seek (round 19, `?demo=audio&theme=spring&from=C`): the first time `theme` starts, it starts at
+ * the first bar of section `from` ('B', 'C', 'outro', or `B2` for its second B / `A3` its third A) or
+ * at a number of seconds — so a critic can hear a bridge without waiting a minute and a half for it.
+ */
+export const MUSIC_SEEK: { theme: string | null; from: string | null } = { theme: null, from: null };
 
 /** Polyphony priority per track: melody and bass always play; texture thins first. */
 const PRIO: Record<TrackName, number> = { melody: 3, bass: 3, counter: 2, accomp: 2, double: 1, accomp2: 1, pad: 1, perc: 1 };
+
+/** Default air-exciter return for a song (see ThemeDef.air). */
+export const DEFAULT_AIR = 0.3;
 
 export class MusicPlayer {
   readonly out: GainNode;
@@ -110,8 +121,30 @@ export class MusicPlayer {
       f.connect(dest);
       return f;
     };
+    // Tonal calibration (loudness.ts toneTrim): low / high shelves to the family's house curve.
+    const tone = toneTrim(theme.id);
+    const toned = (dest: AudioNode): AudioNode => {
+      let n = dest;
+      if (tone.high) {
+        const hs = ctx.createBiquadFilter();
+        hs.type = 'highshelf';
+        hs.frequency.value = 2500;
+        hs.gain.value = tone.high;
+        hs.connect(n);
+        n = hs;
+      }
+      if (tone.low) {
+        const ls = ctx.createBiquadFilter();
+        ls.type = 'lowshelf';
+        ls.frequency.value = 200;
+        ls.gain.value = tone.low;
+        ls.connect(n);
+        n = ls;
+      }
+      return n;
+    };
     // Per-song tone fixes (the mines: a 60 Hz high-pass under the drone, 150–250 Hz mud cut).
-    let dry: AudioNode = shelf(g.musicBus);
+    let dry: AudioNode = toned(shelf(g.musicBus));
     if (theme.eq?.cut) {
       const c = ctx.createBiquadFilter();
       c.type = 'peaking';
@@ -130,15 +163,55 @@ export class MusicPlayer {
       dry = h;
     }
     this.out.connect(dry);
-    this.wet.connect(shelf(g.hall));
+    this.wet.connect(toned(shelf(g.hall)));
     // Stage width follows the song in (the mines and misty nights are wide already; the day tunes open up).
     g.setWidth(theme.width ?? DEFAULT_WIDTH, Math.max(ctx.currentTime, startAt), Math.max(1, fadeIn));
+    g.exciter.gain.setTargetAtTime(theme.air ?? DEFAULT_AIR, Math.max(ctx.currentTime, startAt), Math.max(0.3, fadeIn / 3));
     this.piece = pieces ? pieces.take(theme, seed) : new Composer(theme, seed).compose();
+    this.pinNotes();
     // Seamless loops chain the next piece on the downbeat: have it composed in the background by then.
     if (theme.rest[1] === 0) pieces?.request(theme, seed + 1);
     this.pieceStart = startAt;
     if (bridge) this.pieceStart += this.buildBridge(bridge, startAt);
     this.endTime = this.pieceStart + this.piece.duration;
+    if (MUSIC_SEEK.from && MUSIC_SEEK.theme === theme.id && !bridge) this.seek(MUSIC_SEEK.from);
+  }
+
+  private seek(from: string): void {
+    MUSIC_SEEK.from = null;
+    let off = Number(from);
+    if (!Number.isFinite(off)) {
+      const m = /^([A-Za-z]+)(\d*)$/.exec(from);
+      const want = m?.[1] ?? from;
+      let n = Math.max(1, Number(m?.[2] || 1));
+      off = NaN;
+      for (const b of this.piece.barInfo ?? []) if (b.section === want && --n === 0) {
+        off = b.t;
+        break;
+      }
+    }
+    if (!Number.isFinite(off) || off <= 0 || off >= this.piece.duration) return;
+    off = Math.max(0, off - 0.05);
+    this.pieceStart -= off;
+    this.endTime = this.pieceStart + this.piece.duration;
+    while (this.idx < this.piece.events.length && this.piece.events[this.idx]!.t < off) this.idx++;
+  }
+
+  /** Pin this piece's cached notes in the graph's LRU (real time only; offline renders never evict). */
+  private pinNotes(): void {
+    if (this.g.offline) return;
+    const keys = new Set<string>();
+    const seen = new Set<string>();
+    for (const ev of this.piece.events) {
+      const id = `${ev.inst}${ev.midi}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      for (const k of noteKeys(ev.inst, ev.midi)) keys.add(k);
+    }
+    // ...and the chimes the SFX strike in this song's key.
+    for (const p of sfxPalette(this.theme.key)) for (const k of noteKeys(p.inst, p.midi)) keys.add(k);
+    this.g.pin(keys);
+    this.pieces?.ensure(this.piece, this.g, this.theme.key);
   }
 
   /**
@@ -161,6 +234,13 @@ export class MusicPlayer {
     const roll = th.accomp?.inst ?? 'harp';
     voicing.forEach((m, k) => {
       this.pre.push({ t: at + k * 0.012, inst: 'pad', midi: m, dur: len + 0.6, vel: 0.46, track: 'pad' });
+      // A roll note the LRU dropped is left out (the pad carries the chord) rather than synthesized
+      // on the frame; the worker is asked for it.
+      const keys = noteKeys(roll, m + 12);
+      if (!this.g.offline && this.pieces?.hasWorker && keys.length && !keys.some((key) => this.g.hasBuffer(key))) {
+        this.pieces.urgent(roll, m + 12);
+        return;
+      }
       this.pre.push({ t: at + 0.05 + k * 0.11, inst: roll, midi: m + 12, dur: len, vel: 0.34 - k * 0.04, track: 'accomp' });
     });
     this.pre.sort((x, y) => x.t - y.t);
@@ -193,6 +273,16 @@ export class MusicPlayer {
       air.frequency.value = 9000;
       air.gain.value = 3;
       head = head.connect(air);
+      if (name === 'melody') {
+        // Round 12: +2 dB of 1.5-3 kHz presence on the tune alone, so the lead speaks over the comping
+        // (summer's marimba tune barely separated from the fingerpicked guitar).
+        const pres = ctx.createBiquadFilter();
+        pres.type = 'peaking';
+        pres.frequency.value = 2200;
+        pres.Q.value = 0.9;
+        pres.gain.value = 2;
+        head = head.connect(pres);
+      }
     } else if (name === 'accomp' || name === 'accomp2' || name === 'pad') {
       const box = ctx.createBiquadFilter();
       box.type = 'peaking';
@@ -237,7 +327,22 @@ export class MusicPlayer {
     let n = this.inputs.get(key);
     if (!n) {
       const make = INSERTS[inst];
-      n = make ? make(this.g, this.track(name)) : this.track(name);
+      let out: AudioNode = this.track(name);
+      // (Round 21) The bowed strings' body insert is stereo (a two-channel body IR). Joining a track
+      // that a mono voice already plays on, it turned the whole track stereo — and a stereo signal
+      // passes the track's panner ~3 dB hotter than a mono one (equal-power pan law), so after Amber
+      // Waltz's / Lamplit Seam's cello bridge the clarinet came back ~2.6 dB louder than its calibrated
+      // opening (and a whole-song offline render, which schedules the cello up front, was louder from
+      // bar one). A bowed insert joining a mono track is folded to mono with the pan law made up.
+      if (make && BODY_INSERTS.has(inst) && [...this.inputs.keys()].some((k) => k.startsWith(`${name}:`) && !BODY_INSERTS.has(k.slice(name.length + 1) as InstrumentName))) {
+        const mono = this.g.ctx.createGain();
+        mono.channelCount = 1;
+        mono.channelCountMode = 'explicit';
+        mono.gain.value = Math.SQRT2;
+        mono.connect(out);
+        out = mono;
+      }
+      n = make ? make(this.g, out) : out;
       this.inputs.set(key, n);
     }
     return n;
@@ -264,6 +369,7 @@ export class MusicPlayer {
           this.pieceStart += this.piece.duration;
           this.seed++;
           this.piece = this.pieces ? this.pieces.take(this.theme, this.seed) : new Composer(this.theme, this.seed).compose();
+          this.pinNotes();
           this.pieces?.request(this.theme, this.seed + 1);
           this.idx = 0;
           this.endTime = this.pieceStart + this.piece.duration;
@@ -273,7 +379,25 @@ export class MusicPlayer {
       }
       const t = this.pieceStart + ev.t;
       if (t >= until) return true;
+      // A cached note the worker hasn't delivered yet (a song coming back after the LRU dropped its
+      // notes, or the first bars at boot): hold the schedule back while there is time — the worker's
+      // copy usually lands within a few frames — and only render on the frame in the last 150 ms.
+      let missing = false;
+      if (!this.g.offline && this.pieces?.hasWorker) {
+        const keys = noteKeys(ev.inst, ev.midi);
+        missing = keys.length > 0 && !keys.some((k) => this.g.hasBuffer(k));
+        if (missing && t - this.g.ctx.currentTime > 0.15) {
+          this.pieces.urgent(ev.inst, ev.midi);
+          return true;
+        }
+      }
       this.idx++;
+      // Still not here at the last moment: a texture note is left out rather than synthesized on the
+      // frame (the tune and the bass still play — rendered here if they must be).
+      if (missing && (PRIO[ev.track] ?? 2) < 3) {
+        MUSIC_STATS.skipped++;
+        continue;
+      }
       if (t >= this.stopAt) continue;
       if (this.solo && ev.track !== this.solo && !(this.solo === 'melody' && ev.track === 'double')) continue;
       // Slightly late (a long frame): play it now. Stale (the tab was frozen): skip rather than pile up.
@@ -284,9 +408,19 @@ export class MusicPlayer {
       }
       if (t < now - 0.005) MUSIC_STATS.late++;
       const at = Math.max(t, now);
-      if (!this.g.voiceStart(at, ev.dur + (TAIL[ev.inst] ?? 0.4), PRIO[ev.track])) continue;
+      const tail = TAIL[ev.inst] ?? 0.4;
+      const span = this.g.claimVoice(at, ev.dur + tail, ev.dur, PRIO[ev.track]);
+      if (!span) continue;
       this.notes++;
-      INSTRUMENTS[ev.inst](this.g, this.input(ev.track, ev.inst), at, ev.midi, ev.dur, Math.max(0.05, Math.min(1.2, ev.vel)), ev.o);
+      let dest = this.input(ev.track, ev.inst);
+      // Long-ringing notes (bells, harp, mallets) get their own fader so the budget can steal the tail.
+      if (tail >= 0.8) {
+        const vg = this.g.ctx.createGain();
+        vg.connect(dest);
+        dest = vg;
+        span.kill = (k) => vg.gain.setTargetAtTime(0, k, 0.01);
+      }
+      INSTRUMENTS[ev.inst](this.g, dest, at, ev.midi, ev.dur, Math.max(0.05, Math.min(1.2, ev.vel)), ev.o);
       if (ev.track === 'melody' && ev.dur > 0.08) this.onMelody?.(at, ev.midi, ev.dur);
     }
   }
@@ -371,6 +505,11 @@ export class MusicDirector {
   private current: MusicPlayer | null = null;
   private old: MusicPlayer[] = [];
   private restUntil = 0;
+  /**
+   * Rest between songs set by the game (seconds, [min, max]); null = each song's own `rest`. Farm
+   * days use 8–15 s (the README continuity contract: a 5–15 s breath, never a dropout).
+   */
+  restOverride: [number, number] | null = null;
   /** Planned start of the song after a pending handoff (a drift waits for the phrase end). */
   private handoffStart = 0;
   private rng: Rand;
@@ -423,6 +562,14 @@ export class MusicDirector {
     return PLAYLISTS[want] ? songFor(want, this.baseSeed, this.counts.get(want) ?? 0) : want;
   }
 
+  /** Keep these songs' next arrangements composed and waiting (scene cues, the title). */
+  pinScenes(ids: readonly string[]): void {
+    for (const id of ids) {
+      const th = THEMES[id];
+      if (th) this.pieces.pin(th, this.nextSeed(id));
+    }
+  }
+
   /** Compose the song `want` resolves to in the background now (no-op if already requested). */
   prefetch(want: string | null): void {
     const id = this.resolve(want);
@@ -464,6 +611,32 @@ export class MusicDirector {
     this.counts.clear();
   }
 
+  /**
+   * Co-op (round 21): a farmhand's calendar has just become the host's (net applyCal sets the day
+   * without a day:start). Reseed, and if a playlist song is playing that the host's day would not
+   * open with, crossfade to the one it would — so on the farm both machines play the same song
+   * (the coop-perf run had the host on Apple Blossom Waltz and the farmhand on First Furrow).
+   */
+  resync(daySeed: number): void {
+    if (daySeed === this.baseSeed) return;
+    this.reseed(daySeed);
+    const cur = this.current;
+    if (!cur || !PLAYLISTS[cur.group]) return;
+    const host = songFor(cur.group, daySeed, 0);
+    if (host === cur.theme.id) {
+      this.counts.set(cur.group, 1);
+      this.counts.set(`#${cur.theme.id}`, 1);
+      return;
+    }
+    const now = this.g.ctx.currentTime;
+    cur.stop(1.3, now);
+    this.bridge = { key: cur.keyAt(now), mode: cur.theme.mode };
+    this.restUntil = this.handoffStart = now + 0.05;
+    this.log(`resync ${cur.theme.id}→${host} (the host's day)`, cur.group);
+    this.old.push(cur);
+    this.current = null;
+  }
+
   /** Start the wanted theme as soon as any pending handoff allows, skipping a rest between songs. */
   kick(): void {
     const now = this.g.ctx.currentTime;
@@ -503,7 +676,7 @@ export class MusicDirector {
       this.lastWant = want;
     }
     if (this.current?.finished) {
-      const [a, b] = this.current.theme.rest;
+      const [a, b] = this.current.theme.rest[1] > 0 && this.restOverride ? this.restOverride : this.current.theme.rest;
       this.old.push(this.current);
       this.log(`finished ${this.current.theme.id}`, want);
       this.current = null;
@@ -524,7 +697,9 @@ export class MusicDirector {
         this.pieces.request(th, seed);
         if (now >= this.restUntil && this.pieces.hasWorker && !this.pieces.settled(th, seed)) {
           this.waitSince ??= now;
-          if (now - this.waitSince < WORKER_WAIT) {
+          // A scene cue (songbook-events.ts) may wait longer: the dialogue carries the moment, and a
+          // frame hitch while a heart event's camera moves is worse than a beat of quiet.
+          if (now - this.waitSince < (id.startsWith('event-') ? WORKER_WAIT_SCENE : WORKER_WAIT)) {
             this.old = this.old.filter((p) => p.pump(now + lookahead) && !p.finished);
             return;
           }
@@ -577,10 +752,11 @@ export class MusicDirector {
     this.log('recover: players dropped after repeated update failures', this.forced ?? this.desired);
   }
 
-  setLevel(v: number): void {
+  /** Scale the score's level; `tau` (s) — slow by default, fast for a menu stepping in / out. */
+  setLevel(v: number, tau = 2): void {
     if (Math.abs(v - this.level) < 0.01) return;
     this.level = v;
-    this.current?.setLevel(v, 2);
+    this.current?.setLevel(v, tau);
   }
 
   stopAll(fade = 1.5): void {
@@ -595,6 +771,9 @@ export class MusicDirector {
 }
 
 /** Offline helper: schedule a theme from t=0 for `seconds`. */
+/** Instruments whose track insert is a stereo body (instruments.ts bodyBank). */
+const BODY_INSERTS: ReadonlySet<InstrumentName> = new Set<InstrumentName>(['fiddle', 'cello']);
+
 export function scheduleTheme(g: AudioGraph, id: string, seconds: number, seed = 1, solo: TrackName | null = null): MusicPlayer {
   const th = THEMES[id];
   if (!th) throw new Error(`unknown theme ${id}`);

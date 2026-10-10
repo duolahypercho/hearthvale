@@ -335,8 +335,17 @@ export class MineFX {
             // Glossy wet core (lighter), darker rim.
             // (unlit: kept well under the lit floor's value so it sits IN the cave light instead of
             // reading as a bright paint carpet once a few kills pile up)
-            vec3 c = vC * mix(0.32, 0.9, t.r);
-            gl_FragColor = vec4(c, a * 0.8); }`,
+            vec3 c = vC * mix(0.3, 0.88, t.r);
+            // Darker meniscus rim where the goo thins out (it sits ON the floor, not printed on it).
+            c *= mix(0.42, 1.0, smoothstep(0.08, 0.4, t.a));
+            // Wet gloss: a lantern highlight from the goo's own thickness gradient.
+            vec2 e = vec2(1.5 / 128.0, 0.0);
+            float hx = texture2D(uMap, vUv + e.xy).a - texture2D(uMap, vUv - e.xy).a;
+            float hy = texture2D(uMap, vUv + e.yx).a - texture2D(uMap, vUv - e.yx).a;
+            vec3 n = normalize(vec3(-hx * 5.0, 1.0, hy * 5.0));
+            float spec = pow(max(0.0, dot(n, normalize(vec3(-0.35, 0.8, 0.5)))), 28.0) * smoothstep(0.3, 0.7, t.a);
+            c += vec3(0.85, 0.9, 0.8) * spec * 0.55;
+            gl_FragColor = vec4(c, a * 0.85); }`,
       });
       this.splatMesh = new THREE.InstancedMesh(sg, sm, SPLATS);
       this.splatMesh.name = 'mine-splats';

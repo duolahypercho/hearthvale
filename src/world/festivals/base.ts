@@ -24,13 +24,13 @@ import type { ActivityId } from '../../data/festivals';
 import type { ActionPose, PlayerRig } from '../../entities/player';
 import { LightPools } from '../props/decals';
 import type { BuiltProp } from '../props/structures';
-import { Crowd, Anim, type CrowdSpec } from './crowd';
+import { Crowd, Anim, CROWD_EDGE, type CrowdSpec } from './crowd';
 import { GlowPoints, type GlowPoint } from './fx';
 import { buildRosette } from './kit';
 import { RemoteFarmer } from '../../entities/remote-farmer';
 import { coopVisitors } from '../../data/festivals';
 import { NPCS } from '../../data/npcs';
-import type { CoopRace } from './coop';
+import type { CoopRace, CoopSpec, CoopSpecRace } from './coop';
 
 export interface FestivalMapDef {
   id: string;
@@ -80,6 +80,23 @@ export interface PlayState {
   kinds?: ('me' | 'npc' | 'farmer')[];
   /** Co-op race shared with other farmers (null / absent = solo). */
   coop?: CoopRace | null;
+  /** Host seed for this run (co-op: the host's; solo: local). */
+  seed?: number;
+}
+
+/** Another farmer's mini-game, staged on this machine from the host's broadcasts (co-op). */
+export interface SpecView {
+  spec: CoopSpec;
+  /** Mirror of their game state, advanced from the relayed moments (poses + staging read it). */
+  play: PlayState;
+  /** Their avatar is posed by this map while the view lives (restored after). */
+  posed: RemoteFarmer | null;
+  prevPose: RemoteFarmer['actionPose'];
+  pose: RemoteFarmer['actionPose'];
+  /** Onlookers who turned to watch (restored when it ends). */
+  watchers: { i: number; yaw: number; anim: number }[];
+  /** Relayed moments so far (by kind). */
+  counts: Record<string, number>;
 }
 
 /** Activity trigger spot: interacting within `r` starts the host's activity. */
@@ -129,13 +146,26 @@ export abstract class FestivalMap implements GameMap {
   readonly activitySpots: ActivitySpot[] = [];
   /** Mini-game in progress, if any. */
   play: PlayState | null = null;
+  /** Co-op: forwards this farmer's staged moments to the host (set by the festival system). */
+  relay: ((kind: string, value: number) => void) | null = null;
+  /** Other farmers' mini-games being watched here (co-op spectating), by host session id. */
+  protected specViews = new Map<string, SpecView>();
+  /** A race other farmers are running (spectators stage the field from the host's state). */
+  protected specRaceView: CoopSpecRace | null = null;
+  /** While a spectated moment is being staged: whose (null = the local farmer's). */
+  protected specCtx: SpecView | null = null;
   private prevPose: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
-  private camGoal: { pitch: number; distance: number; yaw: number; ox: number; oz: number } | null = null;
-  private camSaved: { pitch: number; distance: number; yaw: number; ox: number; oz: number } | null = null;
+  /** World xz the mini-game framing looks at regardless of where the player is (null = follow). */
+  protected camAnchor: THREE.Vector2 | null = null;
+  private anchorK = 0;
+  private camGoal: { pitch: number; distance: number; yaw: number; ox: number; oz: number; oy?: number } | null = null;
+  private camSaved: { pitch: number; distance: number; yaw: number; ox: number; oz: number; oy?: number } | null = null;
   private camRelease = 0;
   private poseFn: ((rig: PlayerRig, dt: number) => ActionPose | null) | null = null;
   /** Seconds since the showcase / festival started (render clock). */
   protected showT = 0;
+  /** Night face lighting on the crowd: [warm lantern fill, cool moon rim] at full night (0 = off). */
+  protected faceLight: [number, number] = [0, 0];
   /** Confetti colours for win celebrations (per festival). */
   protected confettiColors = [0xf2b928, 0xe8574a, 0x3f8fd0, 0x6ab04a, 0xffffff];
   /** Crowd members cheering a win (restored to their own clip when it ends). */
@@ -228,6 +258,8 @@ export abstract class FestivalMap implements GameMap {
       this.turnToCamera();
       this.separateCrowd();
       this.crowd = new Crowd(this.crowdSpecs, (x, z) => this.terrain.heightAt(x, z), `${this.id}-crowd`);
+      // Anyone the camera crowds up against in a close framing shrinks away (no giant cropped heads).
+      this.crowd.nearCam = this.game.rc.camera.position;
       this.crowdSpecs.forEach((s, i) => {
         if (s.id) this.named.set(s.id, i);
         if (!s.lift) this.terrain.stampCover('ao', s.x, s.z, 0.45, 0.35);
@@ -294,7 +326,7 @@ export abstract class FestivalMap implements GameMap {
     const watch = new Set<CrowdSpec['anim']>(['idle', 'clap', 'cheer', 'sway', 'wave']);
     const free = new Set<CrowdSpec['anim']>(['idle', 'clap', 'cheer', 'talk', 'sway', 'toast', 'wave', 'lantern']);
     this.crowdSpecs.forEach((s, i) => {
-      if (s.lift || s.pinned || !free.has(s.anim)) return;
+      if (s.lift || s.pinned || s.authored || !free.has(s.anim)) return;
       const h = Math.abs(Math.sin(i * 7.137 + s.z * 31.7) * 43758.5453) % 1;
       let yaw = s.yaw;
       if (!s.id && watch.has(s.anim)) {
@@ -317,7 +349,7 @@ export abstract class FestivalMap implements GameMap {
   protected turnToCamera(frac = 0.38): void {
     const free = new Set<CrowdSpec['anim']>(['idle', 'clap', 'cheer', 'talk', 'sway', 'toast', 'wave', 'lantern']);
     this.crowdSpecs.forEach((s, i) => {
-      if (s.id || s.lift || s.pinned || !free.has(s.anim)) return;
+      if (s.id || s.lift || s.pinned || s.authored || !free.has(s.anim)) return;
       const c = Math.cos(s.yaw);
       if (c > -0.25) return;
       const h = Math.abs(Math.sin(i * 12.9898 + s.x * 78.233) * 43758.5453) % 1;
@@ -334,8 +366,12 @@ export abstract class FestivalMap implements GameMap {
    * post chain, no draw calls), projected every frame; hidden during mini-games, menus and cutscenes.
    */
   private pipLayer: HTMLElement | null = null;
-  private pips: { el: HTMLElement; id: string; a: number; hearts: number }[] = [];
+  private pips: Pip[] = [];
+  private readonly pipWant: string[] = ['', ''];
   private readonly pipV = new THREE.Vector3();
+  /** Layer size, cached by a ResizeObserver so the per-frame step never forces a layout read. */
+  private pipW = 0;
+  private pipH = 0;
 
   private updatePips(dt: number, game: Game): void {
     const c = this.crowd;
@@ -353,51 +389,81 @@ export abstract class FestivalMap implements GameMap {
       this.pipLayer = document.createElement('div');
       this.pipLayer.className = 'fest-pips';
       game.hud.root.append(this.pipLayer);
+      const lay = this.pipLayer;
+      const measure = (): void => {
+        this.pipW = lay.clientWidth;
+        this.pipH = lay.clientHeight;
+      };
+      measure();
+      if (typeof ResizeObserver !== 'undefined') new ResizeObserver(measure).observe(lay);
+      else addEventListener('resize', measure);
       const off = game.events.on('map:change', ({ map }) => {
         if (this.pipLayer) this.pipLayer.style.display = map === this.id ? '' : 'none';
       });
       void off;
     }
     const layer = this.pipLayer;
-    layer.style.display = '';
+    if (layer.style.display !== '') layer.style.display = '';
     const hush = !!this.play || !!game.hud.openPanelName || !!(game as { cinematic?: unknown }).cinematic;
+    // Hushed (mini-game, menu, cutscene) with every tag already faded out: nothing to do.
+    if (hush && this.pips.length) {
+      let live = false;
+      for (const q of this.pips) if (q.a >= 0.02 || q.el.style.opacity !== '0') live = true;
+      if (!live) return;
+    }
     const p = game.player.position;
-    const near: { id: string; i: number; d: number }[] = [];
+    // Only the one or two villagers you're actually next to (or about to talk to) are tagged: a
+    // floating label over every face buried the hosts, the player and the activity in the crowd.
+    // (Pooled scratch — no per-frame arrays / closures.)
+    const want = this.pipWant;
+    want[0] = want[1] = '';
+    let d0 = Infinity;
+    let d1 = Infinity;
     if (!hush) {
       for (const [id, i] of this.named) {
         const m = c.members[i]!;
         const d = Math.hypot(m.x - p.x, m.z - p.z);
-        if (d < 9) near.push({ id, i, d });
+        if (d >= PIP_R) continue;
+        if (d < d0) {
+          want[1] = want[0]!;
+          d1 = d0;
+          want[0] = id;
+          d0 = d;
+        } else if (d < d1) {
+          want[1] = id;
+          d1 = d;
+        }
       }
-      near.sort((a, b) => a.d - b.d);
     }
-    const want = near.slice(0, 4);
-    while (this.pips.length < 4) {
+    while (this.pips.length < 2) {
       const el = document.createElement('div');
       el.className = 'fest-pip';
       el.style.opacity = '0';
       el.innerHTML = '<span></span><i></i>';
       layer.append(el);
-      this.pips.push({ el, id: '', a: 0, hearts: -1 });
+      this.pips.push({ el, id: '', a: 0, hearts: -1, x: 0, y: 0, w: 0, ow: 0, on: false });
     }
     const cam = game.rc.camera;
-    const W = layer.clientWidth || innerWidth;
-    const H = layer.clientHeight || innerHeight;
+    const W = this.pipW || innerWidth;
+    const H = this.pipH || innerHeight;
     const k = Math.min(1.3, Math.max(0.9, H / 900));
-    const placed: { el: HTMLElement; x: number; y: number; w: number; a: number }[] = [];
     for (const pip of this.pips) {
-      if (!want.some((x) => x.id === pip.id) && pip.a <= 0.01) {
-        const free = want.find((x) => !this.pips.some((q) => q.id === x.id));
+      pip.on = false;
+      const wanted = pip.id !== '' && (pip.id === want[0] || pip.id === want[1]);
+      if (!wanted && pip.a <= 0.01) {
+        const free = want[0] && !this.pipHas(want[0]) ? want[0] : want[1] && !this.pipHas(want[1]) ? want[1] : '';
         if (free) {
-          pip.id = free.id;
+          pip.id = free;
           pip.a = 0;
-          const npc = NPCS[free.id as keyof typeof NPCS];
-          (pip.el.firstElementChild as HTMLElement).textContent = npc?.name.split(/\s+/)[0] ?? free.id;
+          const npc = NPCS[free as keyof typeof NPCS];
+          (pip.el.firstElementChild as HTMLElement).textContent = npc?.name.split(/\s+/)[0] ?? free;
           pip.hearts = -1;
+          pip.ow = 0;
         }
       }
-      const cur = want.find((x) => x.id === pip.id);
-      const goal = cur ? Math.min(1, (9 - cur.d) / 2) : 0;
+      const dist = pip.id && pip.id === want[0] ? d0 : pip.id && pip.id === want[1] ? d1 : Infinity;
+      // On or off (a distance-scaled opacity left half-faded ghost tags hanging in stills).
+      const goal = dist < PIP_R ? 1 : 0;
       pip.a += (goal - pip.a) * (1 - Math.exp(-8 * dt));
       const idx = this.named.get(pip.id);
       const m = idx !== undefined ? c.members[idx] : undefined;
@@ -415,26 +481,31 @@ export abstract class FestivalMap implements GameMap {
         pip.el.style.opacity = '0';
         continue;
       }
-      placed.push({ el: pip.el, x: ((this.pipV.x + 1) / 2) * W, y: ((1 - this.pipV.y) / 2) * H, w: (pip.el.offsetWidth || 80) * k, a: pip.a });
+      pip.on = true;
+      pip.x = ((this.pipV.x + 1) / 2) * W;
+      pip.y = ((1 - this.pipV.y) / 2) * H;
+      if (!pip.ow) pip.ow = pip.el.offsetWidth;
+      pip.w = (pip.ow || 80) * k;
     }
-    // Declutter: villagers standing close together stack their tags instead of overlapping them
-    // (nearest the camera — lowest on screen — keeps its spot, the others step up).
-    placed.sort((a, b) => b.y - a.y);
+    // Declutter: two villagers standing close together stack their tags (the one nearer the
+    // camera — lower on screen — keeps its spot, the other steps up).
+    const a = this.pips[0]!;
+    const b = this.pips[1]!;
     const rowH = 30 * k;
-    for (let i = 0; i < placed.length; i++) {
-      const p = placed[i]!;
-      for (let guard = 0; guard < 4; guard++) {
-        let hit = false;
-        for (let j = 0; j < i && !hit; j++) {
-          const q = placed[j]!;
-          hit = Math.abs(q.x - p.x) < (q.w + p.w) / 2 + 4 && Math.abs(q.y - p.y) < rowH;
-        }
-        if (!hit) break;
-        p.y -= rowH;
-      }
-      p.el.style.opacity = p.a.toFixed(3);
-      p.el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) translate(-50%, -100%) scale(${k.toFixed(3)})`;
+    if (a.on && b.on && Math.abs(a.x - b.x) < (a.w + b.w) / 2 + 4 && Math.abs(a.y - b.y) < rowH) {
+      if (a.y > b.y) b.y = a.y - rowH;
+      else a.y = b.y - rowH;
     }
+    for (const q of this.pips) {
+      if (!q.on) continue;
+      q.el.style.opacity = q.a.toFixed(3);
+      q.el.style.transform = `translate3d(${q.x.toFixed(1)}px, ${q.y.toFixed(1)}px, 0) translate(-50%, -100%) scale(${k.toFixed(3)})`;
+    }
+  }
+
+  private pipHas(id: string): boolean {
+    for (const q of this.pips) if (q.id === id) return true;
+    return false;
   }
 
   /**
@@ -616,6 +687,44 @@ export abstract class FestivalMap implements GameMap {
       v.f.update(dt, game.time);
     }
     if (this.play) this.play.t += dt;
+    if (this.crowd && (this.faceLight[0] || this.faceLight[1])) {
+      const n = game.lighting.night;
+      this.crowd.light.fill.value.w = this.faceLight[0] * n;
+      this.crowd.light.rim.value.w = this.faceLight[1] * n;
+    }
+    if (this.specViews.size || this.specRaceView) this.tickSpectators(dt);
+    // Staged framings (paused demo stills, mini-games) never show half-cropped bodies at the edges.
+    CROWD_EDGE.value = this.play || (game.paused && this.staged) ? 1 : 0;
+    // Postcard stills: a gentler tilt-shift (the far rooftops / sky stay crisp, no milky top band).
+    const still = game.paused && this.staged && !this.play;
+    // ... and a soft warm contact ring under your farmer, so you read in a crowded square.
+    if (still && !this.youRing) {
+      const g = new THREE.RingGeometry(0.48, 0.6, 40);
+      g.rotateX(-Math.PI / 2);
+      const m = new THREE.MeshBasicMaterial({ color: 0xf0a830, transparent: true, opacity: 0.7, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
+      this.youRing = new THREE.Mesh(g, m);
+      this.youRing.name = 'you-ring';
+      this.youRing.renderOrder = 4;
+      this.youRing.userData.noAO = true;
+      this.youRing.userData.perfTag = 'festival';
+      this.root.add(this.youRing);
+    }
+    if (this.youRing) {
+      this.youRing.visible = still;
+      if (still) {
+        const pp = game.player.position;
+        this.youRing.position.set(pp.x, this.heightAt(pp.x, pp.z) + 0.03, pp.z);
+      }
+    }
+    if (still) {
+      game.rc.tiltBand = this.stillTilt[0];
+      game.rc.tiltStrength = this.stillTilt[1];
+      this.tiltOwned = true;
+    } else if (this.tiltOwned) {
+      game.rc.tiltBand = 0.26;
+      game.rc.tiltStrength = 0.7;
+      this.tiltOwned = false;
+    }
     this.updatePips(dt, game);
     if (this.winCheer.length && this.showT > this.cheerUntil) {
       const c = this.crowd;
@@ -634,9 +743,27 @@ export abstract class FestivalMap implements GameMap {
       r.yaw += (g.yaw - r.yaw) * k;
       r.lookOffset.x += (g.ox - r.lookOffset.x) * k;
       r.lookOffset.z += (g.oz - r.lookOffset.z) * k;
+      r.lookOffset.y += ((g.oy ?? 0) - r.lookOffset.y) * k;
       if (this.camRelease > 0 && (this.camRelease -= dt) <= 0) this.camGoal = null;
+      // World-anchored framing (the player moves through the shot, e.g. the Ribbon Dance couple
+      // orbiting the pole): the look point holds on the anchor instead of chasing the player.
+      const an = this.camAnchor;
+      if (an && !this.camRelease) {
+        this.anchorK += (1 - this.anchorK) * k;
+        const st = r.focus;
+        r.lookOffset.x += (an.x - st.x - r.lookOffset.x) * this.anchorK;
+        r.lookOffset.z += (an.y - st.z - r.lookOffset.z) * this.anchorK;
+      }
     }
     this.tick(dt, game);
+    // Close mini-game framings: keep the near-lens fade live while the camera eases in.
+    if (this.play && this.crowd) {
+      if ((this.hudT -= dt) <= 0) {
+        this.hudT = 0.2;
+        this.refreshHudRects();
+      }
+      this.crowd.commit();
+    }
   }
 
   // ───────────────────────────────────────────── mini-games
@@ -675,10 +802,10 @@ export abstract class FestivalMap implements GameMap {
   }
 
   /** Ease the camera to a mini-game framing (restored by endPlay). */
-  protected frame(o: { pitch?: number; distance?: number; yaw?: number; ox?: number; oz?: number }): void {
+  protected frame(o: { pitch?: number; distance?: number; yaw?: number; ox?: number; oz?: number; oy?: number }): void {
     const r = this.game.rc.rig;
-    this.camSaved ??= { pitch: r.pitch, distance: r.distance, yaw: r.yaw, ox: r.lookOffset.x, oz: r.lookOffset.z };
-    this.camGoal = { pitch: o.pitch ?? r.pitch, distance: o.distance ?? r.distance, yaw: o.yaw ?? r.yaw, ox: o.ox ?? 0, oz: o.oz ?? 0 };
+    this.camSaved ??= { pitch: r.pitch, distance: r.distance, yaw: r.yaw, ox: r.lookOffset.x, oz: r.lookOffset.z, oy: r.lookOffset.y };
+    this.camGoal = { pitch: o.pitch ?? r.pitch, distance: o.distance ?? r.distance, yaw: o.yaw ?? r.yaw, ox: o.ox ?? 0, oz: o.oz ?? 0, oy: o.oy ?? 0 };
     this.camRelease = 0;
   }
 
@@ -711,6 +838,18 @@ export abstract class FestivalMap implements GameMap {
       m.y = this.heightAt(m.x, m.z);
     }
     c.commit();
+  }
+
+  /** Ease the camera back from a mini-game / spectator framing to where it was. */
+  protected releaseFrame(): void {
+    this.camAnchor = null;
+    this.anchorK = 0;
+    if (this.camSaved) {
+      const c = this.camSaved;
+      this.camGoal = { ...c };
+      this.camRelease = 2.5;
+      this.camSaved = null;
+    }
   }
 
   /** Update the live mini-game framing (camera look offset + distance) without saving it again. */
@@ -748,12 +887,66 @@ export abstract class FestivalMap implements GameMap {
     this.poseFn = (rig, dt) => (this.play ? this.playerPose(rig, this.play, dt) : null) ?? this.prevPose?.(rig, dt) ?? null;
     p.actionPose = this.poseFn;
     this.onBeginPlay(this.play);
+    // Framing guard: onlookers whose heads the frame edge or a HUD panel would crop fold away;
+    // the partner is part of the shot and always stays.
+    if (this.crowd) {
+      this.crowd.screen = { cam: this.game.rc.camera, rects: [], minR: 0.035, maxR: 0.16 };
+      for (const i of this.participants(id)) {
+        const m = this.crowd.members[i];
+        if (m) m.keep = true;
+      }
+      const pi = partner ? this.named.get(partner) : undefined;
+      if (pi !== undefined) this.crowd.members[pi]!.keep = true;
+      this.hudT = 0;
+    }
     return this.play;
+  }
+
+  private hudT = 0;
+  /** HUD panel rectangles in NDC (the mini-game overlay's panels, plaque, cards, pop-ups). */
+  private refreshHudRects(): void {
+    const sc = this.crowd?.screen;
+    if (!sc) return;
+    const cv = this.game.rc.renderer.domElement.getBoundingClientRect();
+    const out = sc.rects;
+    out.length = 0;
+    if (!cv.width || !cv.height) return;
+    document.querySelectorAll('.fg-root .fg-panel, .fg-root .fg-plaque, .fg-root .fg-howto, .fg-root .fg-result, .fg-root .fg-card, .fg-root .fg-judge').forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4 || getComputedStyle(el).opacity === '0') return;
+      out.push(((r.left - cv.left) / cv.width) * 2 - 1, 1 - ((r.bottom - cv.top) / cv.height) * 2, ((r.right - cv.left) / cv.width) * 2 - 1, 1 - ((r.top - cv.top) / cv.height) * 2);
+    });
+  }
+
+  private youRing: THREE.Mesh | null = null;
+  /** Tilt-shift [band, strength] for paused postcard stills (see update). */
+  protected stillTilt: [number, number] = [0.38, 0.45];
+  private tiltOwned = false;
+
+  /** Crowd members taking part in activity `act` (never folded away by its framing guard). */
+  protected participants(_act: ActivityId): number[] {
+    return [];
+  }
+
+  /** Framing-guard test hook: onlooker heads crossing the frame edge / a HUD rect right now. */
+  cropCheck(): { n: number; ids: number[]; rects: number } {
+    this.refreshHudRects();
+    const c = this.crowd;
+    if (!c) return { n: 0, ids: [], rects: 0 };
+    const had = c.screen;
+    c.screen ??= { cam: this.game.rc.camera, rects: [], minR: 0.035, maxR: 0.16 };
+    if (!had) this.refreshHudRects();
+    const r = c.cropCount();
+    const rects = c.screen.rects.length / 4;
+    c.screen = had;
+    return { ...r, rects };
   }
 
   /** A moment in the mini-game worth staging (hit, miss, release, finish, win / lose…). */
   playEvent(kind: string, value = 0): void {
     if (!this.play) return;
+    // Co-op: the moment goes to the host, which stages it for every other farmer on the grounds.
+    this.relay?.(kind, value);
     if (kind === 'win') this.celebrate(value);
     else if (kind === 'lose') {
       // No ribbon: a little grey sigh-cloud puffs over your head; the crowd claps politely.
@@ -810,15 +1003,189 @@ export abstract class FestivalMap implements GameMap {
     if (!play) return;
     this.onEndPlay(play, result);
     this.play = null;
-    if (this.camSaved) {
-      const c = this.camSaved;
-      this.camGoal = { ...c };
-      this.camRelease = 2.5;
-      this.camSaved = null;
-    }
+    this.releaseFrame();
     const p = this.game.player;
     if (p.actionPose === this.poseFn) p.actionPose = this.prevPose;
     this.prevPose = this.poseFn = null;
+    const c = this.crowd;
+    if (c) {
+      c.screen = null;
+      for (const m of c.members) m.keep = false;
+      c.commit();
+    }
+  }
+
+  // ───────────────────────────────────────────── co-op spectating
+
+  /**
+   * Another farmer started a mini-game (host-stamped session): mirror its state here, pose their
+   * avatar with the activity's own body animation, turn the onlookers round to watch and let the
+   * map stage its world side (partner, lanterns, judges, gift circle…).
+   */
+  spectateBegin(spec: CoopSpec): void {
+    if (this.specViews.has(spec.sid)) return;
+    const play: PlayState = { id: spec.act, t: 0, partner: spec.partner, steer: 0, boost: false, progress: [0], score: 0, total: 0, beat: 0, hop: 1, live: true, done: false, stats: {}, seed: spec.seed };
+    const v: SpecView = { spec, play, posed: null, prevPose: null, pose: null, watchers: [], counts: {} };
+    v.pose = (rig, dt) => {
+      try {
+        return this.playerPose(rig, v.play, dt);
+      } catch {
+        return null;
+      }
+    };
+    this.specViews.set(spec.sid, v);
+    this.withSpec(v, () => this.onSpectateBegin(v));
+  }
+
+  /** A relayed moment of a spectated game (the same kinds the local overlay emits). */
+  spectateEvent(sid: string, kind: string, value: number): void {
+    const v = this.specViews.get(sid);
+    if (!v) return;
+    v.counts[kind] = (v.counts[kind] ?? 0) + 1;
+    const pl = v.play;
+    // Mirror what the overlay would have written into its PlayState.
+    if (kind === 'hop') pl.hop = 0;
+    else if (kind === 'perfect' || kind === 'good') {
+      pl.beat += 1;
+      pl.score += kind === 'perfect' ? 2 : 1;
+      pl.progress[0] = Math.min(1, (pl.progress[0] ?? 0) + (kind === 'perfect' ? 0.035 : 0.02));
+    } else if (kind === 'release') pl.progress[0] = 0;
+    else if (kind === 'restart') {
+      pl.progress = [0];
+      pl.score = 0;
+    }
+    this.withSpec(v, () => {
+      // Kinds the local game stages through onPlayEvent are staged the same way for the watcher.
+      // (Not while you play the same game yourself: that staging is yours.)
+      if (kind !== 'win' && kind !== 'lose' && this.play?.id !== pl.id) this.onPlayEvent(pl, kind, value);
+      this.onSpectateEvent(v, kind, value);
+    });
+  }
+
+  /** The host's word on a spectated game: confetti + a ribbon for a winner, a polite clap otherwise. */
+  spectateEnd(sid: string, score: number, place: number): void {
+    const v = this.specViews.get(sid);
+    if (!v) return;
+    this.specViews.delete(sid);
+    const a = v.spec.avatar();
+    if (a && score >= 0) {
+      const p = a.root.position;
+      if (place <= 2) {
+        const cols = this.confettiColors;
+        for (let k = 0; k < 5; k++) {
+          const ang = (k / 5) * Math.PI * 2;
+          this.burst(p.x + Math.cos(ang) * 1.2, p.y + 0.4, p.z + Math.sin(ang) * 0.9, { color: cols[k % cols.length]!, count: 20, speed: 3, size: 0.12, gravity: 2.2, life: 2.2, up: 2.4, spread: 0.45 });
+        }
+        a.emote?.('heart', 3);
+      } else a.emote?.('happy', 2);
+    }
+    const c = this.crowd;
+    if (c) {
+      // Watchers applaud (a cheer for a ribbon), then go back to what they were doing.
+      for (const w of v.watchers) {
+        const m = c.members[w.i];
+        if (!m) continue;
+        m.anim = place <= 2 && score >= 0 ? Anim.cheer : Anim.clap;
+        this.winCheer.push({ i: w.i, anim: w.anim });
+        m.yaw = w.yaw;
+      }
+      this.cheerUntil = this.showT + 3;
+      c.commit();
+    }
+    this.withSpec(v, () => this.onSpectateEnd(v, place));
+    if (v.posed && v.posed.actionPose === v.pose) v.posed.actionPose = v.prevPose;
+  }
+
+  /** Leaving the grounds: drop every watched game (their avatars get their own poses back). */
+  spectateClear(): void {
+    for (const v of [...this.specViews.values()]) {
+      this.withSpec(v, () => this.onSpectateEnd(v, 3));
+      if (v.posed && v.posed.actionPose === v.pose) v.posed.actionPose = v.prevPose;
+    }
+    this.specViews.clear();
+    this.specRaceView = null;
+  }
+
+  /** A race other farmers run: the map stages the villager field from the host's clock + seed. */
+  spectateRace(r: CoopSpecRace): void {
+    this.specRaceView = r;
+  }
+
+  /** Watching anyone's `act` right now (and the local farmer isn't playing it)? */
+  protected spectated(act: ActivityId): SpecView | null {
+    if (this.play?.id === act) return null;
+    for (const v of this.specViews.values()) if (v.spec.act === act) return v;
+    return null;
+  }
+
+  /** Where the farmer whose moment is being staged stands (a spectated avatar, else you). */
+  protected actorPos(): THREE.Vector3 {
+    const a = this.specCtx?.spec.avatar();
+    return a ? a.root.position : this.game.player.position;
+  }
+
+  private withSpec(v: SpecView, fn: () => void): void {
+    const prev = this.specCtx;
+    this.specCtx = v;
+    try {
+      fn();
+    } catch (e) {
+      console.warn('[festival] spectate', e);
+    } finally {
+      this.specCtx = prev;
+    }
+  }
+
+  private tickSpectators(dt: number): void {
+    const c = this.crowd;
+    for (const v of this.specViews.values()) {
+      const pl = v.play;
+      pl.t += dt;
+      pl.hop = Math.min(1, pl.hop + dt / 0.3);
+      if (pl.id === 'dance') pl.beat += dt * 1.6;
+      const a = v.spec.avatar();
+      if (a && a.root.parent && v.posed !== a) {
+        // Their avatar arrived on this map: pose it, and the nearest onlookers turn to watch.
+        v.posed = a;
+        v.prevPose = a.actionPose;
+        a.actionPose = v.pose;
+        if (c) {
+          const p = a.root.position;
+          const keep = new Set<number>([Anim.skate, Anim.sack, Anim.ribbonR, Anim.ribbonL, Anim.sit, Anim.perch, Anim.fiddle, Anim.ride]);
+          const near = c.members
+            .map((m, i) => ({ m, i, d: Math.hypot(m.x - p.x, m.z - p.z) }))
+            .filter((x) => x.d > 1.2 && x.d < 7 && !x.m.spec.lift && !keep.has(x.m.anim) && !this.winCheer.some((w) => w.i === x.i))
+            .sort((x, y) => x.d - y.d)
+            .slice(0, 8);
+          for (const { m, i } of near) {
+            v.watchers.push({ i, yaw: m.yaw, anim: m.anim });
+            m.yaw = Math.atan2(p.x - m.x, p.z - m.z);
+            if (m.anim === Anim.idle || m.anim === Anim.talk) m.anim = Anim.clap;
+          }
+          c.commit();
+        }
+      }
+      if (v.posed) this.withSpec(v, () => this.onSpectateTick(v, dt));
+    }
+    if (this.specRaceView?.done) this.specRaceView = null;
+  }
+
+  protected onSpectateBegin(_v: SpecView): void {}
+  /** Generic juice for a relayed moment (maps add their own staging on top). */
+  protected onSpectateEvent(v: SpecView, kind: string, value: number): void {
+    const a = v.spec.avatar();
+    if (!a) return;
+    const p = a.root.position;
+    const good = ['perfect', 'release', 'gate', 'star', 'unwrap', 'given', 'rosette'];
+    if (good.includes(kind)) this.burst(p.x, p.y + 1.7, p.z, { color: kind === 'star' || value >= 2 ? 0xffe27a : 0xfff4e0, count: 10, speed: 1.4, size: 0.1, gravity: 0.6, life: 1.1, up: 1, spread: 0.3 });
+    else if (kind === 'miss' || kind === 'crack' || kind === 'stumble') this.burst(p.x, p.y + 2.1, p.z, { color: 0xb8c0cc, count: 6, speed: 0.5, size: 0.18, gravity: -0.2, life: 1.2, up: 0.3, spread: 0.2 });
+  }
+  protected onSpectateEnd(_v: SpecView, _place: number): void {}
+  protected onSpectateTick(_v: SpecView, _dt: number): void {}
+
+  /** Spectated sessions (tests / diagnostics). */
+  spectating(): { sid: string; act: string; events: number; posed: boolean }[] {
+    return [...this.specViews.values()].map((v) => ({ sid: v.spec.sid, act: v.spec.act, events: Object.values(v.counts).reduce((a, b) => a + b, 0), posed: !!v.posed }));
   }
 
   protected onBeginPlay(_play: PlayState): void {}
@@ -844,6 +1211,23 @@ export abstract class FestivalMap implements GameMap {
     this.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
   }
 }
+
+/** A floating name + heart pip (pooled; at most two on screen). */
+interface Pip {
+  el: HTMLElement;
+  id: string;
+  a: number;
+  hearts: number;
+  x: number;
+  y: number;
+  w: number;
+  /** Measured CSS width of the tag (0 = re-measure; only after its name text changes). */
+  ow: number;
+  on: boolean;
+}
+
+/** Name pips show for villagers within this many metres of the player. */
+const PIP_R = 4.5;
 
 /** A small pill name tag (co-op visitor) above a farmer's head. */
 function nameTag(name: string, color: string): THREE.Sprite {

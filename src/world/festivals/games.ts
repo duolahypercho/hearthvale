@@ -14,15 +14,16 @@
  * Every game ends on a shared result card (rosette, rewards, hearts). The 3D side is staged by the
  * map through `PlayState` + `map.playEvent(kind, value)`. `auto` (demo / attract mode) plays itself.
  */
+import * as THREE from 'three';
 import type { Game } from '../../core/game';
 import { NPCS, type NpcId, type Mood } from '../../data/npcs';
 import { itemDef } from '../../data/items';
 import { CROPS } from '../../data/crops';
-import { WISHES, produceRivals, PRESENTATIONS, favouredPresentation, STARFALL_GIFTS, PRIZES, MIN_ENTRY_VALUE, shortName, type ActivityDef, type FestivalDef } from '../../data/festivals';
+import { GIFT_HINTS, WISHES, produceRivals, PRESENTATIONS, favouredPresentation, entryNickname, STARFALL_GIFTS, PRIZES, MIN_ENTRY_VALUE, shortName, type ActivityDef, type FestivalDef } from '../../data/festivals';
 import { portraitSvg } from '../../ui/portraits';
 import { itemIcon } from '../../ui/icons';
 import type { FestivalMap, PlayState } from './base';
-import type { CoopLobby, CoopRace, CoopRacer } from './coop';
+import { sackNpcPos, sackNpcFinish, SACK_LEN, type CoopLobby, type CoopRace, type CoopRacer } from './coop';
 
 export interface GameEnv {
   game: Game;
@@ -50,6 +51,8 @@ export interface BoardRow {
 }
 
 export interface GameResult {
+  /** How the co-op board shows a farmer's score (e.g. the sack race shows the prize, not points). */
+  boardScore?: (score: number, place: number) => string;
   /** 0 = best tier (1st), 1 = 2nd, 2 = 3rd; ≥ 3 with `noRibbon` = below the prize line. */
   place: number;
   /** Below the ribbon threshold: no rosette, a laugh and a consolation. */
@@ -79,7 +82,8 @@ const CSS = /* css */ `
   background: radial-gradient(circle at 35% 35%, #ffe9a8, #c89030 60%, #7a5018); box-shadow: 0 2px 0 rgba(0,0,0,.35); }
 .fg-plaque::before { left: 9px; } .fg-plaque::after { right: 9px; }
 /* The result card (trophy / slam) owns the top of the screen: the plaque steps aside. */
-.fg-root:has(.fg-result) .fg-plaque { animation: none; opacity: 0; transform: translate(-50%, -24px); transition: opacity 220ms ease, transform 260ms ease; }
+/* Class toggle, not :has() — a :has() rule here made every text change on the page re-run style+layout (~12 ms at 1440p). */
+.fg-root.fg-has-result .fg-plaque { animation: none; opacity: 0; transform: translate(-50%, -24px); transition: opacity 220ms ease, transform 260ms ease; }
 .fg-howto { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); max-width: 640px; text-align: center; font-weight: 800; font-size: 17px; color: #fff8e8;
   padding: 7px 18px; border-radius: 999px; background: rgba(40, 22, 10, .55); backdrop-filter: blur(4px); text-shadow: 0 1px 2px rgba(0,0,0,.5); animation: fgFade 5s ease both; }
 @keyframes fgShakeX { 0%,100% { translate: 0 0; } 20% { translate: -4px 1px; } 40% { translate: 4px -1px; } 60% { translate: -3px 0; } 80% { translate: 2px 1px; } }
@@ -182,7 +186,7 @@ const CSS = /* css */ `
 .fg-card.sel { transform: translateY(-5px) scale(1.04); background: #fff6dc; border-color: #c8573e; box-shadow: 0 6px 0 rgba(120,60,20,.25), 0 0 0 4px rgba(255, 200, 120, .45); }
 .fg-card .star { color: #e8a820; letter-spacing: -1px; }
 .fg-wish { font-family: var(--font-hand); font-size: 27px !important; line-height: 28px !important; font-weight: 700 !important; text-wrap: balance; }
-.fg-choose .fg-card:has(.fg-wish) { min-height: 176px; display: flex; flex-direction: column; justify-content: center; }
+.fg-choose .fg-card.wish { min-height: 176px; display: flex; flex-direction: column; justify-content: center; }
 /* ── race ── */
 .fg-race { left: 50%; bottom: 30px; transform: translateX(-50%); width: min(900px, calc(100vw - 32px)); }
 .fg-race > .in { height: 150px; }
@@ -239,12 +243,46 @@ const CSS = /* css */ `
 .fg-draw .rl { font-weight: 800; color: var(--ink-soft); font-size: 14px; }
 .fg-draw .line { margin-top: 10px; font-size: 18px; font-weight: 700; color: #4a2c14; line-height: 24px; }
 .fg-draw.spin .pp { animation: fgShake 160ms linear infinite; }
+/* Gift Exchange cards sit to the side so the 3D moment (the recipient's reaction, the unwrap in your hands) stays in view. */
+.fg-draw.side { left: auto; right: 56px; top: 50%; transform: translateY(-50%); width: 320px; }
+.fg-draw.side .pp { width: 150px; height: 150px; }
+.fg-draw.side .line { font-size: 16px; line-height: 21px; }
 .fg-box { width: 180px; height: 180px; margin: 6px auto 8px; position: relative; cursor: pointer; }
 .fg-box svg { width: 100%; height: 100%; overflow: visible; }
 .fg-box.shake { animation: fgShake 520ms ease-in-out infinite; }
 .fg-box .rays { position: absolute; inset: -60px; border-radius: 50%; background: repeating-conic-gradient(rgba(255, 220, 120, .55) 0 10deg, transparent 10deg 20deg); animation: fgSpin 8s linear infinite; mask: radial-gradient(circle, #000 30%, transparent 70%); -webkit-mask: radial-gradient(circle, #000 30%, transparent 70%); }
 .fg-box .gift { position: absolute; left: 50%; top: 50%; width: 110px; height: 110px; margin: -55px 0 0 -55px; animation: fgBounce 600ms var(--ease-back) both; }
 .fg-box .gift .u-ic { width: 100%; height: 100%; }
+/* Gift choice: a side panel (the 3D pair stays in view) — the recipient, a hint, three peeks and
+   their reaction meter; every peek is acted out in 3D (they lean in, light up or wince). */
+.fg-gpick { right: 40px; top: 50%; transform: translateY(-50%); width: 452px; }
+.fg-gpick > .in { padding: 16px 18px 14px; }
+.fg-gpick .hd { display: flex; gap: 12px; align-items: center; }
+.fg-gpick .pp { flex: none; width: 74px; height: 74px; border-radius: 16px; overflow: hidden; box-shadow: 0 0 0 3px var(--wood-2), 0 0 0 5px var(--wood-hi); }
+.fg-gpick .pp svg { width: 100%; height: 100%; display: block; }
+.fg-gpick h3 { margin: 0; font-family: var(--font-head); font-size: 24px; line-height: 26px; color: #5a3218; }
+.fg-gpick .hint { margin: 3px 0 0; font-size: 14px; line-height: 18px; font-weight: 800; color: #7a4a2a; font-style: italic; }
+.fg-rmeter { position: relative; margin: 12px 4px 4px; height: 16px; border-radius: 9px; background: linear-gradient(90deg, #8a9ac0 0 25%, #b8b0a8 25% 50%, #f0a860 50% 75%, #ef5a7a 75%); box-shadow: inset 0 2px 4px rgba(60, 30, 10, .35), 0 0 0 2px rgba(120, 70, 30, .35); }
+.fg-rmeter .nd { position: absolute; top: -9px; left: 0; width: 22px; height: 34px; margin-left: -11px; transition: left 520ms cubic-bezier(.3, 1.6, .5, 1); }
+.fg-rmeter .nd::before { content: ''; position: absolute; left: 50%; top: 0; width: 6px; height: 34px; margin-left: -3px; border-radius: 3px; background: #4a2c14; box-shadow: 0 0 0 2px #fff6dc; }
+.fg-rmeter.idle .nd { opacity: .35; }
+.fg-rmeter-l { display: grid; grid-template-columns: repeat(4, 1fr); text-align: center; font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--ink-soft); margin: 2px 4px 0; }
+.fg-rmeter-say { min-height: 22px; margin-top: 4px; text-align: center; font-family: var(--font-head); font-size: 18px; color: #c8573e; }
+.fg-gpick .fg-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.fg-gpick .fg-card { padding: 8px 6px 7px; }
+.fg-gpick .fg-card .u-ic { width: 42px; height: 42px; margin-bottom: 3px; }
+.fg-gpick .fg-card .nm { font-size: 14px; line-height: 16px; }
+.fg-gpick .fg-card .pk { position: absolute; top: 5px; right: 5px; width: 14px; height: 14px; border-radius: 50%; display: none; box-shadow: 0 0 0 2px #fff6dc; }
+.fg-gpick .fg-card.peeked .pk { display: block; }
+.fg-gpick .ft { margin-top: 10px; display: flex; justify-content: space-between; align-items: center; font-weight: 800; font-size: 14px; color: var(--ink-soft); }
+.fg-gpick .ft b { font-family: var(--font-head); color: #c8573e; }
+.fg-gpick .dots i { display: inline-block; width: 12px; height: 12px; margin-left: 4px; border-radius: 50%; background: #e8a020; box-shadow: inset 0 -2px 0 rgba(0,0,0,.2); }
+.fg-gpick .dots i.used { background: rgba(120, 80, 40, .25); box-shadow: none; }
+.fg-gpick .btn { pointer-events: auto; cursor: pointer; padding: 4px 12px; border-radius: 999px; background: #fff6dc; border: 2px solid rgba(120, 70, 30, .35); font-family: var(--font-head); color: #5a3218; }
+.fg-beats { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); display: flex; gap: 10px; }
+.fg-beats i { font-style: normal; padding: 6px 14px; border-radius: 999px; background: rgba(30, 16, 8, .55); color: rgba(255, 245, 224, .55); font-weight: 800; font-size: 15px; }
+.fg-beats i.on { background: #fff6dc; color: #c8573e; box-shadow: 0 0 0 3px #e8a020, 0 0 24px rgba(255, 210, 120, .8); animation: fgPulse 900ms ease-in-out infinite; }
+.fg-beats i.done { background: rgba(80, 140, 80, .7); color: #fff; }
 /* ── skate ── */
 .fg-skate { right: 26px; top: 170px; width: 220px; }
 .fg-skate > .in { padding: 12px 16px 14px; text-align: center; background: linear-gradient(180deg, #f4f8ff, #dce8f6); }
@@ -319,6 +357,17 @@ function installCss(): void {
   s.id = 'fg-css';
   s.textContent = CSS;
   document.head.appendChild(s);
+}
+
+/** Per-frame HUD writes: touch the DOM only when the value changed (each text mutation costs a style pass). */
+function setText(el: Element, s: string): void {
+  if (el.textContent !== s) el.textContent = s;
+}
+const lastStyle = new WeakMap<HTMLElement, { width?: string; left?: string }>();
+function setStyle(el: HTMLElement, k: 'width' | 'left', v: string): void {
+  let m = lastStyle.get(el);
+  if (!m) lastStyle.set(el, (m = {}));
+  if (m[k] !== v) el.style[k] = m[k] = v;
 }
 
 function div(cls: string, html = ''): HTMLDivElement {
@@ -450,6 +499,7 @@ export class FestivalOverlay {
 
   private clearBody(root: HTMLElement, keep: HTMLElement): void {
     for (const c of [...root.children]) if (c !== keep) c.remove();
+    root.classList.remove('fg-has-result');
   }
 
   private play(env: GameEnv): Promise<GameResult | null> {
@@ -526,11 +576,19 @@ export class FestivalOverlay {
   private async lineUp(env: GameEnv): Promise<CoopRace | null> {
     const lob = env.lobby;
     if (!lob || env.auto) return null;
+    // Nobody else on the grounds: the host hands the race (its seed + start tick) straight back.
+    if (lob.quick) {
+      const r = await lob.result;
+      return this.aborted ? null : r;
+    }
     const root = this.root!;
-    const panel = div('fg-panel fg-lobby fg-live', `<div class="in"><div class="k">${lob.owner ? 'At the start line' : 'Joining the line-up'}</div><div class="who"></div><div class="t"></div>${lob.owner ? '<div class="fg-go">Start now <kbd>Space</kbd></div>' : ''}<div class="esc">Esc · go it alone</div></div>`);
+    // (Who owns the line is the host's call: the title + start button follow its lobby state.)
+    const panel = div('fg-panel fg-lobby fg-live', `<div class="in"><div class="k">Joining the line-up</div><div class="who"></div><div class="t"></div><div class="fg-go" style="display:none">Start now <kbd>Space</kbd></div><div class="esc">Esc · go it alone</div></div>`);
     const who = panel.querySelector('.who') as HTMLElement;
     const tEl = panel.querySelector('.t') as HTMLElement;
-    panel.querySelector('.fg-go')?.addEventListener('click', () => lob.startNow());
+    const kEl = panel.querySelector('.k') as HTMLElement;
+    const goEl = panel.querySelector('.fg-go') as HTMLElement;
+    goEl.addEventListener('click', () => lob.startNow());
     root.append(panel);
     let res: CoopRace | null | undefined;
     void lob.result.then((r) => (res = r));
@@ -544,6 +602,11 @@ export class FestivalOverlay {
         if (rows.length > 1) this.sfx('ui:select', 0.8);
       }
       const left = Math.ceil(lob.left());
+      const own = lob.owner;
+      if (goEl.style.display !== (own ? '' : 'none')) {
+        goEl.style.display = own ? '' : 'none';
+        kEl.textContent = own ? 'At the start line' : 'Joining the line-up';
+      }
       tEl.textContent = lob.owner ? `Starting in ${left}s — anyone at the fair can talk to the host to join` : `Waiting for the starter… ${left}s`;
       if (lob.owner && this.hit('Space', 'Enter')) lob.startNow();
       if (this.hit('Escape')) lob.cancel();
@@ -555,6 +618,18 @@ export class FestivalOverlay {
       return null;
     }
     return res ?? null;
+  }
+
+  /**
+   * Screen position (CSS %) just above the local farmer's head: judgement pops ride with you in
+   * screen space instead of landing on whatever world prop / villager sits at a fixed spot.
+   */
+  private overHead(dy = 2.7): [string, string] {
+    const p = this.game.player.position;
+    _ohV.set(p.x, p.y + dy, p.z).project(this.game.rc.camera);
+    const x = THREE.MathUtils.clamp(_ohV.x * 0.5 + 0.5, 0.12, 0.88);
+    const y = THREE.MathUtils.clamp(-_ohV.y * 0.5 + 0.5 - 0.04, 0.16, 0.8);
+    return [`${(x * 100).toFixed(1)}%`, `${(y * 100).toFixed(1)}%`];
   }
 
   private judges = new WeakMap<HTMLElement, { el: HTMLElement | null; k: number }>();
@@ -607,7 +682,7 @@ export class FestivalOverlay {
     // Few cards (≤ 4): one row of exactly that many equal columns (no empty auto-fill slot).
     if (cards.length <= 4) grid.style.gridTemplateColumns = `repeat(${cards.length}, minmax(0, 1fr))`;
     const els = cards.map((html, i) => {
-      const c = div('fg-card', html);
+      const c = div(html.includes('fg-wish') ? 'fg-card wish' : 'fg-card', html);
       c.style.animationDelay = `${i * 40}ms`;
       c.addEventListener('mouseenter', () => (sel = i));
       c.addEventListener('click', () => (chosen = i));
@@ -661,7 +736,7 @@ export class FestivalOverlay {
     const boardHtml = (rows: BoardRow[], anim: boolean): string =>
       rows.length > 1
         ? `<div class="fg-board"><div class="h">Farmers today</div>${rows
-            .map((e, i) => `<div class="r${e.player === 'local' ? ' me' : ''}" style="${anim ? `animation-delay:${200 + i * 90}ms` : 'animation:none'}"><span class="pl">${e.place < 3 && i < 3 ? miniRosette(i) : '<small>—</small>'}</span><span class="dot" style="background:${e.color ?? (e.player === 'local' ? '#7ac050' : '#b89a7a')}"></span><span>${ORD[i] ?? ''} · ${escapeHtml(e.name)}</span><span class="sc">${e.score > 0 ? e.score.toLocaleString() : '…'}</span></div>`)
+            .map((e, i) => `<div class="r${e.player === 'local' ? ' me' : ''}" style="${anim ? `animation-delay:${200 + i * 90}ms` : 'animation:none'}"><span class="pl">${e.place < 3 && i < 3 ? miniRosette(i) : '<small>—</small>'}</span><span class="dot" style="background:${e.color ?? (e.player === 'local' ? '#7ac050' : '#b89a7a')}"></span><span>${ORD[i] ?? ''} · ${escapeHtml(e.name)}</span><span class="sc">${r.boardScore ? r.boardScore(e.score, e.place) : e.score > 0 ? e.score.toLocaleString() : '…'}</span></div>`)
             .join('')}</div>`
         : '';
     const boardRows = (): BoardRow[] => (!r.reaction && env.board ? env.board(r) : []);
@@ -679,6 +754,7 @@ export class FestivalOverlay {
     if (win || r.reaction) env.map.playEvent('win', r.reaction ? 0 : r.place);
     else env.map.playEvent('lose', r.place);
     root.append(card);
+    root.classList.add('fg-has-result');
     if (!r.noRibbon && r.reaction !== 'dislike') this.confetti(root, r.reaction ? [0xff5a7a, 0xffa0b8, 0xffffff, 0xf2d27a] : env.festival.colors, big ? 130 : 40);
     this.sfx(r.noRibbon || r.reaction === 'dislike' ? 'plop' : big ? 'catch:perfect' : 'catch', 1);
     let go = false;
@@ -703,6 +779,7 @@ export class FestivalOverlay {
       return hold ? false : env.auto ? t > 4.2 : go || (t > 0.5 && this.hit('Space', 'Enter', 'KeyX', 'KeyF', 'Escape'));
     });
     card.remove();
+    root.classList.remove('fg-has-result');
     root.querySelectorAll('.fg-rays, .fg-sting').forEach((e) => e.remove());
   }
 
@@ -853,8 +930,16 @@ export class FestivalOverlay {
           miss();
         }
         const x = RING_X + (n.t - t) * SPEED;
-        const off = x > laneW + 60 || x < -240;
-        if (n.state !== 1 && !off) n.el.style.transform = `translateX(${x}px) rotate(${Math.sin((n.t - t) * 5) * 8}deg)`;
+        // Notes enter from inside the lane (faded in over its last ~70 px) and never slide under
+        // the combo / score column.
+        const off = x > laneW - 34 || x < -240;
+        if (n.state !== 1 && !off) {
+          n.el.style.transform = `translateX(${x}px) rotate(${Math.sin((n.t - t) * 5) * 8}deg)`;
+          if (n.state === 0) {
+            const fin = Math.min(1, Math.max(0, (laneW - 34 - x) / 70));
+            n.el.style.opacity = fin < 1 ? fin.toFixed(2) : '';
+          }
+        }
         if (n.off !== off) {
           n.off = off;
           n.el.style.display = off ? 'none' : '';
@@ -1040,13 +1125,13 @@ export class FestivalOverlay {
     const lanes = panel.querySelector('.lanes') as HTMLElement;
     const toks: HTMLElement[] = [];
     const rowsEl: HTMLElement[] = [];
-    let npcK = 0;
+    let tintK = 0;
     for (let i = 0; i < N; i++) {
       const l = div('');
       const f = farmer[i];
       const t = div(i === 0 ? 'fg-token me' : f ? 'fg-token me farmer' : 'fg-token', i === 0 ? '<b>YOU</b>' : f ? `<b>${escapeHtml(f.name.slice(0, 5).toUpperCase())}</b>` : '');
       if (f) t.style.borderColor = f.color;
-      else if (i) t.style.background = npcTints[npcK++ % npcTints.length]!;
+      else if (i) t.style.background = npcTints[tintK++ % npcTints.length]!;
       l.append(t);
       rowsEl.push(l);
       toks.push(t);
@@ -1060,18 +1145,23 @@ export class FestivalOverlay {
     const meter = panel.querySelector('.bounce i') as HTMLElement;
     const placeEl = panel.querySelector('.place') as HTMLElement;
     root.append(panel);
-    const LEN = 25.4;
+    const LEN = SACK_LEN;
     const pos = new Array(N).fill(0) as number[];
     /** Finish time on the race clock (s), -1 = still hopping. */
     const finT = new Array(N).fill(-1) as number[];
-    // Villager racers: steady hops with the odd wobble (deterministic from the race clock, so every
-    // farmer in a shared race sees the same villagers).
-    const NPC_SPEEDS = [2.62, 2.48, 2.75, 2.36];
-    const npc: { s: number; stumble: number }[] = [];
-    for (let i = 0, k = 0; i < N; i++) npc.push(kinds[i] === 'npc' ? { s: NPC_SPEEDS[k % 4]!, stumble: 3 + (k++ + 1) * 1.7 } : { s: 0, stumble: 1 });
+    // Villager racers: steady hops with the odd wobble — a closed-form function of the (host's) seed
+    // and the race clock, so every farmer in a shared race and every spectator sees the same field
+    // and the host ranks the same finish.
+    const seed = race?.seed ?? env.play.seed ?? 1;
+    const npcK: number[] = [];
+    for (let i = 0, k = 0; i < N; i++) npcK.push(kinds[i] === 'npc' ? k++ : -1);
     env.play.progress = pos.map(() => 0);
     if (!(await this.countdown(root))) return null;
     env.play.live = true;
+    // Attract mode (demos) joins the race a few seconds in, so a still catches the field strung out
+    // mid-lane — sacks in the air, wobblers tumbling — rather than five racers at the start line.
+    const T0 = env.auto && !race ? 5.5 : 0;
+    if (T0) pos[0] = T0 * 2.3;
     let next: 0 | 1 = 0;
     let last = -1;
     let stun = 0;
@@ -1093,10 +1183,8 @@ export class FestivalOverlay {
           }
           continue;
         }
-        const n = npc[i]!;
-        const wob = Math.abs(((t + i * 1.3) % n.stumble) - n.stumble / 2) < 0.22 ? 0.2 : 1;
-        pos[i] = Math.min(LEN, pos[i]! + n.s * wob * dt * (0.9 + 0.1 * Math.sin(t * 7 + i)));
-        if (pos[i]! >= LEN) finT[i] = t;
+        pos[i] = sackNpcPos(seed, npcK[i]!, t + T0);
+        if (pos[i]! >= LEN) finT[i] = sackNpcFinish(seed, npcK[i]!) - T0;
       }
       // Player hops.
       stun = Math.max(0, stun - dt);
@@ -1142,11 +1230,11 @@ export class FestivalOverlay {
       env.play.hop = last < 0 ? 1 : Math.min(1, (t - last) / 0.3);
       kL!.classList.toggle('next', next === 0 && finT[0]! < 0);
       kR!.classList.toggle('next', next === 1 && finT[0]! < 0);
-      meter.style.width = `${Math.round(bounce * 100)}%`;
-      placeEl.textContent = ['1st', '2nd', '3rd', '4th', '5th'][rankOf(0)]!;
+      setStyle(meter, 'width', `${Math.round(bounce * 100)}%`);
+      setText(placeEl, ['1st', '2nd', '3rd', '4th', '5th'][rankOf(0)]!);
       for (let i = 0; i < N; i++) {
         env.play.progress[i] = pos[i]! / LEN;
-        toks[i]!.style.left = `${(pos[i]! / LEN) * 100}%`;
+        setStyle(toks[i]!, 'left', `${((pos[i]! / LEN) * 100).toFixed(2)}%`);
       }
       // Finished: hold 1.4 s for the others (a farmer a few hops behind still gets placed).
       // Co-op: wait (up to 8 s) for every other farmer to cross, so both machines rank the same finish.
@@ -1167,12 +1255,29 @@ export class FestivalOverlay {
     }
     env.play.live = false;
     if (!ok) return null;
-    const place = finT[0]! >= 0 ? rankOf(0) : 4;
+    // Co-op: the host ranks the field (its clock, lag-checked finish times, the seeded villagers);
+    // this machine's own count is only the fallback if the host never answers.
+    const placeOf = new Array(N).fill(-1) as number[];
+    for (let i = 0; i < N; i++) placeOf[i] = finT[i]! >= 0 ? rankOf(i) : 4;
+    if (race) {
+      placeEl.textContent = '…';
+      const st = await race.standings(4000);
+      if (this.aborted) return null;
+      for (const row of st ?? []) {
+        if (row.id === race.me) placeOf[0] = row.fin >= 0 ? row.place : 4;
+        const k = farmer.findIndex((f) => f?.id === row.id);
+        if (k > 0) {
+          placeOf[k] = row.fin >= 0 ? row.place : 4;
+          finT[k] = row.fin;
+        }
+      }
+    }
+    const place = placeOf[0]!;
     panel.remove();
-    const rival = farmer.find((f, i) => f && finT[i]! >= 0 && finT[i]! < finT[0]!) ?? null;
-    const beat = farmer.filter((f, i) => f && (finT[i]! < 0 || finT[i]! > finT[0]!)).map((f) => f!.name);
+    const rival = farmer.find((f, i) => f && placeOf[i]! < place) ?? null;
+    const beat = farmer.filter((f, i) => f && placeOf[i]! > place).map((f) => f!.name);
     const coopLine = rival ? ` ${rival.name} out-hopped you — rematch next fall!` : beat.length ? ` You beat ${beat.join(' and ')} to the tape!` : '';
-    const rivals: BoardRow[] = farmer.flatMap((f, i) => (f ? [{ player: f.key, name: f.name, color: f.color, place: finT[i]! >= 0 ? Math.min(3, rankOf(i)) : 3, score: finT[i]! >= 0 ? Math.round(1000 - rankOf(i) * 200) : 0 }] : []));
+    const rivals: BoardRow[] = farmer.flatMap((f, i) => (f ? [{ player: f.key, name: f.name, color: f.color, place: Math.min(3, placeOf[i]!), score: placeOf[i]! < 4 ? Math.round(1000 - placeOf[i]! * 200) : 0 }] : []));
     if (place >= 3) {
       return {
         place,
@@ -1180,6 +1285,7 @@ export class FestivalOverlay {
         score: Math.round(1000 - place * 200),
         gold: 0,
         hearts: this.sympathy('wren'),
+        boardScore: (_s, pl) => (pl < 3 ? `${PRIZES.sackrace[pl]} g` : '—'),
         title: ['', '', '', 'Fourth — Valiant!', 'Last, but Bouncy'][place]!,
         sub: ['', '', '', 'No ribbon, but a round of applause and a cup of cider.', 'Kit says you “hopped with feeling”. The sack says otherwise.'][place]! + coopLine,
         rivals,
@@ -1189,6 +1295,8 @@ export class FestivalOverlay {
       place,
       score: Math.round(1000 - place * 200),
       gold: PRIZES.sackrace[place]!,
+      // (r8: the board quoted the internal 1000 / 800 points, read as gold; it shows the purse.)
+      boardScore: (_s, pl) => (pl < 3 ? `${PRIZES.sackrace[pl]} g` : '—'),
       hearts: [{ id: 'wren', delta: place === 0 ? 60 : 30 }],
       title: ['Sack Race Champion!', 'Second Place!', 'Third Place!'][place]!,
       sub: (race ? ['The whole Commons is chanting your name.', 'So close! A sack-length in it.', 'A bronze-worthy bounce!'] : ['Wren is demanding a rematch. Loudly.', 'Odessa won by a sack-length. She is insufferable about it.', 'A bronze-worthy bounce!'])[place]! + coopLine,
@@ -1242,22 +1350,28 @@ export class FestivalOverlay {
     const top = Math.max(...rivals.map((r) => r.score));
     const topBy = rivals.find((r) => r.score === top)!;
     let mine: Entry;
+    /** Presentation picked (-1 = none offered, PRESENTATIONS.length = just as it is). */
+    let touch = -1;
     if (!list.length) mine = { id: 'stone', name: 'A Very Polished Stone', q: 0, score: 12, note: 'the judges are baffled' };
     else {
       const stars = (q: number): string => (q ? `<span class="star">${'★'.repeat(q)}</span>` : 'Regular');
       const k = await this.pick(env, 'Choose your entry', `Judged on value, quality and presentation. Entries under ${MIN_ENTRY_VALUE}g rarely place — this year's favourite, ${topBy.name.split(' (')[0]}, scores ${top}.`, list.map((c) => `${itemIcon(c.id)}<div class="nm">${c.name}</div><div class="meta">${stars(c.q)}</div>`), 0);
       if (k === null) return null;
       mine = { ...list[k]! };
+      mine.name = entryNickname(mine.id, this.game.calendar.year, mine.name);
       // Presentation: the judges favour one touch each year (the hint is the tell).
       const fav = favouredPresentation(this.game.calendar.year);
       const pk = await this.pick(env, 'Present it', PRESENTATIONS[fav]!.hint, [...PRESENTATIONS.map((p) => `<div class="ic">${PRESENT_SVG[p.id]}</div><div class="nm">${p.name}</div>`), `<div class="ic">${PRESENT_SVG.plain}</div><div class="nm">Just as it is</div>`], fav);
       if (pk === null) return null;
+      touch = pk;
       const bonus = pk === fav ? 7 : pk < PRESENTATIONS.length ? 2 : 0;
       mine.score = Math.min(99, mine.score + bonus);
       if (pk < PRESENTATIONS.length) mine.note += ` · ${PRESENTATIONS[pk]!.name.toLowerCase()}${pk === fav ? ' (the judges swooned)' : ''}`;
     }
     env.play.partner = mine.id;
-    env.map.playEvent('enter');
+    // The 3D entry is sized by its score (the winner is visibly the finest on the table) and shows
+    // its presentation touch: value = score + 1000 × (touch + 1).
+    env.map.playEvent('enter', mine.score + 1000 * (touch + 1));
     const entries = [...rivals.map((r) => ({ ...r, me: false, icon: '' })), { name: mine.name, by: 'You', score: mine.score, tint: '', me: true, icon: mine.id }];
     // Shuffle the table, but keep yours third.
     const SLOTS = [1, 0, 3, 2];
@@ -1285,7 +1399,7 @@ export class FestivalOverlay {
     const ptsEls = cards.map((c) => c.querySelector('.pts') as HTMLElement);
     await this.loop((_dt, t) => {
       const k = Math.min(1, t / 1.6);
-      table.forEach((e, i) => (ptsEls[i]!.textContent = String(Math.round(e.score * k * k * (3 - 2 * k)))));
+      table.forEach((e, i) => setText(ptsEls[i]!, String(Math.round(e.score * k * k * (3 - 2 * k)))));
       if (Math.floor(t * 12) !== Math.floor((t - 0.016) * 12)) this.sfx('ui:tick', 0.6);
       return t > 1.7;
     });
@@ -1332,7 +1446,7 @@ export class FestivalOverlay {
     const ids = Object.keys(NPCS) as NpcId[];
     const target = (env.play.partner as NpcId) ?? ids[Math.floor(Math.random() * ids.length)]!;
     // 1) Draw a name.
-    const draw = div('fg-panel fg-draw spin fg-live', `<div class="in"><div class="rl">You drew…</div><div class="pp"></div><div class="nm">?</div><div class="rl">&nbsp;</div></div>`);
+    const draw = div('fg-panel fg-draw side spin fg-live', `<div class="in"><div class="rl">You drew…</div><div class="pp"></div><div class="nm">?</div><div class="rl">&nbsp;</div></div>`);
     root.append(draw);
     const pp = draw.querySelector('.pp') as HTMLElement;
     const nm = draw.querySelector('.nm') as HTMLElement;
@@ -1379,13 +1493,12 @@ export class FestivalOverlay {
     }
     let giftId: string | null = null;
     if (gifts.length) {
-      const list = gifts.slice(0, 12);
-      const autoPick = Math.max(0, list.findIndex((g) => rel?.taste(target, g.id) === 'love'));
-      const c = await this.pick(env, `A present for ${shortName(tn.name)}`, 'Wrap something from your backpack. (They’ll never guess it was you.)', list.map((g) => `${itemIcon(g.id)}<div class="nm">${itemDef(g.id)?.name ?? g.id}</div>`), autoPick);
+      const list = gifts.slice(0, 9);
+      const c = await this.giftPick(env, target, list.map((g) => g.id));
       if (c === null) return null;
       giftId = list[c]!.id;
     }
-    // 3) Their reaction.
+    // 3) Their reaction: the meter swings to where their face lands, acted out in 3D.
     const reaction = giftId ? (rel?.taste(target, giftId) ?? 'like') : 'neutral';
     if (giftId && !env.auto) {
       if (rel?.gift(target, giftId) === null) rel?.adjust(target, reaction === 'love' ? 80 : reaction === 'like' ? 45 : 20);
@@ -1394,28 +1507,46 @@ export class FestivalOverlay {
     }
     const mood: Mood = reaction === 'love' ? 'laugh' : reaction === 'like' ? 'happy' : reaction === 'dislike' ? 'worried' : 'happy';
     const line = giftId ? stripTags(tn.giftLines[reaction]) : 'A hand-drawn card! With a little star on it. I’ll keep this forever.';
-    const react = div('fg-panel fg-draw fg-live', `<div class="in"><div class="pp">${portraitSvg(tn.look, tn.portraitBg, mood)}</div><div class="nm">${shortName(tn.name)}</div><div class="line">“${line}”</div></div>`);
+    const react = div(
+      'fg-panel fg-draw side fg-live',
+      `<div class="in"><div class="pp">${portraitSvg(tn.look, tn.portraitBg, mood)}</div><div class="nm">${shortName(tn.name)}</div><div class="fg-rmeter idle"><div class="nd"></div></div><div class="fg-rmeter-l"><span>Oh…</span><span>Meh</span><span>Like</span><span>Love</span></div><div class="line">“${line}”</div></div>`,
+    );
     root.append(react);
+    const nd = react.querySelector('.fg-rmeter .nd') as HTMLElement;
+    requestAnimationFrame(() => {
+      (nd.parentElement as HTMLElement).classList.remove('idle');
+      nd.style.left = `${Math.round(tasteLevel(reaction, giftId ?? '') * 100)}%`;
+    });
     this.sfx(`gift:${reaction}`, 1);
-    env.map.playEvent('given', reaction === 'love' ? 3 : reaction === 'like' ? 2 : 1);
+    env.map.playEvent('given', reaction === 'love' ? 3 : reaction === 'like' ? 2 : reaction === 'dislike' ? 0 : 1);
     if (!(await this.loop((_dt, t) => (env.auto ? t > 2.2 : t > 0.6 && this.hit('Space', 'Enter', 'KeyX', 'KeyF')) || t > 7))) return null;
     react.remove();
-    // 4) Somebody drew you: the present appears in your hands in 3D; unwrap it there (lid pops,
-    // ribbon flies, confetti), THEN the card names what was inside.
+    // 4) Somebody drew you: the present appears in your hands in 3D and you unwrap it there in three
+    // beats — pull the ribbon, lift the lid, peek inside (the keepsake rises out sparkling) — THEN
+    // the card names what was inside.
     const giver = ids.filter((i) => i !== target)[Math.floor(Math.random() * (ids.length - 1))]!;
-    const got = STARFALL_GIFTS.filter((g) => itemDef(g))[Math.floor(Math.random() * STARFALL_GIFTS.filter((g) => itemDef(g)).length)] ?? 'topaz';
-    env.map.playEvent('gift-appear');
+    const pool = STARFALL_GIFTS.filter((g) => itemDef(g));
+    const gi = Math.floor(Math.random() * pool.length);
+    const got = pool[gi] ?? 'topaz';
+    env.map.playEvent('gift-appear', Math.max(0, STARFALL_GIFTS.indexOf(got)));
     const prompt = div('fg-hint fg-live', `<b>${shortName(NPCS[giver].name)}</b> drew your name! Press <b>Space</b> to unwrap`);
-    root.append(prompt);
-    let open = false;
-    prompt.addEventListener('click', () => (open = true));
-    if (!(await this.loop((_dt, t) => (env.auto ? t > 1.6 : open || (t > 0.4 && this.hit('Space', 'Enter', 'KeyX', 'KeyF')))))) return null;
-    prompt.remove();
-    env.map.playEvent('unwrap');
-    this.sfx('catch:perfect', 0.9);
-    if (!(await this.wait(1300))) return null;
-    const box = div('fg-panel fg-draw fg-live', `<div class="in"><div class="rl">From ${shortName(NPCS[giver].name)}, with love</div><div class="fg-box"><div class="rays"></div><div class="gift">${itemIcon(got)}</div></div><div class="nm">${itemDef(got)?.name ?? got}</div></div>`);
-    box.style.top = '34%';
+    const beats = div('fg-beats', `<i>Pull the ribbon</i><i>Lift the lid</i><i>Peek inside</i>`);
+    root.append(prompt, beats);
+    const beatEls = [...beats.querySelectorAll('i')] as HTMLElement[];
+    let tap = false;
+    prompt.addEventListener('click', () => (tap = true));
+    for (let b = 0; b < 3; b++) {
+      beatEls.forEach((e, i) => (e.className = i < b ? 'done' : i === b ? 'on' : ''));
+      tap = false;
+      if (!(await this.loop((_dt, t) => (env.auto ? t > (b ? 0.75 : 1.3) : tap || (t > 0.25 && this.hit('Space', 'Enter', 'KeyX', 'KeyF')))))) return null;
+      if (b === 0) prompt.remove();
+      env.map.playEvent('unwrap', b + 1);
+      this.sfx(b < 2 ? 'ui:tick' : 'catch:perfect', b < 2 ? 1.1 : 0.9);
+    }
+    beatEls.forEach((e) => (e.className = 'done'));
+    if (!(await this.wait(1100))) return null;
+    beats.remove();
+    const box = div('fg-panel fg-draw side fg-live', `<div class="in"><div class="rl">From ${shortName(NPCS[giver].name)}, with love</div><div class="fg-box"><div class="rays"></div><div class="gift">${itemIcon(got)}</div></div><div class="nm">${itemDef(got)?.name ?? got}</div></div>`);
     root.append(box);
     this.confetti(root, env.festival.colors, 40);
     if (!env.auto) inv?.add(got, 1);
@@ -1434,6 +1565,87 @@ export class FestivalOverlay {
       title: [`${tnm} Loved It!`, `${tnm} Liked It`, 'A Kind Thought', 'It’s the Thought…'][rk]!,
       sub: `${tnm} ${['can’t stop smiling', 'is delighted', 'thanks you warmly', 'is… being very polite about it'][rk]} · ${shortName(NPCS[giver].name)} wrapped you a ${itemDef(got)?.name ?? 'present'}`,
     };
+  }
+
+  /**
+   * The gift choice: browse your backpack, spend up to three peeks (show the recipient something and
+   * read their face on the reaction meter — acted out in 3D), then wrap one. Returns the index.
+   */
+  private async giftPick(env: GameEnv, target: NpcId, items: string[]): Promise<number | null> {
+    const root = this.root!;
+    const rel = this.game.services.relationships;
+    const tn = NPCS[target];
+    const PEEKS = 3;
+    const panel = div(
+      'fg-panel fg-gpick fg-live',
+      `<div class="in"><div class="hd"><div class="pp">${portraitSvg(tn.look, tn.portraitBg, 'neutral')}</div><div><h3>A present for ${shortName(tn.name)}</h3><p class="hint">${GIFT_HINTS[target] ?? 'They’ll love anything from the heart. (Probably.)'}</p></div></div><div class="fg-rmeter idle"><div class="nd" style="left:50%"></div></div><div class="fg-rmeter-l"><span>Oh…</span><span>Meh</span><span>Like</span><span>Love</span></div><div class="fg-rmeter-say">Show them something…</div><div class="fg-grid"></div><div class="ft"><span>Peeks<span class="dots">${'<i></i>'.repeat(PEEKS)}</span></span><span><span class="btn pkb"><b>Q</b> peek</span> <span class="btn wrb"><b>Space</b> wrap it</span></span></div></div>`,
+    );
+    const grid = panel.querySelector('.fg-grid') as HTMLElement;
+    const meter = panel.querySelector('.fg-rmeter') as HTMLElement;
+    const nd = panel.querySelector('.fg-rmeter .nd') as HTMLElement;
+    const say = panel.querySelector('.fg-rmeter-say') as HTMLElement;
+    const dots = [...panel.querySelectorAll('.dots i')] as HTMLElement[];
+    const pp = panel.querySelector('.pp') as HTMLElement;
+    let sel = 0;
+    let chosen = -1;
+    let peekReq = false;
+    let used = 0;
+    const els = items.map((id, i) => {
+      const c = div('fg-card', `<b class="pk"></b>${itemIcon(id)}<div class="nm">${itemDef(id)?.name ?? id}</div>`);
+      c.style.animationDelay = `${i * 40}ms`;
+      c.addEventListener('mouseenter', () => (sel = i));
+      c.addEventListener('click', () => (sel = i));
+      grid.append(c);
+      return c;
+    });
+    panel.querySelector('.pkb')!.addEventListener('click', () => (peekReq = true));
+    panel.querySelector('.wrb')!.addEventListener('click', () => (chosen = sel));
+    root.append(panel);
+    const SAY: Record<string, string> = { love: 'Their eyes light up!', like: 'A curious little smile…', neutral: 'A polite nod.', dislike: 'A tiny wince…' };
+    const MOOD: Record<string, Mood> = { love: 'laugh', like: 'happy', neutral: 'neutral', dislike: 'worried' };
+    const peek = (i: number): void => {
+      if (used >= PEEKS || els[i]!.classList.contains('peeked')) return;
+      const r = rel?.taste(target, items[i]!) ?? 'neutral';
+      const lv = tasteLevel(r, items[i]!);
+      used++;
+      dots.forEach((d, k) => d.classList.toggle('used', k < used));
+      els[i]!.classList.add('peeked');
+      (els[i]!.querySelector('.pk') as HTMLElement).style.background = lv > 0.8 ? '#ef5a7a' : lv > 0.55 ? '#f0a860' : lv > 0.3 ? '#b8b0a8' : '#8a9ac0';
+      meter.classList.remove('idle');
+      nd.style.left = `${Math.round(lv * 100)}%`;
+      say.textContent = SAY[r] ?? '';
+      pp.innerHTML = portraitSvg(tn.look, tn.portraitBg, MOOD[r] ?? 'neutral');
+      env.map.playEvent('peek', r === 'love' ? 3 : r === 'like' ? 2 : r === 'dislike' ? 0 : 1);
+      this.sfx('ui:tick', 1.2);
+    };
+    // Attract mode: browse, peek at two things (one of them a hit), wrap the best.
+    const autoBest = Math.max(0, items.findIndex((id) => rel?.taste(target, id) === 'love'));
+    const autoPeeks = [Math.min(items.length - 1, autoBest === 0 ? 1 : 0), autoBest];
+    const ok = await this.loop((_dt, t) => {
+      if (env.auto) {
+        const k = Math.floor(t / 0.9);
+        if (k < autoPeeks.length) {
+          sel = autoPeeks[k]!;
+          if (t - k * 0.9 > 0.45 && !els[sel]!.classList.contains('peeked')) peek(sel);
+        } else if (t > autoPeeks.length * 0.9 + 1.1) chosen = autoBest;
+      }
+      const cols = 3;
+      if (this.hit('ArrowRight', 'KeyD')) sel = Math.min(items.length - 1, sel + 1);
+      if (this.hit('ArrowLeft', 'KeyA')) sel = Math.max(0, sel - 1);
+      if (this.hit('ArrowDown', 'KeyS')) sel = Math.min(items.length - 1, sel + cols);
+      if (this.hit('ArrowUp', 'KeyW')) sel = Math.max(0, sel - cols);
+      for (let k = 1; k <= Math.min(9, items.length); k++) if (this.hit(`Digit${k}`)) sel = k - 1;
+      if (this.hit('KeyQ', 'KeyE', 'KeyP') || peekReq) {
+        peekReq = false;
+        peek(sel);
+      }
+      if (this.hit('Enter', 'Space', 'KeyX', 'KeyF')) chosen = sel;
+      els.forEach((e, i) => e.classList.toggle('sel', i === sel));
+      return chosen >= 0;
+    });
+    this.sfx('ui:select');
+    panel.remove();
+    return ok ? chosen : null;
   }
 
   // ───────────────────────────────────────────── skate
@@ -1491,30 +1703,35 @@ export class FestivalOverlay {
       const gates = st.gates ?? 0;
       const cracks = st.cracks ?? 0;
       const lap = st.lap ?? 1;
+      // (Co-op: the moments go to the host, which stages them for the farmers watching.)
+      if (stars > last.stars) env.map.playEvent('star', stars);
+      if (gates > last.gates) env.map.playEvent('gate', gates);
+      if (cracks > last.cracks) env.map.playEvent('crack', cracks);
+      if (lap > last.lap) env.map.playEvent('lap', lap);
       if (stars > last.stars) {
         this.sfx('ui:select', 1.1);
         num.parentElement!.animate([{ transform: 'scale(1.25)' }, { transform: 'scale(1)' }], { duration: 260, easing: 'ease-out' });
-        this.judge(root, 'Star!', 'p', '50%', '30%');
+        this.judge(root, 'Star!', 'p', ...this.overHead());
       }
       if (gates > last.gates) {
         this.sfx('ui:tab', 1.3);
-        this.judge(root, (st.combo ?? 0) >= 3 ? `Gate ×${st.combo}!` : 'Gate!', 'g', '50%', '30%');
+        this.judge(root, (st.combo ?? 0) >= 3 ? `Gate ×${st.combo}!` : 'Gate!', 'g', ...this.overHead());
       }
       if (cracks > last.cracks) {
         this.sfx('ui:error', 0.8);
-        this.judge(root, 'Crack!', 'm', '50%', '30%');
+        this.judge(root, 'Crack!', 'm', ...this.overHead());
         this.shake(panel);
         this.shake(root);
       }
       if (lap > last.lap) this.judge(root, lap === st.laps ? 'Final lap!' : `Lap ${lap}`, 'p', '50%', '22%');
       last = { stars, gates, cracks, lap };
-      num.textContent = `${stars} / ${st.starsTotal ?? 0}`;
-      lapEl.textContent = `Lap ${lap} / ${st.laps ?? 4}`;
-      gEl.textContent = `${gates}/${st.gatesTotal ?? 0}`;
-      cEl.textContent = String(cracks);
-      comboEl.textContent = `×${st.combo ?? 0}`;
-      ctimer.style.width = `${Math.round((st.comboT ?? 0) * 100)}%`;
-      bar.style.width = `${Math.round((env.play.progress[0] ?? 0) * 100)}%`;
+      setText(num, `${stars} / ${st.starsTotal ?? 0}`);
+      setText(lapEl, `Lap ${lap} / ${st.laps ?? 4}`);
+      setText(gEl, `${gates}/${st.gatesTotal ?? 0}`);
+      setText(cEl, String(cracks));
+      setText(comboEl, `×${st.combo ?? 0}`);
+      setStyle(ctimer, 'width', `${Math.round((st.comboT ?? 0) * 100)}%`);
+      setStyle(bar, 'width', `${Math.round((env.play.progress[0] ?? 0) * 100)}%`);
       return env.play.done;
     });
     env.play.live = false;
@@ -1551,6 +1768,16 @@ export class FestivalOverlay {
 }
 
 const COIN = `<svg viewBox="0 0 34 34"><circle cx="17" cy="17" r="15" fill="#f5c542" stroke="#b8861a" stroke-width="2.5"/><circle cx="17" cy="17" r="10" fill="none" stroke="#fff2b0" stroke-width="2"/><text x="17" y="22" text-anchor="middle" font-family="Fredoka, sans-serif" font-weight="700" font-size="13" fill="#8a5a10">g</text></svg>`;
+
+const _ohV = new THREE.Vector3();
+
+/** Where a reaction lands on the gift meter (0 = wince … 1 = delight), a touch of per-item wobble. */
+function tasteLevel(r: string, id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 33 + id.charCodeAt(i)) % 997;
+  const j = (h / 997 - 0.5) * 0.1;
+  return r === 'love' ? 0.9 + j * 0.5 : r === 'like' ? 0.66 + j : r === 'dislike' ? 0.12 + j : 0.4 + j;
+}
 
 const REACTION: Record<'love' | 'like' | 'neutral' | 'dislike', { label: string; c: string }> = {
   love: { label: 'Loved it!', c: '#e8456a' },

@@ -232,16 +232,113 @@ const NOTES: Note[] = [
   },
 ];
 
-let tex: THREE.CanvasTexture | null = null;
+/**
+ * r9: notes the town pins up because of the farmer's choices (relationship memory flags): Kit's
+ * treasure map, the clinic's open evening, Bram's choir, Marigold's Friday supper. Painted over the
+ * everyday notes (`repaintNotices`).
+ */
+const MEMORY_NOTES: Record<string, Note> = {
+  'kit.partners': {
+    x: 470, y: 120, w: 270, h: 200, rot: -0.07, paper: '#f4e6c0', pin: '#e8843a',
+    draw: (g, w, h) => {
+      g.strokeStyle = 'rgba(150,120,80,0.45)';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(w / 2, 4);
+      g.lineTo(w / 2, h - 4);
+      g.moveTo(4, h / 2);
+      g.lineTo(w - 4, h / 2);
+      g.stroke();
+      g.strokeStyle = '#3f7fb0';
+      g.lineWidth = 7;
+      g.beginPath();
+      g.moveTo(20, 60);
+      g.quadraticCurveTo(80, 30, 120, 70);
+      g.quadraticCurveTo(160, 110, 240, 80);
+      g.stroke();
+      g.fillStyle = '#e8b04a';
+      g.fillRect(36, 110, 40, 30);
+      g.fillStyle = '#c8412f';
+      g.beginPath();
+      g.moveTo(32, 112);
+      g.lineTo(56, 92);
+      g.lineTo(80, 112);
+      g.fill();
+      g.strokeStyle = '#c8412f';
+      g.lineWidth = 4;
+      g.setLineDash([9, 8]);
+      g.beginPath();
+      g.moveTo(84, 140);
+      g.quadraticCurveTo(140, 170, 190, 128);
+      g.stroke();
+      g.setLineDash([]);
+      g.lineWidth = 9;
+      g.beginPath();
+      g.moveTo(186, 116);
+      g.lineTo(214, 144);
+      g.moveTo(214, 116);
+      g.lineTo(186, 144);
+      g.stroke();
+      hand(g, 'TOP SECRET', w / 2 + 40, 26, 22, '#c8412f');
+      hand(g, 'Kit + partner', w / 2 - 20, h - 22, 20, '#3a2a22');
+    },
+  },
+  'linus.tea': {
+    x: 560, y: 330, w: 190, h: 200, rot: 0.05, paper: '#eef8f4', pin: '#2f7a74',
+    draw: (g, w) => {
+      g.fillStyle = '#2f7a74';
+      g.fillRect(0, 0, w, 46);
+      hand(g, 'CLINIC', w / 2, 24, 28, '#f4fbf8');
+      hand(g, 'Open evening', w / 2, 74, 24, '#24504c');
+      hand(g, 'Thursday · 6 pm', w / 2, 106, 21, '#24504c');
+      hand(g, 'Tea & blood', w / 2, 140, 20, '#4a3a2e');
+      hand(g, 'pressure — all welcome', w / 2, 164, 17, '#4a3a2e');
+    },
+  },
+  'bram.choir': {
+    x: 300, y: 300, w: 200, h: 170, rot: 0.1, paper: '#fff4dc', pin: '#c8412f',
+    draw: (g, w) => {
+      hand(g, '♪ CHOIR ♪', w / 2, 34, 30, '#c0482e');
+      hand(g, 'Tuesdays, back of', w / 2, 80, 19, '#4a3a2e');
+      hand(g, 'the Hearth Oven', w / 2, 104, 19, '#4a3a2e');
+      hand(g, 'BASSES WANTED', w / 2, 138, 18, '#3a3a6a');
+    },
+  },
+  'marigold.supper': {
+    x: 70, y: 330, w: 180, h: 150, rot: -0.12, paper: '#fbf0e0', pin: '#8f6fb0',
+    draw: (g, w) => {
+      hand(g, 'Friday supper', w / 2, 34, 24, '#6a3a6a');
+      hand(g, 'Thimble & Pip’s', w / 2, 70, 19, '#4a3a2e');
+      hand(g, 'after closing', w / 2, 96, 19, '#4a3a2e');
+      hand(g, '(bring rhubarb)', w / 2, 124, 16, '#8a4a3a');
+    },
+  },
+};
 
-function paint(): THREE.CanvasTexture {
+let tex: THREE.CanvasTexture | null = null;
+let texKey = '';
+
+/** Repaint a board's notes with the memory notes for these flags (no-op when unchanged). */
+export function repaintNotices(mesh: THREE.Mesh, flags: string[]): void {
+  const key = flags.filter((f) => MEMORY_NOTES[f]).sort().join(',');
+  if (key === texKey && tex) return;
+  const old = tex;
+  tex = null;
+  const t = paint(key ? key.split(',') : []);
+  texKey = key;
+  (mesh.material as THREE.MeshStandardMaterial).map = t;
+  (mesh.material as THREE.MeshStandardMaterial).needsUpdate = true;
+  old?.dispose();
+}
+
+function paint(extra: string[] = []): THREE.CanvasTexture {
   if (tex) return tex;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
   const g = c.getContext('2d')!;
   g.clearRect(0, 0, W, H);
-  for (const n of NOTES) {
+  for (const n of [...NOTES, ...extra.map((f) => MEMORY_NOTES[f]!).filter(Boolean)]) {
     g.save();
     g.translate(n.x + n.w / 2, n.y + n.h / 2);
     g.rotate(n.rot);

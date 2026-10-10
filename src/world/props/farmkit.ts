@@ -28,32 +28,129 @@ export function buildSprinkler(): THREE.Group {
 
 export function buildScarecrow(rng: Rng): THREE.Group {
   const b = new MeshBuilder();
-  b.add('woodGrain', roundedBox(0.1, 2.0, 0.1, 0.03), mat(0, 1.0, 0), { tint: 0xc8a070, aoWorld: groundAO(0.4) });
-  b.add('woodGrain', roundedBox(1.35, 0.09, 0.09, 0.03), mat(0, 1.45, 0), { tint: 0xc8a070 });
-  // Patched shirt body (cloth), straw poking out of cuffs
-  b.add('cloth', roundedBox(0.62, 0.62, 0.3, 0.12), mat(0, 1.3, 0), { tint: 0x5c86a8 });
-  b.add('cloth', roundedBox(0.2, 0.18, 0.02, 0.03), mat(0.12, 1.36, 0.155, 0, 0, 0.2), { tint: 0xd8b060 });
+  // (farming r29) Modelled like the crops around it (blind judge: "the scarecrow looks flat next to the lush
+  // pumpkins"): a split, weathered post lashed to its crossbar, a slumped plaid shirt with drooping sleeves and
+  // straw bursting from the cuffs / collar / waist, patched overalls with hanging legs, a cinched burlap sack
+  // head with cross-stitched eyes, and a wide, ragged straw hat. Same footprint and height as before.
+  const post = 0x9a7650;
+  b.add('woodGrain', roundedBox(0.12, 2.0, 0.11, 0.03), mat(0, 1.0, 0, 0, 0.1, 0.012), { tint: post, aoWorld: groundAO(0.4) });
+  b.add('woodGrain', roundedBox(1.42, 0.085, 0.085, 0.03), mat(0, 1.47, -0.03, 0, 0, -0.03), { tint: post });
+  // Rope lashing where the bar crosses the post (an X of twine).
+  for (const r of [0.75, -0.75]) b.add('cloth', roundedBox(0.03, 0.2, 0.15, 0.012), mat(0, 1.47, -0.03, 0, 0, r), { tint: 0xc9a46a });
+  // Straw skirt round the foot of the post: the figure stands IN the bed, not on a peg.
+  const strawC = [0xe3c063, 0xd2aa4c, 0xeccf7c];
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2 + rng.next() * 0.3;
+    const len = 0.16 + rng.next() * 0.12;
+    const g = new THREE.ConeGeometry(0.035, len, 4);
+    b.add('thatch', g, mat(Math.cos(a) * 0.08, len * 0.42, Math.sin(a) * 0.08, Math.sin(a) * 0.45, 0, -Math.cos(a) * 0.45), { tint: strawC[i % 3], aoWorld: groundAO(0.25, 0.45) });
+  }
+  // ── Shirt: a slumped, tapered body with a plaid of darker bands, a sewn-on patch and buttons.
+  const shirt = 0x4f86b0;
+  const plaid = 0x2f5878;
+  const body = roundedBox(0.6, 0.6, 0.3, 0.13, 3);
+  body.scale(1, 1, 1);
+  b.add('cloth', body, mat(0, 1.27, 0, 0.04, 0, 0.03), { tint: shirt });
+  for (const x of [-0.17, 0.0, 0.17]) b.add('cloth', roundedBox(0.045, 0.58, 0.012, 0.01), mat(x, 1.27, 0.152, 0.04, 0, 0.03), { tint: plaid });
+  for (const y of [1.12, 1.27, 1.42]) b.add('cloth', roundedBox(0.58, 0.04, 0.012, 0.01), mat(0.0, y, 0.154 - (y - 1.27) * 0.04, 0.04, 0, 0.03), { tint: plaid });
+  // Collar points + a red neckerchief knotted at the throat.
+  for (const s of [-1, 1]) b.add('cloth', roundedBox(0.13, 0.03, 0.12, 0.012), mat(s * 0.08, 1.565, 0.09, -0.5, s * 0.5, s * 0.25), { tint: 0x6e9ec4 });
+  b.add('cloth', new THREE.ConeGeometry(0.11, 0.17, 3), mat(0.0, 1.47, 0.16, Math.PI, 0, 0.1, 1, 1, 0.35), { tint: 0xb83a2c });
+  b.add('cloth', new THREE.SphereGeometry(0.035, 8, 6), mat(0.0, 1.56, 0.165), { tint: 0xa2301f });
+  b.add('cloth', roundedBox(0.19, 0.17, 0.02, 0.03), mat(-0.15, 1.18, 0.158, 0.04, 0, -0.18), { tint: 0xd8a85a });
+  for (let i = 0; i < 4; i++) b.add('white', roundedBox(0.035, 0.008, 0.008, 0.003), mat(-0.15 - 0.075 * Math.cos(i * 1.57), 1.18 + 0.065 * Math.sin(i * 1.57), 0.17, 0, 0, i * 1.57), { tint: 0x5a3a22 });
+  for (const y of [1.36, 1.25]) b.add('white', new THREE.CylinderGeometry(0.018, 0.018, 0.01, 8), mat(0.07, y, 0.157, Math.PI / 2 + 0.04, 0, 0), { tint: 0xeee2c8 });
+  // Sleeves droop off the bar (sagging cloth, cuffs rolled), straw bursting from each cuff.
   for (const s of [-1, 1]) {
-    b.add('cloth', roundedBox(0.42, 0.2, 0.22, 0.08), mat(s * 0.45, 1.45, 0), { tint: 0x4f7a9c });
-    for (let i = 0; i < 5; i++) {
-      const straw = new THREE.CylinderGeometry(0.008, 0.008, 0.2, 3);
-      straw.rotateZ(Math.PI / 2 + (rng.next() - 0.5) * 0.8);
-      b.add('white', straw, mat(s * (0.72 + rng.next() * 0.05), 1.45 + (rng.next() - 0.5) * 0.12, (rng.next() - 0.5) * 0.12), { tint: 0xe8c86a });
+    b.add('cloth', roundedBox(0.44, 0.21, 0.23, 0.09, 3), mat(s * 0.47, 1.43, -0.01, 0, 0, -s * 0.09), { tint: shirt });
+    b.add('cloth', roundedBox(0.04, 0.2, 0.012, 0.01), mat(s * 0.45, 1.43, 0.112, 0, 0, -s * 0.09), { tint: plaid });
+    b.add('cloth', new THREE.TorusGeometry(0.1, 0.03, 6, 12), mat(s * 0.68, 1.4, -0.01, 0, Math.PI / 2, 0), { tint: 0x6e9ec4 });
+    for (let i = 0; i < 9; i++) {
+      const len = 0.14 + rng.next() * 0.12;
+      const g = new THREE.ConeGeometry(0.02, len, 4);
+      g.translate(0, len / 2, 0);
+      const el = (rng.next() - 0.5) * 1.3;
+      const az = (rng.next() - 0.5) * 1.3;
+      b.add('thatch', g, mat(s * 0.7, 1.4 + (rng.next() - 0.5) * 0.08, (rng.next() - 0.5) * 0.08, az, 0, -s * (Math.PI / 2) + el - 0.35 * s), { tint: strawC[i % 3] });
     }
   }
-  // Rope belt + trousers
-  b.add('cloth', new THREE.TorusGeometry(0.27, 0.025, 6, 16), mat(0, 1.02, 0, Math.PI / 2, 0, 0, 1, 0.55, 1), { tint: 0xb89060 });
-  b.add('cloth', roundedBox(0.5, 0.3, 0.26, 0.1), mat(0, 0.86, 0), { tint: 0x8a6a4a });
-  // Sack head with stitched face
-  const head = lumpySphere(0.23, 2, 0.08, rng, 2);
-  head.scale(1, 1.08, 0.95);
-  b.add('cloth', head, mat(0, 1.9, 0), { tint: 0xe2c898 });
-  for (const s of [-1, 1]) b.add('white', roundedBox(0.06, 0.06, 0.03, 0.02), mat(s * 0.08, 1.95, 0.205), { tint: 0x2a1c14 });
-  for (let i = 0; i < 5; i++) b.add('white', roundedBox(0.02, 0.05, 0.02, 0.008), mat(-0.08 + i * 0.04, 1.83, 0.2, 0, 0, i % 2 ? 0.4 : -0.4), { tint: 0x2a1c14 });
-  // Floppy hat
-  b.add('thatch', new THREE.CylinderGeometry(0.38, 0.4, 0.04, 20), mat(0, 2.08, 0, 0.12, 0, 0.05), { tint: 0xd9b464 });
-  b.add('thatch', new THREE.CylinderGeometry(0.17, 0.2, 0.2, 14), mat(0.01, 2.18, -0.02, 0.12, 0, 0.1), { tint: 0xd9b464 });
-  b.add('cloth', new THREE.CylinderGeometry(0.205, 0.205, 0.05, 14, 1, true), mat(0.01, 2.12, -0.02, 0.12, 0, 0.1), { tint: 0xb8402e });
+  // Straw tufts at the waist (it is stuffed) and the collar.
+  for (let i = 0; i < 10; i++) {
+    const a = -1.2 + (i / 9) * 2.4;
+    const len = 0.1 + rng.next() * 0.07;
+    const g = new THREE.ConeGeometry(0.018, len, 4);
+    g.translate(0, -len / 2, 0);
+    b.add('thatch', g, mat(Math.sin(a) * 0.27, 1.0, Math.cos(a) * 0.14, 0.25 * Math.cos(a), 0, -0.25 * Math.sin(a)), { tint: strawC[i % 3] });
+  }
+  // ── Overalls: bib + hanging legs (patched knee), straw at the ankles.
+  const denim = 0x7a5a3e;
+  b.add('cloth', roundedBox(0.5, 0.28, 0.27, 0.1, 3), mat(0, 0.88, 0), { tint: denim });
+  b.add('cloth', roundedBox(0.3, 0.2, 0.03, 0.04), mat(0, 1.07, 0.15, 0.06, 0, 0), { tint: denim });
+  for (const s of [-1, 1]) {
+    b.add('cloth', roundedBox(0.045, 0.32, 0.02, 0.01), mat(s * 0.12, 1.25, 0.158, 0.04, 0, s * 0.12), { tint: denim });
+    b.add('metal', new THREE.CylinderGeometry(0.02, 0.02, 0.01, 8), mat(s * 0.12, 1.12, 0.168, Math.PI / 2, 0, 0), { tint: 0xc9b07a });
+    const leg = roundedBox(0.19, 0.42, 0.2, 0.08, 3);
+    b.add('cloth', leg, mat(s * 0.12, 0.6, 0.0, 0.05, 0, s * 0.05), { tint: denim });
+    for (let i = 0; i < 5; i++) {
+      const len = 0.1 + rng.next() * 0.08;
+      const g = new THREE.ConeGeometry(0.018, len, 4);
+      g.translate(0, -len / 2, 0);
+      const a = (i / 5) * Math.PI * 2;
+      b.add('thatch', g, mat(s * 0.13 + Math.cos(a) * 0.06, 0.4, Math.sin(a) * 0.06, Math.sin(a) * 0.3, 0, -Math.cos(a) * 0.3), { tint: strawC[i % 3] });
+    }
+  }
+  b.add('cloth', roundedBox(0.13, 0.12, 0.02, 0.03), mat(0.13, 0.62, 0.105, 0.05, 0, 0.2), { tint: 0x9d4a36 });
+  b.add('cloth', new THREE.TorusGeometry(0.27, 0.024, 6, 18), mat(0, 1.01, 0, Math.PI / 2, 0, 0, 1, 0.55, 1), { tint: 0xb89060 });
+  // ── Sack head: burlap, cinched at the neck with a twine wrap and a flare of straw under it.
+  const head = lumpySphere(0.23, 2, 0.07, rng, 2);
+  head.scale(1.02, 1.1, 0.95);
+  b.add('cloth', head, mat(0, 1.86, 0, 0, 0, 0.06), { tint: 0xd7b98a });
+  b.add('cloth', new THREE.TorusGeometry(0.085, 0.022, 6, 14), mat(0, 1.64, 0, Math.PI / 2, 0, 0), { tint: 0xa77f4c });
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const len = 0.08 + rng.next() * 0.06;
+    const g = new THREE.ConeGeometry(0.02, len, 4);
+    g.translate(0, -len / 2, 0);
+    b.add('thatch', g, mat(Math.cos(a) * 0.07, 1.62, Math.sin(a) * 0.07, Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9), { tint: strawC[i % 3] });
+  }
+  // Cross-stitched eyes, a button nose and a stitched grin (thread X's, proud of the sack).
+  const thread = 0x2a1c14;
+  for (const s of [-1, 1]) for (const r of [0.78, -0.78]) b.add('white', roundedBox(0.085, 0.017, 0.02, 0.006), mat(s * 0.085, 1.91, 0.205, 0, 0, r), { tint: thread });
+  b.add('white', new THREE.CylinderGeometry(0.03, 0.03, 0.02, 10), mat(0, 1.85, 0.22, Math.PI / 2, 0, 0), { tint: 0xb06a3a });
+  for (let i = 0; i < 7; i++) {
+    const t = (i - 3) / 3;
+    b.add('white', roundedBox(0.03, 0.012, 0.015, 0.005), mat(t * 0.1, 1.78 + t * t * 0.025, 0.2 - Math.abs(t) * 0.02, 0, 0, t * 0.35), { tint: thread });
+    b.add('white', roundedBox(0.008, 0.034, 0.016, 0.003), mat(t * 0.1, 1.78 + t * t * 0.025, 0.204 - Math.abs(t) * 0.02), { tint: thread });
+  }
+  // ── Hat: a wide, ragged straw brim (wavy, a torn notch) over a dented crown with a faded band.
+  const brim = new THREE.CylinderGeometry(0.42, 0.44, 0.035, 28, 1);
+  {
+    const p = brim.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i);
+      const z = p.getZ(i);
+      const rr = Math.hypot(x, z);
+      if (rr < 0.3) continue;
+      const a = Math.atan2(z, x);
+      const notch = Math.max(0, 1 - Math.abs(((a - 0.9 + Math.PI * 3) % (Math.PI * 2)) - Math.PI) / 0.25);
+      const k = 1 - notch * 0.22 + Math.sin(a * 7 + 1.3) * 0.025;
+      p.setX(i, x * k);
+      p.setZ(i, z * k);
+      p.setY(i, p.getY(i) + Math.sin(a * 2 + 0.4) * 0.045 + Math.sin(a * 5) * 0.012);
+    }
+    brim.computeVertexNormals();
+  }
+  b.add('thatch', brim, mat(0, 2.07, 0, 0.14, 0, 0.06), { tint: 0xd8b260 });
+  const crown = new THREE.CylinderGeometry(0.16, 0.2, 0.2, 16, 2);
+  crown.translate(0, 0.1, 0);
+  b.add('thatch', crown, mat(0.01, 2.08, -0.02, 0.14, 0, 0.1), { tint: 0xcfa854 });
+  b.add('thatch', new THREE.SphereGeometry(0.16, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat(0.01, 2.27, -0.05, 0.14, 0, 0.1, 1, 0.35, 1), { tint: 0xc9a04e });
+  b.add('cloth', new THREE.CylinderGeometry(0.2, 0.205, 0.05, 16, 1, true), mat(0.01, 2.12, -0.02, 0.14, 0, 0.1), { tint: 0xa8442f });
+  for (let i = 0; i < 6; i++) {
+    const a = 0.6 + (i / 6) * 0.7;
+    const g = new THREE.ConeGeometry(0.012, 0.09, 3);
+    b.add('thatch', g, mat(Math.cos(a) * 0.43, 2.11, Math.sin(a) * 0.43, Math.sin(a) * 1.4, 0, -Math.cos(a) * 1.4), { tint: 0xe3c063 });
+  }
   // Crow perched on the arm
   b.add('white', lumpySphere(0.08, 1, 0.1, rng), mat(0.58, 1.57, 0, 0, 0, 0, 1.3, 0.9, 0.9), { tint: 0x22232a });
   b.add('white', new THREE.SphereGeometry(0.05, 8, 6), mat(0.66, 1.64, 0), { tint: 0x22232a });

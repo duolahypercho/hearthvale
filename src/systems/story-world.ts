@@ -32,6 +32,7 @@ import { buildLanternPole, buildBunting, buildBrazier } from '../world/props/fes
 import { buildHarvestPile, buildHayBale } from '../world/props/farmkit';
 import { BurstFX, SmokeEmitter, FireFX } from '../render/particles';
 import { Rng } from '../core/rng';
+import { textures } from '../render/textures';
 import { ROOMS, type RoomId } from '../data/bundles';
 
 const STOP = { x: 9.6, z: 26.2 };
@@ -167,61 +168,164 @@ interface Coach {
   spin: number;
 }
 
+let COACH_BRASS: THREE.MeshStandardMaterial | null = null;
+function coachBrass(): THREE.MeshStandardMaterial {
+  COACH_BRASS ??= new THREE.MeshStandardMaterial({ color: 0xd2a253, metalness: 0.75, roughness: 0.32 });
+  COACH_BRASS.name = 'coach-brass';
+  return COACH_BRASS;
+}
+
+/**
+ * The evening coach: a 1930s country motor-coach with real coachwork — a sage lower body with raised
+ * beading panels and a cream waist rail, a domed cream roof with a brass gallery rail, a long bonnet
+ * with side louvres and a chrome radiator, swept front wings over the wheels, running boards, a
+ * fold-down step under the door, brass carriage lamps on the cab corners (+ halos) and drum headlamps,
+ * a ladder and a spare wheel at the back, and real luggage strapped on the roof: a steamer trunk, a
+ * green travelling trunk, a carpet bag, a striped hatbox and a bedroll.
+ */
 function buildCoach(): Coach {
   const b = new MeshBuilder();
-  const L = 4.6;
   const W = 1.9;
   const SAGE = 0x6f9a7a;
+  const SAGE_D = 0x557a60;
   const CREAM = 0xf3e6c8;
   const CHROME = 0xd8dde4;
+  const BEAD = 0x4f6e58;
   const win = coachWindowMaterial();
-  // Everything that doesn't glow is one vertex-tinted 'white' mesh.
-  b.add('white', roundedBox(L, 0.95, W, 0.28), mat(0, 0.95, 0), { tint: SAGE });
-  b.add('white', roundedBox(L - 0.1, 0.85, W - 0.06, 0.3), mat(-0.05, 1.8, 0), { tint: CREAM });
-  b.add('white', roundedBox(L - 0.3, 0.18, W - 0.2, 0.09), mat(-0.1, 2.3, 0), { tint: 0xe8d8b4 });
-  b.add('white', roundedBox(L + 0.04, 0.1, W + 0.04, 0.04), mat(0, 1.45, 0), { tint: 0xc8573e });
-  b.add('white', roundedBox(0.5, 0.55, W - 0.3, 0.2), mat(L / 2 - 0.05, 0.85, 0), { tint: SAGE });
-  b.add('white', roundedBox(0.12, 0.35, 1.1, 0.04), mat(L / 2 + 0.2, 0.85, 0), { tint: CHROME });
-  for (let k = 0; k < 5; k++) b.add('white', roundedBox(0.03, 0.3, 0.02, 0.01), mat(L / 2 + 0.27, 0.85, -0.4 + k * 0.2), { tint: 0x8a9098 });
-  for (const x of [L / 2 + 0.2, -L / 2 - 0.08]) b.add('white', roundedBox(0.16, 0.12, W + 0.1, 0.05), mat(x, 0.52, 0), { tint: CHROME });
+  const brass = coachBrass();
+  // Passenger saloon: x -2.3 .. 1.3, the cab at its front; the bonnet runs on to x 2.4.
+  const X0 = -2.3;
+  const X1 = 1.3;
+  const BL = X1 - X0;
+  const BC = (X0 + X1) / 2;
+  b.add('white', roundedBox(BL, 0.92, W, 0.2), mat(BC, 0.96, 0), { tint: SAGE });
+  b.add('white', roundedBox(BL - 0.04, 0.84, W - 0.04, 0.16), mat(BC, 1.8, 0), { tint: CREAM });
+  // Domed roof with an overhang: a flat crown on a deeper rounded drum.
+  b.add('white', roundedBox(BL + 0.16, 0.22, W + 0.12, 0.1), mat(BC, 2.29, 0), { tint: 0xe9dcbc });
+  b.add('white', roundedBox(BL - 0.2, 0.16, W - 0.3, 0.08), mat(BC, 2.42, 0), { tint: 0xe2d2ae });
+  // Waist rail (red) and a cream coach-line pinstripe low on the sage.
+  b.add('white', roundedBox(BL + 0.04, 0.1, W + 0.04, 0.04), mat(BC, 1.43, 0), { tint: 0xb84a36 });
+  b.add('white', roundedBox(BL + 0.02, 0.03, W + 0.025, 0.01), mat(BC, 0.72, 0), { tint: 0xe8d6a8 });
+  // Raised beading: vertical panel seams on the lower body, both sides.
+  for (const sz of [-1, 1]) for (const x of [-1.85, -1.0, -0.15]) b.add('white', roundedBox(0.04, 0.6, 0.03, 0.01), mat(x, 1.0, sz * (W / 2 + 0.008)), { tint: BEAD });
+  for (const sz of [-1, 1]) b.add('white', roundedBox(BL - 0.1, 0.04, 0.03, 0.01), mat(BC, 1.3, sz * (W / 2 + 0.008)), { tint: BEAD });
+  // Saloon windows (lamp-lit cards) in dark frames, four a side.
   for (const sz of [-1, 1]) {
     for (let k = 0; k < 4; k++) {
-      const x = -1.55 + k * 0.86;
-      b.add('white', roundedBox(0.8, 0.58, 0.04, 0.05), mat(x, 1.86, sz * (W / 2 - 0.035)), { tint: 0x4a3a2c });
-      const card = new THREE.PlaneGeometry(0.7, 0.48);
+      const x = -1.95 + k * 0.78;
+      if (sz > 0 && k === 3) continue; // the door is here on the near side
+      b.add('white', roundedBox(0.7, 0.56, 0.04, 0.05), mat(x, 1.86, sz * (W / 2 - 0.02)), { tint: 0x4a3a2c });
+      const card = new THREE.PlaneGeometry(0.6, 0.46);
       const uv = card.attributes.uv as THREE.BufferAttribute;
       for (let i = 0; i < uv.count; i++) uv.setX(i, (k + uv.getX(i)) / SLOTS);
-      b.add(win, card, mat(x, 1.86, sz * (W / 2 + 0.002), 0, sz > 0 ? 0 : Math.PI, 0));
-      b.add('white', roundedBox(0.76, 0.05, 0.08, 0.02), mat(x, 1.6, sz * (W / 2 + 0.01)), { tint: 0x4a3a2c });
+      b.add(win, card, mat(x, 1.86, sz * (W / 2 + 0.004), 0, sz > 0 ? 0 : Math.PI, 0));
+      b.add('white', roundedBox(0.66, 0.04, 0.07, 0.02), mat(x, 1.6, sz * (W / 2 + 0.012)), { tint: 0x4a3a2c });
     }
   }
-  b.add('white', roundedBox(0.04, 0.5, W - 0.5, 0.06), mat(L / 2 - 0.02, 1.86, 0), { tint: 0x2a3440 });
-  // Door with its own window (a slice of window 2).
-  b.add('white', roundedBox(0.66, 1.3, 0.05, 0.04), mat(1.2, 1.12, W / 2 + 0.01), { tint: 0x5a8a6a });
-  const doorWin = new THREE.PlaneGeometry(0.46, 0.4);
+  // Cab: a split windscreen leaning back, its frame and a sun visor.
+  for (const sz of [-0.43, 0.43]) b.add('white', roundedBox(0.04, 0.5, 0.78, 0.04), mat(X1 + 0.03, 1.86, sz, 0, 0, 0.12), { tint: 0x26303a });
+  b.add('white', roundedBox(0.08, 0.56, 0.06, 0.02), mat(X1 + 0.05, 1.86, 0, 0, 0, 0.12), { tint: 0x4a3a2c });
+  b.add('white', roundedBox(0.2, 0.05, W - 0.2, 0.02), mat(X1 + 0.12, 2.16, 0), { tint: SAGE_D });
+  // Bonnet: long and rounded, a centre hinge and louvres down each side.
+  b.add('white', roundedBox(1.12, 0.62, 1.12, 0.24), mat(1.86, 1.02, 0), { tint: SAGE });
+  b.add('white', roundedBox(1.1, 0.025, 0.04, 0.01), mat(1.86, 1.335, 0), { tint: CHROME });
+  for (const sz of [-1, 1]) for (let k = 0; k < 6; k++) b.add('white', roundedBox(0.035, 0.24, 0.02, 0.01), mat(1.55 + k * 0.1, 1.04, sz * 0.565), { tint: 0x33463a });
+  // Chrome radiator shell with a dark grille of slats, a brass filler cap, a starting handle.
+  b.add('white', roundedBox(0.1, 0.7, 0.88, 0.06), mat(2.44, 1.02, 0), { tint: CHROME });
+  b.add('white', roundedBox(0.04, 0.58, 0.74, 0.02), mat(2.495, 1.02, 0), { tint: 0x2a2e33 });
+  for (let k = 0; k < 9; k++) b.add('white', roundedBox(0.03, 0.56, 0.018, 0.005), mat(2.52, 1.02, -0.32 + k * 0.08), { tint: 0xaab0b8 });
+  b.add(brass, bevelCylinder(0.05, 0.05, 0.08, 0.01, 10), mat(2.42, 1.42, 0));
+  b.add('white', new THREE.CylinderGeometry(0.02, 0.02, 0.24, 6).rotateZ(Math.PI / 2), mat(2.6, 0.62, 0), { tint: 0x8a9098 });
+  // Front and rear bumpers.
+  b.add('white', roundedBox(0.12, 0.12, W + 0.06, 0.05), mat(2.6, 0.5, 0), { tint: CHROME });
+  b.add('white', roundedBox(0.12, 0.12, W + 0.06, 0.05), mat(X0 - 0.08, 0.5, 0), { tint: CHROME });
+  // Swept front wings over the front wheels, rear arches over the back.
+  for (const sz of [-1, 1]) {
+    const wing = new THREE.TorusGeometry(0.52, 0.12, 6, 16, Math.PI * 0.95);
+    wing.scale(1.15, 1, 2.2);
+    b.add('white', wing, mat(1.62, 0.44, sz * 0.86), { tint: SAGE_D });
+    b.add('white', new THREE.TorusGeometry(0.5, 0.08, 6, 14, Math.PI), mat(-1.45, 0.45, sz * 0.9), { tint: SAGE_D });
+    // Running board between the wings.
+    b.add('white', roundedBox(1.9, 0.05, 0.26, 0.02), mat(0.08, 0.38, sz * (W / 2 + 0.1)), { tint: 0x3a3a38 });
+    for (let k = 0; k < 6; k++) b.add('white', roundedBox(0.02, 0.012, 0.22, 0.004), mat(-0.7 + k * 0.32, 0.41, sz * (W / 2 + 0.1)), { tint: 0x8a8a84 });
+  }
+  // Drum headlamps on the wings (brass rims + lamp swatch) and tail lamps.
+  for (const sz of [-0.66, 0.66]) {
+    b.add(brass, new THREE.CylinderGeometry(0.15, 0.13, 0.22, 16).rotateZ(Math.PI / 2), mat(2.2, 1.2, sz));
+    b.add(win, slot(new THREE.CylinderGeometry(0.125, 0.125, 0.03, 16).rotateZ(Math.PI / 2), 4), mat(2.32, 1.2, sz));
+    b.add('white', new THREE.CylinderGeometry(0.02, 0.02, 0.2, 6), mat(2.18, 1.04, sz), { tint: 0x3a3a38 });
+    b.add(win, slot(roundedBox(0.04, 0.14, 0.12, 0.02), 5), mat(X0 - 0.03, 1.0, sz * 1.25));
+  }
+  // Brass carriage lamps on the cab corners: a square glazed lantern on a bracket, a chimney cap.
+  for (const sz of [-1, 1]) {
+    const lx = X1 + 0.02;
+    const lz = sz * (W / 2 + 0.1);
+    b.add(brass, roundedBox(0.06, 0.06, 0.16, 0.02), mat(lx - 0.05, 1.62, sz * (W / 2 + 0.03)));
+    b.add(brass, roundedBox(0.2, 0.04, 0.2, 0.015), mat(lx, 1.58, lz));
+    b.add(win, slot(roundedBox(0.15, 0.24, 0.15, 0.02), 4), mat(lx, 1.6, lz));
+    for (const [dx, dz] of [[-0.08, -0.08], [0.08, -0.08], [-0.08, 0.08], [0.08, 0.08]] as const) b.add(brass, roundedBox(0.025, 0.26, 0.025, 0.008), mat(lx + dx, 1.6, lz + dz));
+    b.add(brass, new THREE.ConeGeometry(0.14, 0.12, 4).rotateY(Math.PI / 4), mat(lx, 1.9, lz));
+    b.add(brass, new THREE.CylinderGeometry(0.03, 0.03, 0.08, 8), mat(lx, 2.0, lz));
+  }
+  // Door (near side, behind the cab): panelled, its own window, a brass handle — and a fold-down step.
+  const DX = 0.8;
+  b.add('white', roundedBox(0.66, 1.36, 0.05, 0.04), mat(DX, 1.14, W / 2 + 0.015), { tint: 0x5f8d6c });
+  b.add('white', roundedBox(0.5, 0.42, 0.02, 0.02), mat(DX, 0.78, W / 2 + 0.045), { tint: BEAD });
+  const doorWin = new THREE.PlaneGeometry(0.46, 0.42);
   const duv = doorWin.attributes.uv as THREE.BufferAttribute;
   for (let i = 0; i < duv.count; i++) duv.setX(i, (2 + duv.getX(i)) / SLOTS);
-  b.add(win, doorWin, mat(1.2, 1.52, W / 2 + 0.045));
-  b.add('white', roundedBox(0.08, 0.04, 0.05, 0.01), mat(0.98, 1.1, W / 2 + 0.05), { tint: 0xe8b84a });
-  b.add('white', roundedBox(0.7, 0.1, 0.5, 0.04), mat(1.2, 0.36, W / 2 + 0.1), { tint: 0x4a4a4a });
-  // Headlamps (chrome rims + lamp swatch) and tail lamps (red swatch).
-  for (const sz of [-0.62, 0.62]) {
-    b.add('white', new THREE.CylinderGeometry(0.17, 0.17, 0.1, 14).rotateZ(Math.PI / 2), mat(L / 2 + 0.25, 1.1, sz), { tint: CHROME });
-    b.add(win, slot(new THREE.CylinderGeometry(0.13, 0.13, 0.04, 14).rotateZ(Math.PI / 2), 4), mat(L / 2 + 0.31, 1.1, sz));
-    b.add(win, slot(roundedBox(0.04, 0.12, 0.2, 0.02), 5), mat(-L / 2 - 0.03, 0.95, sz));
+  b.add(win, doorWin, mat(DX, 1.56, W / 2 + 0.045));
+  b.add(brass, roundedBox(0.12, 0.035, 0.05, 0.01), mat(DX - 0.24, 1.14, W / 2 + 0.06));
+  for (const [y, out] of [[0.34, 0.24], [0.14, 0.44]] as const) {
+    b.add('white', roundedBox(0.56, 0.045, 0.22, 0.015), mat(DX, y, W / 2 + out), { tint: 0x4a4440 });
+    b.add(brass, roundedBox(0.54, 0.012, 0.03, 0.004), mat(DX, y + 0.03, W / 2 + out + 0.1));
   }
-  // Roof rack with luggage.
-  for (const sz of [-0.7, 0.7]) b.add('white', roundedBox(3.0, 0.05, 0.05, 0.02), mat(-0.3, 2.5, sz), { tint: 0x5a554f });
-  for (let k = 0; k < 4; k++) b.add('white', roundedBox(0.05, 0.12, 1.45, 0.02), mat(-1.6 + k * 0.9, 2.44, 0), { tint: 0x5a554f });
-  b.add('white', roundedBox(0.9, 0.42, 0.7, 0.06), mat(-1.2, 2.72, -0.2), { tint: 0x8a5a36 });
-  b.add('white', roundedBox(0.7, 0.3, 0.5, 0.08), mat(-0.3, 2.66, 0.3), { tint: 0xc8573e });
-  b.add('white', roundedBox(0.55, 0.36, 0.42, 0.08), mat(0.5, 2.68, -0.25), { tint: 0x3f76a8 });
-  b.add('white', roundedBox(0.12, 0.03, 0.44, 0.01), mat(0.5, 2.87, -0.25), { tint: 0x2a2a2a });
+  for (const sx of [-0.27, 0.27]) b.add('white', roundedBox(0.03, 0.26, 0.5, 0.01), mat(DX + sx, 0.25, W / 2 + 0.3, -0.5, 0, 0), { tint: 0x3a3634 });
   // Destination board over the windscreen.
-  b.add('white', roundedBox(0.06, 0.24, 1.2, 0.03), mat(L / 2 - 0.05, 2.28, 0), { tint: 0x2a2a2a });
-  b.add(win, slot(roundedBox(0.03, 0.14, 1.05, 0.02), 4), mat(L / 2 - 0.01, 2.28, 0));
-  // Mudguards.
-  for (const [x, z] of [[1.45, -0.9], [1.45, 0.9], [-1.45, -0.9], [-1.45, 0.9]] as const) b.add('white', new THREE.TorusGeometry(0.5, 0.08, 6, 14, Math.PI), mat(x, 0.45, z), { tint: 0x6a8a72 });
+  b.add('white', roundedBox(0.06, 0.22, 1.2, 0.03), mat(X1 + 0.06, 2.3, 0), { tint: 0x2a2a2a });
+  b.add(win, slot(roundedBox(0.03, 0.13, 1.05, 0.02), 4), mat(X1 + 0.1, 2.3, 0));
+  // Rear: a ladder to the roof and the spare wheel in a brass ring.
+  for (const sz of [-0.5, -0.22]) b.add('white', roundedBox(0.04, 1.9, 0.04, 0.01), mat(X0 - 0.05, 1.45, sz), { tint: 0x3a3a38 });
+  for (let k = 0; k < 6; k++) b.add('white', roundedBox(0.03, 0.03, 0.3, 0.01), mat(X0 - 0.05, 0.75 + k * 0.3, -0.36), { tint: 0x5a5a56 });
+  b.add('white', bevelCylinder(0.36, 0.36, 0.16, 0.05, 16).rotateZ(Math.PI / 2), mat(X0 - 0.14, 1.05, 0.42), { tint: 0x2a2624 });
+  b.add(brass, new THREE.TorusGeometry(0.2, 0.025, 6, 16).rotateY(Math.PI / 2), mat(X0 - 0.23, 1.05, 0.42));
+  // Roof gallery: a brass rail on turned posts all round the luggage.
+  const rx0 = X0 + 0.25;
+  const rx1 = X1 - 0.35;
+  for (const sz of [-0.82, 0.82]) {
+    b.add(brass, new THREE.CylinderGeometry(0.022, 0.022, rx1 - rx0, 6).rotateZ(Math.PI / 2), mat((rx0 + rx1) / 2, 2.72, sz));
+    for (let x = rx0; x <= rx1 + 0.01; x += (rx1 - rx0) / 5) b.add(brass, new THREE.CylinderGeometry(0.018, 0.024, 0.26, 6), mat(x, 2.6, sz));
+  }
+  for (const x of [rx0, rx1]) b.add(brass, new THREE.CylinderGeometry(0.022, 0.022, 1.64, 6).rotateX(Math.PI / 2), mat(x, 2.72, 0));
+  // Luggage. Steamer trunk: leather, brass corners, two straps.
+  const trunk = (x: number, z: number, w: number, h: number, d: number, tint: number, ry: number): void => {
+    const y = 2.5 + h / 2;
+    b.add('white', roundedBox(w, h, d, 0.05), mat(x, y - h / 2, z, 0, ry, 0), { tint });
+    b.add('white', roundedBox(w + 0.01, 0.03, d + 0.01, 0.01), mat(x, y + h * 0.18 - 0.015, z, 0, ry, 0), { tint: 0x3a2618 });
+    for (const sx of [-0.28, 0.28]) {
+      const ox = Math.cos(ry) * sx * w;
+      const oz = -Math.sin(ry) * sx * w;
+      b.add('white', roundedBox(0.07, h + 0.02, d + 0.02, 0.01), mat(x + ox, y - h / 2 - 0.01, z + oz, 0, ry, 0), { tint: 0x2e2018 });
+    }
+    for (const cx of [-1, 1]) for (const cz of [-1, 1]) b.add(brass, roundedBox(0.07, 0.07, 0.07, 0.015), mat(x + Math.cos(ry) * cx * (w / 2 - 0.02) + Math.sin(ry) * cz * (d / 2 - 0.02), y + h / 2 - 0.03, z - Math.sin(ry) * cx * (w / 2 - 0.02) + Math.cos(ry) * cz * (d / 2 - 0.02)));
+  };
+  trunk(-1.45, -0.22, 0.95, 0.46, 0.62, 0x7a4a2c, 0.06);
+  trunk(-0.55, 0.3, 0.7, 0.34, 0.5, 0x3f6a50, -0.12);
+  // Carpet bag: soft, lumpy, a frame clasp and two handles.
+  const rr = new Rng('coach-bag');
+  b.add('white', lumpySphere(0.3, 1, 0.12, rr), mat(0.1, 2.68, -0.3, 0, 0.3, 0, 1.25, 0.72, 0.8), { tint: 0x8a2e3a });
+  b.add(brass, roundedBox(0.5, 0.03, 0.05, 0.01), mat(0.1, 2.9, -0.3, 0, 0.3, 0));
+  for (const dz of [-0.05, 0.05]) b.add('white', new THREE.TorusGeometry(0.12, 0.018, 5, 12, Math.PI), mat(0.1, 2.9, -0.3 + dz, 0, 0.3, 0), { tint: 0x3a2214 });
+  // Striped hatbox with its lid and ribbon.
+  b.add('white', bevelCylinder(0.22, 0.22, 0.26, 0.03, 18), mat(0.15, 2.64, 0.38), { tint: 0xf0dcc8 });
+  for (let k = 0; k < 4; k++) b.add('white', new THREE.CylinderGeometry(0.223, 0.223, 0.035, 18, 1, true), mat(0.15, 2.56 + k * 0.05, 0.38), { tint: 0xd0708a });
+  b.add('white', bevelCylinder(0.235, 0.235, 0.06, 0.02, 18), mat(0.15, 2.79, 0.38), { tint: 0xe8d0b8 });
+  b.add('white', new THREE.TorusGeometry(0.06, 0.018, 5, 10), mat(0.15, 2.84, 0.38, Math.PI / 2, 0, 0), { tint: 0xc04a6a });
+  // A bedroll tied with two cords, tucked at the front of the rack.
+  b.add('white', bevelCylinder(0.13, 0.13, 0.86, 0.05, 12).rotateX(Math.PI / 2), mat(-1.95, 2.65, 0.4), { tint: 0x8a7a5a });
+  for (const dz of [-0.25, 0.25]) b.add('white', new THREE.TorusGeometry(0.135, 0.015, 4, 12).rotateY(Math.PI / 2), mat(-1.95, 2.65, 0.4 + dz), { tint: 0x3a2a1a });
+  // Straps from the rail over the load.
+  for (const x of [-1.45, -0.55]) b.add('white', roundedBox(0.05, 0.02, 1.64, 0.008), mat(x, 2.99 - (x > -1 ? 0.12 : 0), 0, 0.02, 0, 0), { tint: 0x2e2018 });
   const group = b.build({ name: 'coach' });
   // Headlight beams: soft additive cones reaching down the road ahead (they read at dusk).
   const beamMat = new THREE.ShaderMaterial({
@@ -233,22 +337,49 @@ function buildCoach(): Coach {
     vertexShader: 'varying float vL; varying vec2 vUv; void main(){ vUv = uv; vL = uv.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: 'uniform float uI; varying float vL; varying vec2 vUv; void main(){ float a = pow(vL, 1.8) * uI * (0.6 + 0.4 * sin(vUv.x * 6.2832) * sin(vUv.x * 6.2832)); gl_FragColor = vec4(vec3(1.0, 0.86, 0.6) * a, a); }',
   });
-  for (const sz of [-0.62, 0.62]) {
+  for (const sz of [-0.66, 0.66]) {
     const cone = new THREE.Mesh(new THREE.ConeGeometry(1.3, 7, 16, 1, true), beamMat);
     cone.rotation.z = Math.PI / 2;
-    cone.position.set(L / 2 + 0.3 + 3.5, 0.95, sz);
+    cone.position.set(2.35 + 3.5, 1.2, sz);
     cone.rotation.y = 0;
     cone.userData.noAO = true;
     cone.renderOrder = 4;
     cone.name = 'coach-beam';
     group.add(cone);
   }
+  // Lamp halos: soft warm discs round the carriage lamps and headlamps (they carry the dusk frame).
+  // (Camera-facing quads rather than Sprites: the AO G-buffer pass skips noAO meshes but drew sprites
+  // as opaque squares, which printed a dark box round every lamp.)
+  const haloMat = new THREE.MeshBasicMaterial({ map: textures.softDot().map, color: 0xffc070, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+  haloMat.name = 'coach-halo';
+  const haloGeo = new THREE.PlaneGeometry(1, 1);
+  const _q = new THREE.Quaternion();
+  for (const [x, y, z, sc] of [[1.32, 1.62, -(1.9 / 2 + 0.1), 0.85], [1.32, 1.62, 1.9 / 2 + 0.1, 0.85], [2.36, 1.2, -0.66, 1.0], [2.36, 1.2, 0.66, 1.0]] as const) {
+    const h = new THREE.Mesh(haloGeo, haloMat);
+    h.position.set(x, y, z);
+    h.scale.setScalar(sc);
+    h.userData.noAO = true;
+    h.renderOrder = 6;
+    h.name = 'coach-halo';
+    h.onBeforeRender = (_r, _s, cam) => {
+      h.parent!.getWorldQuaternion(_q);
+      h.quaternion.copy(_q.invert().multiply(cam.quaternion));
+      h.updateMatrixWorld();
+    };
+    group.add(h);
+  }
   // Wheels: one tinted geometry, four instances (they spin).
   const wb = new MeshBuilder();
-  wb.add('white', bevelCylinder(0.42, 0.42, 0.3, 0.06, 18).rotateX(Math.PI / 2), undefined, { tint: 0x2a2624 });
-  wb.add('white', bevelCylinder(0.22, 0.22, 0.32, 0.03, 14).rotateX(Math.PI / 2), undefined, { tint: CHROME });
-  for (let k = 0; k < 5; k++) wb.add('white', roundedBox(0.05, 0.36, 0.33, 0.01), mat(0, 0, 0, 0, 0, (k / 5) * Math.PI), { tint: 0xb8bec6 });
-  wb.add('white', new THREE.CylinderGeometry(0.06, 0.06, 0.34, 8).rotateX(Math.PI / 2), undefined, { tint: 0xc8573e });
+  // Artillery wheels of the period: a fat black balloon tyre with a cream whitewall, a red-lined
+  // felloe, twelve cream spokes you can see the road through, and a domed brass hub cap.
+  const tyre = new THREE.TorusGeometry(0.34, 0.085, 10, 28);
+  tyre.scale(1, 1, 1.55);
+  wb.add('white', tyre, undefined, { tint: 0x221e1c });
+  for (const sz of [-1, 1]) wb.add('white', new THREE.TorusGeometry(0.305, 0.022, 6, 28), mat(0, 0, sz * 0.105), { tint: 0xeee2c4 });
+  wb.add('white', new THREE.CylinderGeometry(0.262, 0.262, 0.14, 28, 1, true).rotateX(Math.PI / 2), undefined, { tint: 0xa83c2e });
+  for (let k = 0; k < 12; k++) wb.add('white', roundedBox(0.032, 0.25, 0.03, 0.008), mat(Math.cos((k / 12) * Math.PI * 2) * 0.135, Math.sin((k / 12) * Math.PI * 2) * 0.135, 0, 0, 0, (k / 12) * Math.PI * 2 - Math.PI / 2), { tint: 0xe8dcbc });
+  wb.add('white', bevelCylinder(0.07, 0.07, 0.2, 0.02, 14).rotateX(Math.PI / 2), undefined, { tint: 0xa83c2e });
+  for (const sz of [-1, 1]) wb.add('white', new THREE.SphereGeometry(0.055, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2).rotateX((sz * Math.PI) / 2), mat(0, 0, sz * 0.1), { tint: 0xd8a24a });
   const wheelGeo = wb.geometries().get('white')!;
   const wheels = new THREE.InstancedMesh(wheelGeo, materials.get('white'), 4);
   wheels.name = 'coach-wheels';
@@ -263,7 +394,7 @@ function buildCoach(): Coach {
 
 const _wm = new THREE.Object3D();
 function setWheels(c: Coach): void {
-  [[1.45, -0.86], [1.45, 0.86], [-1.45, -0.86], [-1.45, 0.86]].forEach(([x, z], i) => {
+  [[1.62, -0.86], [1.62, 0.86], [-1.45, -0.86], [-1.45, 0.86]].forEach(([x, z], i) => {
     _wm.position.set(x!, 0.42, z!);
     _wm.rotation.set(0, 0, c.spin);
     _wm.updateMatrix();
@@ -802,6 +933,36 @@ function buildMarket(r: Rng): THREE.Group {
   }
   g.add(b.build({ name: 'market-produce' }));
   return g;
+}
+
+/** Rooms whose restoration props are static merged meshes (the koi swim: 'tide' stays its own). */
+const MERGED_ROOMS: RoomId[] = ['seed', 'sun', 'harvest', 'hearth', 'craft'];
+
+/**
+ * Perf r15 (pillar 14): with every one of MERGED_ROOMS restored (the finale, any late-game evening) their
+ * merged props draw as ONE mesh per material instead of one per room per material (the finale square:
+ * 19 -> 9 draws a pass). The per-room meshes stay for partial restorations and the reveal animations.
+ */
+function mergeRestored(restore: Map<RoomId, THREE.Object3D>, root: THREE.Object3D): { group: THREE.Group; parts: THREE.Mesh[]; on: boolean } {
+  root.updateMatrixWorld(true);
+  const tmp = new THREE.Group();
+  const parts: THREE.Mesh[] = [];
+  for (const id of MERGED_ROOMS) {
+    restore.get(id)?.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.customDepthMaterial || m.userData.dynamic || Array.isArray(m.material) || !/^restore-[a-z]+:/.test(m.name)) return;
+      const c = new THREE.Mesh(m.geometry, m.material);
+      c.castShadow = m.castShadow;
+      c.receiveShadow = m.receiveShadow;
+      m.matrixWorld.decompose(c.position, c.quaternion, c.scale);
+      tmp.add(c);
+      parts.push(m);
+    });
+  }
+  const group = mergeStatic([tmp], 'restore-all');
+  group.visible = false;
+  root.add(group);
+  return { group, parts, on: false };
 }
 
 /** mergeStatic, keeping whatever it can't merge (swaying cloth etc.) in the returned group. */
@@ -1389,6 +1550,9 @@ class SkyLanterns {
     this.mesh = new THREE.InstancedMesh(skyLanternGeo(), m, this.n);
     this.mesh.frustumCulled = false;
     this.mesh.count = 0;
+    // Hidden while idle: an empty transparent double-sided draw still costs three two program
+    // re-derivations a frame (it flips the material's side + needsUpdate per pass; pillar 14).
+    this.mesh.visible = false;
     this.mesh.userData.noAO = true;
     this.mesh.castShadow = false;
     this.mesh.name = 'sky-lanterns';
@@ -1421,12 +1585,14 @@ class SkyLanterns {
     this.active = true;
     this.t = prewarm;
     this.mesh.count = this.n;
+    this.mesh.visible = true;
     this.halos.geometry.setDrawRange(0, this.n);
     this.update(0);
   }
   stop(): void {
     this.active = false;
     this.mesh.count = 0;
+    this.mesh.visible = false;
     this.halos.geometry.setDrawRange(0, 0);
   }
   /** Jump the flight forward (a scene cut: the lanterns have been climbing meanwhile). */
@@ -1468,6 +1634,13 @@ class SkyLanterns {
  */
 class ValleyLights {
   readonly mesh: THREE.InstancedMesh;
+  /** Warm pools of light on the snow under every lit lantern (one additive instanced draw): the lane
+   * reads as a chain of hearth-glow, not blue snow with dots over it. */
+  readonly pools: THREE.InstancedMesh;
+  private poolAt: { at: THREE.Vector3; rad: number }[] = [];
+  private m4 = new THREE.Matrix4();
+  private q0 = new THREE.Quaternion();
+  private s3 = new THREE.Vector3();
   private pts: THREE.Vector3[] = [];
   private t = -1;
   private lit: number[] = [];
@@ -1481,6 +1654,10 @@ class ValleyLights {
       const z2 = i % 2 ? 23.3 : 28.9;
       if (i % 3 === 1) this.pts.push(new THREE.Vector3(x - 1.2, 0, z2));
     }
+    // The Hall approach, the south lane and the east lane to the bridge: the whole valley answers.
+    for (const z of [17.6, 20.4]) for (const x of [29.6, 34.4]) this.pts.push(new THREE.Vector3(x + (r.next() - 0.5) * 0.3, 0, z));
+    for (let i = 0, z = 33.4; z < 47; z += 2.6, i++) this.pts.push(new THREE.Vector3(i % 2 ? 34.6 : 29.4, 0, z + (r.next() - 0.5) * 0.4));
+    for (let i = 0, x = 40.5; x < 55; x += 2.6, i++) this.pts.push(new THREE.Vector3(x + (r.next() - 0.5) * 0.4, 0, i % 2 ? 28.9 : 23.3));
     for (let k = 0; k < 12; k++) {
       const a = (k / 12) * Math.PI * 2 + 0.26;
       const x = PLAZA.x + Math.cos(a) * 9.4;
@@ -1518,6 +1695,41 @@ class ValleyLights {
       o.updateMatrix();
       this.mesh.setMatrixAt(i, o.matrix);
     });
+    const pg = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const pm = new THREE.MeshBasicMaterial({
+      map: textures.softDot().map,
+      // Alpha-blended toward lamp-light, not added: added orange over moonlit snow only turns it
+      // lavender-white, a blend pulls the blue out and leaves warm peach under every lantern.
+      color: new THREE.Color(1.0, 0.5, 0.16),
+      opacity: 0.72,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      fog: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    pm.name = 'valley-pools';
+    this.pools = new THREE.InstancedMesh(pg, pm, this.pts.length);
+    this.pools.name = 'valley-pools';
+    this.pools.frustumCulled = false;
+    this.pools.castShadow = false;
+    this.pools.renderOrder = 3;
+    this.pools.userData.noAO = true;
+    const q = new THREE.Quaternion();
+    const one = new THREE.Vector3();
+    const at = new THREE.Vector3();
+    const m4 = new THREE.Matrix4();
+    const rad0 = 0.001;
+    this.pts.forEach((p, i) => {
+      // Centred under the lantern head (0.38 m out along the crook's local +x).
+      this.mesh.getMatrixAt(i, m4);
+      at.set(0.38, 0, 0).applyMatrix4(m4);
+      this.poolAt.push({ at: at.clone().setY(p.y + 0.05), rad: 5.8 + r.next() * 1.4 });
+      m4.compose(at.setY(p.y + 0.05), q, one.set(rad0, 1, rad0));
+      this.pools.setMatrixAt(i, m4);
+    });
     this.lit = this.pts.map(() => 0);
     this.reset();
   }
@@ -1536,9 +1748,17 @@ class ValleyLights {
       const u = this.lit[i]!;
       const flash = u > 0 && u < 1 ? Math.sin(u * Math.PI) * 0.9 : 0;
       const k = 0.16 + u * 0.84 + flash;
-      this.mesh.setColorAt(i, this.col.setRGB(k, k * (0.92 - flash * 0.1), k * (0.8 - flash * 0.2)));
+      this.mesh.setColorAt(i, this.col.setRGB(k, k * (0.8 - flash * 0.08), k * (0.52 - flash * 0.12)));
+      // The pool blooms out from the lantern as it catches (a touch past full on the flash).
+      const pa = this.poolAt[i];
+      if (pa) {
+        const k2 = Math.max(0.001, pa.rad * (Math.sqrt(u) + flash * 0.12));
+        this.pools.setMatrixAt(i, this.m4.compose(pa.at, this.q0, this.s3.set(k2, 1, k2)));
+      }
     });
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    this.pools.instanceMatrix.needsUpdate = true;
+    this.pools.visible = this.lit.some((u) => u > 0);
   }
   update(dt: number): void {
     if (this.t < 0) return;
@@ -1587,6 +1807,7 @@ function buildFinale(r: Rng, H: (x: number, z: number) => number): { group: THRE
   const group = mergeKeep(parts, 'finale-dressing');
   const stringsMerged = mergeKeep(stringParts, 'finale-strings');
   group.add(stringsMerged);
+  group.add(finaleSnow(r.fork('finale-snow'), H));
   group.traverse((o) => {
     const m = o as THREE.Mesh;
     if (m.isMesh) {
@@ -1595,6 +1816,82 @@ function buildFinale(r: Rng, H: (x: number, z: number) => number): { group: THRE
     }
   });
   return { group, fires };
+}
+
+/**
+ * Festival-night snow: the square is not a flat lit sheet. Wind drifts banked against the lane verges,
+ * benches and house fronts (soft lumps, a cool shadowed side), and trodden tracks up the south lane and
+ * round the fountain where the whole valley walked up with its lanterns. Two instanced draws.
+ */
+function finaleSnow(r: Rng, H: (x: number, z: number) => number): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'finale-snow';
+  const drifts: THREE.Matrix4[] = [];
+  const o = new THREE.Object3D();
+  const drift = (x: number, z: number, s: number, ry = r.next() * 6): void => {
+    o.position.set(x, H(x, z) - 0.04, z);
+    o.rotation.set(0, ry, 0);
+    o.scale.set(s * (1.2 + r.next() * 0.9), s * (0.32 + r.next() * 0.18), s * (0.7 + r.next() * 0.4));
+    o.updateMatrix();
+    drifts.push(o.matrix.clone());
+  };
+  // Verges of the south lane, the Hall approach and the west / east lanes; in the plaza's corners.
+  for (let z = 30; z < 47; z += 1.3 + r.next()) for (const x of [28.6, 35.4]) drift(x + (r.next() - 0.5) * 0.8, z, 0.45 + r.next() * 0.35, Math.PI / 2 + (r.next() - 0.5) * 0.6);
+  for (let x = 2; x < 24; x += 1.5 + r.next()) for (const z of [22.4, 29.8]) drift(x, z + (r.next() - 0.5) * 0.6, 0.45 + r.next() * 0.3, (r.next() - 0.5) * 0.6);
+  for (let x = 40; x < 56; x += 1.5 + r.next()) for (const z of [22.4, 29.8]) drift(x, z + (r.next() - 0.5) * 0.6, 0.45 + r.next() * 0.3, (r.next() - 0.5) * 0.6);
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2 + r.next() * 0.3;
+    drift(PLAZA.x + Math.cos(a) * (10.6 + r.next() * 1.2), PLAZA.z + Math.sin(a) * (9.8 + r.next() * 1.0), 0.55 + r.next() * 0.4);
+  }
+  const dGeo = lumpySphere(1, 2, 0.22, r);
+  const dMat = new THREE.MeshStandardMaterial({ color: 0xf2f6ff, roughness: 0.92, metalness: 0 });
+  dMat.name = 'finale-drift';
+  const dm = new THREE.InstancedMesh(dGeo, dMat, drifts.length);
+  drifts.forEach((m, i) => dm.setMatrixAt(i, m));
+  dm.name = 'finale-drifts';
+  dm.receiveShadow = true;
+  g.add(dm);
+  // Trodden tracks: pairs of boot prints wandering up the south lane, round the fountain, up to the steps.
+  const prints: THREE.Matrix4[] = [];
+  const walk = (pts: [number, number][], n: number): void => {
+    for (let w = 0; w < n; w++) {
+      const off = (r.next() - 0.5) * 2.2;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [x0, z0] = pts[i]!;
+        const [x1, z1] = pts[i + 1]!;
+        const len = Math.hypot(x1 - x0, z1 - z0);
+        const dx = (x1 - x0) / len;
+        const dz = (z1 - z0) / len;
+        for (let d = 0, k = 0; d < len; d += 0.36 + r.next() * 0.06, k++) {
+          const side = k % 2 ? 0.1 : -0.1;
+          const x = x0 + dx * d - dz * (off + side) + (r.next() - 0.5) * 0.05;
+          const z = z0 + dz * d + dx * (off + side);
+          o.position.set(x, H(x, z) + 0.012, z);
+          o.rotation.set(-Math.PI / 2, 0, Math.atan2(dx, dz) + (r.next() - 0.5) * 0.3);
+          o.scale.set(0.11, 0.2, 1);
+          o.updateMatrix();
+          prints.push(o.matrix.clone());
+        }
+      }
+    }
+  };
+  walk([[32, 46], [32, 32], [29.5, 28.5], [28.6, 24.6], [30.2, 20.6], [32, 17]], 3);
+  walk([[32, 46], [32, 32], [34.5, 28.5], [35.4, 24.6], [33.8, 20.6], [32, 17]], 3);
+  walk([[4, 26], [22, 26], [27.5, 25.5]], 2);
+  const pGeo = new THREE.CircleGeometry(1, 10);
+  const pMat = new THREE.MeshBasicMaterial({ color: 0x3a4a78, transparent: true, opacity: 0.32, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  pMat.name = 'finale-prints';
+  const pm = new THREE.InstancedMesh(pGeo, pMat, prints.length);
+  prints.forEach((m, i) => pm.setMatrixAt(i, m));
+  pm.name = 'finale-prints';
+  pm.renderOrder = 2;
+  g.add(pm);
+  for (const m of [dm, pm]) {
+    m.frustumCulled = false;
+    m.castShadow = false;
+    m.userData.noAO = true;
+  }
+  return g;
 }
 
 // ─────────────────────────────────────────────── system
@@ -1609,10 +1906,14 @@ export class StoryWorldSystem implements System {
   readonly name = 'story-world';
   private game!: Game;
   private coach: Coach | null = null;
+  /** Restoration props whose shadow casting the finale switched off (back on at `festival:closeOff`). */
+  private shadowOff: THREE.Object3D[] = [];
   private coachMove: { from: number; to: number; t: number; dur: number; leave: boolean } | null = null;
   /** Road dust kicked up behind the coach's rear wheels while it moves (parked below ground otherwise). */
   private dust: SmokeEmitter | null = null;
   private restore = new Map<RoomId, THREE.Object3D>();
+  /** All of MERGED_ROOMS' props as one mesh per material (shown instead of the per-room ones when all are up). */
+  private restoreAll: { group: THREE.Group; parts: THREE.Mesh[]; on: boolean } | null = null;
   private hidden = new Set<RoomId>();
   private built: THREE.Object3D | null = null;
   private koi: Koi | null = null;
@@ -1627,6 +1928,10 @@ export class StoryWorldSystem implements System {
   private facadeKey = '';
   private glimmer: GlimmerSet | null = null;
   private finale: { group: THREE.Group; fire: FireFX; light: THREE.PointLight } | null = null;
+  /** The finale's last shot: a warm key from the group's own lanterns + their breath in the cold. */
+  private closeLight = new THREE.PointLight(0xffb070, 0, 7, 1.6);
+  private closeAt: THREE.Vector3[] = [];
+  private breathT = 0;
   private hallFlare = 0;
   private anims: Anim[] = [];
   private festivalLit = false;
@@ -1778,10 +2083,12 @@ export class StoryWorldSystem implements System {
     this.valley = new ValleyLights(H);
     this.valley.onIgnite = (p) => this.burst.emit(p, { color: 0xffc070, count: 6, speed: 1.2, size: 0.12, gravity: 0.6, life: 0.9, up: 1.2, spread: 0.3 });
     fin.group.add(this.valley.mesh);
+    fin.group.add(this.valley.pools);
     fin.group.visible = false;
     root.add(fin.group);
     this.finale = { group: fin.group, fire, light };
     root.add(this.burst.object, this.sky.mesh);
+    this.restoreAll = mergeRestored(this.restore, root);
     // Render budget: these props sit on already-AO'd ground and mostly read at a distance, so they
     // skip the AO G-buffer; only the structural pieces (posts, stalls, chimney, Hall) cast shadows.
     const CASTS = new Set(['wood', 'stone', 'white', 'woodGrain', 'roofTile', 'glimmer-plastic']);
@@ -1802,10 +2109,22 @@ export class StoryWorldSystem implements System {
     return out;
   }
 
+  /** Merged restoration props when every MERGED_ROOMS room is up and none is mid-reveal; per-room meshes otherwise. */
+  private syncRestoreAll(vis = this.visibleRooms()): void {
+    const ra = this.restoreAll;
+    if (!ra) return;
+    const on = this.anims.length === 0 && MERGED_ROOMS.every((id) => vis.has(id));
+    if (on === ra.on) return;
+    ra.on = on;
+    ra.group.visible = on;
+    for (const m of ra.parts) m.visible = !on;
+  }
+
   private refresh(): void {
     if (!this.built) return;
     const vis = this.visibleRooms();
     for (const [id, o] of this.restore) o.visible = vis.has(id);
+    this.syncRestoreAll(vis);
     if (this.smoke) this.smoke.object.visible = vis.has('hearth');
     const gs = this.glimmerState();
     if (this.glimmer) {
@@ -1876,6 +2195,7 @@ export class StoryWorldSystem implements System {
         const o = this.restore.get(arg as RoomId);
         if (o && !instant) {
           this.anims.push({ obj: o, t: 0, dur: 1.1 });
+          this.syncRestoreAll();
           const box = new THREE.Box3().setFromObject(o);
           const c = box.getCenter(new THREE.Vector3());
           const col = ROOMS.find((r) => r.id === arg)?.color ?? 0xffd070;
@@ -1906,6 +2226,33 @@ export class StoryWorldSystem implements System {
         // By the time the lane lights, the sky lanterns are high over the Hall (none at head height).
         this.sky.advance(9);
         this.valley?.ignite(instant);
+        break;
+      case 'festival:close': {
+        const H = (x: number, z: number): number => this.game.world.heightAt(x, z);
+        this.closeAt = (arg ?? '').split(';').filter(Boolean).map((q) => {
+          const [x, z] = q.split(',').map(Number) as [number, number];
+          return new THREE.Vector3(x, H(x, z) + 1.42, z + 0.3);
+        });
+        // The finale's wide crane is the busiest frame in the game: by lantern-light the little
+        // restoration props (arch, lane posts, baskets) drop out of the moon's shadow pass (−10 draws).
+        this.game.world.current?.root.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh && o.castShadow && /^restore-/.test(o.name)) {
+            o.castShadow = false;
+            this.shadowOff.push(o);
+          }
+        });
+        if (this.closeAt.length) {
+          const c = this.closeAt.reduce((a, b) => a.add(b), new THREE.Vector3()).multiplyScalar(1 / this.closeAt.length);
+          this.closeLight.position.set(c.x, c.y + 0.1, c.z + 1.3);
+          if (!this.closeLight.parent) this.game.world.current?.root.add(this.closeLight);
+        }
+        break;
+      }
+      case 'festival:closeOff':
+        for (const o of this.shadowOff) o.castShadow = true;
+        this.shadowOff = [];
+        this.closeAt = [];
+        this.closeLight.removeFromParent();
         break;
       case 'house:night':
         this.houseNight = true;
@@ -1942,6 +2289,7 @@ export class StoryWorldSystem implements System {
         if (cm.leave) this.coach.group.removeFromParent();
       }
     }
+    const animating = this.anims.length > 0;
     this.anims = this.anims.filter((a) => {
       a.t += dt;
       const u = Math.min(1, a.t / a.dur);
@@ -1949,6 +2297,7 @@ export class StoryWorldSystem implements System {
       a.obj.scale.set(1, Math.max(0.001, s), 1);
       return u < 1;
     });
+    if (animating && !this.anims.length) this.syncRestoreAll();
     this.koi?.update(dt, night);
     if (this.smoke?.object.visible) this.smoke.update(dt, night, game.rc.renderer.domElement.height);
     this.burst.update(dt, game.rc.renderer.domElement.height);
@@ -1981,6 +2330,16 @@ export class StoryWorldSystem implements System {
       const on = this.finale.group.visible;
       this.finale.light.intensity = on ? 6 * (0.85 + Math.sin(game.time * 11) * 0.08 + Math.sin(game.time * 23) * 0.05) : 0;
       if (on) this.finale.fire.update(dt, game.rc.renderer.domElement.height);
+    }
+    if (this.closeAt.length) {
+      this.closeLight.intensity = 2.6 * (0.9 + Math.sin(game.time * 7.3) * 0.05 + Math.sin(game.time * 17) * 0.04);
+      // Breath: a small pale puff from each face in turn, drifting up and away in the cold.
+      this.breathT -= dt;
+      if (this.breathT <= 0) {
+        this.breathT = 0.45 + Math.random() * 0.35;
+        const p = this.closeAt[Math.floor(Math.random() * this.closeAt.length)]!;
+        this.burst.emit(p.clone(), { color: 0xe8f0ff, count: 4, speed: 0.25, size: 0.1, gravity: -0.12, life: 1.3, up: 0.25, spread: 0.08 });
+      }
     }
   }
 }

@@ -61,12 +61,15 @@ export class LightBudget {
     const visit = this.visit;
     this.frame++;
     const f = this.frame;
+    // Walk with a stack pointer: `stack.length = 0` drops the backing store, so the walk re-grew it
+    // (~7 KB of garbage a frame in the town); stale slots past this walk's high-water mark are trimmed below.
     const stack = this.stack;
-    stack.length = 0;
-    stack.push(scene);
+    let sp = 0;
+    let hi = 1;
+    stack[sp++] = scene;
     this.shadowLights.length = 0;
-    while (stack.length) {
-      const o = stack.pop()!;
+    while (sp > 0) {
+      const o = stack[--sp]!;
       if (!o.visible) continue;
       if ((o as THREE.Light).isLight && o.castShadow && ((o as THREE.DirectionalLight).isDirectionalLight || (o as THREE.SpotLight).isSpotLight)) this.shadowLights.push(o as THREE.DirectionalLight);
       if ((o as THREE.PointLight).isPointLight) {
@@ -80,8 +83,10 @@ export class LightBudget {
       }
       else if (visit && ((o as THREE.Mesh).isMesh || (o as THREE.Points).isPoints || (o as THREE.Line).isLine || (o as THREE.Sprite).isSprite)) visit(o);
       const ch = o.children;
-      for (let i = 0; i < ch.length; i++) stack.push(ch[i]!);
+      for (let i = 0; i < ch.length; i++) stack[sp++] = ch[i]!;
+      if (sp > hi) hi = sp;
     }
+    if (stack.length > hi) stack.length = hi;
     this.list.length = 0;
     for (const [l, e] of this.entries) {
       if (e.seen !== f) {

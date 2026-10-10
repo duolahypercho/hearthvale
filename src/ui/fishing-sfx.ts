@@ -1,10 +1,16 @@
 /**
- * Fishing + seaside sound (procedural WebAudio, no files). Its own tiny context, created on the
- * first user gesture:
+ * Fishing sound (procedural WebAudio, no files). It borrows the game's one AudioContext (the audio
+ * hub, src/audio/hub.ts) and plays into its SFX bus — limiter, volume and mute apply:
  *   whoosh (cast), zip (line paying out), plop (bobber lands), nibble tick, bite ding,
  *   reel clicks (rate follows the crank), fish splash, catch fanfare (pentatonic arpeggio + bell),
- *   escape (falling boop), treasure sparkle, and a surf bed + gull cries while on the beach.
+ *   escape (falling boop), treasure sparkle. (The beach's surf and gulls belong to the ambience,
+ *   src/audio/ambience.ts — a second surf bed here doubled it.)
  */
+import { audioHub, hubContext } from '../audio/hub';
+
+/** The old private surf bed + gulls (off: the ambience owns the beach). */
+const SURF_BED = false;
+
 export class FishingSfx {
   private ctx: AudioContext | null = null;
   private out!: GainNode;
@@ -19,24 +25,20 @@ export class FishingSfx {
   constructor() {
     const start = (): void => {
       if (!this.ctx) this.boot();
-      else if (this.ctx.state === 'suspended') void this.ctx.resume();
     };
     window.addEventListener('pointerdown', start);
     window.addEventListener('keydown', start);
   }
 
   private boot(): void {
-    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctx) return;
-    try {
-      this.ctx = new Ctx();
-    } catch {
-      return;
-    }
+    const hub = hubContext();
+    if (!hub || !audioHub.sfx) return;
+    this.ctx = hub;
     const ctx = this.ctx;
     this.out = ctx.createGain();
-    this.out.gain.value = this.volume;
-    this.out.connect(ctx.destination);
+    // (0.55 straight to the speakers before; the SFX bus adds ~+2 dB ahead of the master.)
+    this.out.gain.value = this.volume * 0.78;
+    this.out.connect(audioHub.sfx);
     this.noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const d = this.noise.getChannelData(0);
     // Pinkish noise (smoother surf / splashes than white).
@@ -50,7 +52,7 @@ export class FishingSfx {
       b2 = 0.57 * b2 + w * 1.0527;
       d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.2;
     }
-    if (this.beach) this.startSurf();
+    if (SURF_BED && this.beach) this.startSurf();
   }
 
   private get t(): number {
@@ -203,7 +205,7 @@ export class FishingSfx {
   setBeach(on: boolean): void {
     this.beach = on;
     if (!this.ctx) return;
-    if (on) this.startSurf();
+    if (on && SURF_BED) this.startSurf();
     else if (this.surf) {
       this.surf.g.gain.setTargetAtTime(0, this.t, 0.6);
     }
@@ -227,7 +229,10 @@ export class FishingSfx {
 
   /** Per-frame: swells the surf with the wave cycle and sprinkles gull cries. */
   update(dt: number, wavePhase: number): void {
-    if (!this.ctx || !this.surf) return;
+    // The hub's context may start after the gesture that would have booted us.
+    if (!this.ctx) this.boot();
+    // The surf bed and gulls are the ambience's job now (src/audio/ambience.ts beach preset).
+    if (!SURF_BED || !this.ctx || !this.surf) return;
     this.surfT += dt;
     if (this.beach) {
       const swell = Math.pow(Math.max(0, Math.sin(wavePhase)), 3);

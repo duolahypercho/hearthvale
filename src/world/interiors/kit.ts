@@ -33,6 +33,7 @@ export type IMat =
   | 'brass'
   | 'ceramic'
   | 'straw'
+  | 'strawCalm'
   | 'photo'
   | 'glow'
   | 'ember'
@@ -124,6 +125,11 @@ function build(name: IMat): THREE.MeshStandardMaterial {
       const t = strawFloor();
       return std({ map: t.map, bumpMap: t.bump, bumpScale: 2.5, roughness: 1 });
     }
+    case 'strawCalm': {
+      // Coop bedding: fewer, softer strands over broad tonal mottling (the hens read against it).
+      const t = strawFloor(true);
+      return std({ map: t.map, bumpMap: t.bump, bumpScale: 1.6, roughness: 1 });
+    }
     case 'thatch': {
       const t = textures.thatch();
       return std({ map: t.map, bumpMap: t.bump, bumpScale: 2, roughness: 1 });
@@ -146,7 +152,16 @@ function build(name: IMat): THREE.MeshStandardMaterial {
       return m;
     }
     case 'ember': {
-      const m = std({ roughness: 0.9, emissive: 0xff5a18, emissiveIntensity: 1.5 });
+      // Charred lumps whose glow follows the vertex tint (deep red .. orange): the base stays near
+      // black so the fire light never washes them white, the heat lives in the emissive alone.
+      const m = std({ roughness: 0.9, color: 0x2a1a14, emissive: 0xffffff, emissiveIntensity: 1.5 });
+      m.onBeforeCompile = (s) => {
+        s.fragmentShader = s.fragmentShader.replace(
+          '#include <emissivemap_fragment>',
+          '#include <emissivemap_fragment>\n totalEmissiveRadiance *= vColor.rgb;',
+        );
+      };
+      m.customProgramCacheKey = () => 'i-ember';
       interiorEmissive.push({ material: m, day: 1.4, night: 2.4 });
       return m;
     }

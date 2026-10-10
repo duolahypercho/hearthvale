@@ -15,7 +15,7 @@ import { smoothRock, forestRockMaterial } from './rocks';
 import type { InstancedPart } from '../props/instanced';
 import type { Season } from '../../core/time';
 import { forestMoss } from './rocks';
-import { applyLeafClumps } from './giants';
+import { applyLeafClumps, FOREST_LOD } from './giants';
 import { ivyLeafTexture, applyCardMap } from './foliage';
 import { patchMaterial, before, after } from '../../render/patch';
 
@@ -141,6 +141,33 @@ export function towerWindowMaterial(): THREE.MeshStandardMaterial {
   return _towerGlow;
 }
 
+let _spill: THREE.ShaderMaterial | null = null;
+/** A soft additive pool of lamplight on the stone round the tower window (strength follows the pane). */
+function windowSpillMaterial(): THREE.ShaderMaterial {
+  if (_spill) return _spill;
+  _spill = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: { uK: { value: 1 } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: /* glsl */ `
+      uniform float uK;
+      varying vec2 vUv;
+      void main() {
+        vec2 q = (vUv - vec2(0.5, 0.55)) * vec2(1.0, 1.3);
+        float g = exp(-dot(q, q) * 9.0);
+        gl_FragColor = vec4(vec3(1.0, 0.62, 0.26) * g * 0.16 * uK, 1.0);
+      }`,
+  });
+  _spill.name = 'towerSpill';
+  return _spill;
+}
+/** Window spill strength (the map scales it with the lamp's flicker / night). */
+export function setTowerSpill(k: number): void {
+  windowSpillMaterial().uniforms.uK!.value = k;
+}
+
 const CAP_RED = new THREE.Color(0xd8352a);
 const CAP_TAN = new THREE.Color(0xa8703e);
 const STEM = new THREE.Color(0xf2e8d2);
@@ -188,12 +215,13 @@ function logBarkMaterial(): THREE.MeshStandardMaterial {
         // Soaked moss goes deep olive (the dry sheen read as a glowing lime tube under the rain grade).
         moss = mix(moss, moss * vec3(0.56, 0.6, 0.5), uWet);
         // Sporophyte flecks catching the light.
-        moss += vec3(0.42, 0.4, 0.12) * smoothstep(0.86, 0.95, hvNoise(P.xz * 58.0 + P.y * 31.0)) * 0.3;
+        moss += vec3(0.42, 0.4, 0.12) * smoothstep(0.86, 0.95, hvNoise(P.xz * 58.0 + P.y * 31.0)) * 0.3 * (1.0 - 0.7 * uWet);
         // Bark darkens where the moss holds the damp (a dark halo round every cushion).
-        diffuseColor.rgb *= 1.0 - 0.32 * smoothstep(0.1, 0.45, cover) * (1.0 - m) * (1.0 - hvSnowAmt);
+        diffuseColor.rgb *= 1.0 - 0.32 * (1.0 - 0.5 * uWet) * smoothstep(0.1, 0.45, cover) * (1.0 - m) * (1.0 - hvSnowAmt);
         // Lichen rosettes on the bare bark (pale grey-green coins).
         float lich = smoothstep(0.8, 0.86, hvNoise(P.xz * 16.0 + P.y * 12.0 + 3.0)) * (1.0 - m);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.54, 0.42), lich * 0.4 * (1.0 - hvSnowAmt));
+        // Soaked lichen darkens with the bark (pale coins on the near-black wet log read as white speckle in storms).
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.54, 0.42) * (1.0 - 0.45 * uWet), lich * 0.4 * (1.0 - 0.55 * uWet) * (1.0 - hvSnowAmt));
         hvLogMoss = m * (0.5 + 0.5 * cush);
         diffuseColor.rgb = mix(diffuseColor.rgb, moss, m * 0.92 * (1.0 - hvSnowAmt));
       }`,
@@ -215,7 +243,7 @@ function logBarkMaterial(): THREE.MeshStandardMaterial {
   // Wet bark darkens less than the default (the log is already dark: at 40 % it went coal-black in storms).
   // Velvety moss never turns glossy: at the default 0.3 gloss the soaked crown mirrored the pale
   // overcast and glowed lime against the rain grade.
-  applyWorldFx(_logBark, { snowUp: 0.45, wetDark: 0.3, wetGloss: 0.7 });
+  applyWorldFx(_logBark, { snowUp: 0.45, wetDark: 0.22, wetGloss: 0.85 });
   return _logBark;
 }
 
@@ -524,7 +552,9 @@ export function buildWinterBerry(r: Rng): InstancedPart[] {
     }
   }
   const out: InstancedPart[] = [];
-  for (const [m, geo] of b.geometries()) out.push({ geometry: geo, material: m as THREE.Material, castShadow: true });
+  // 4 cm berries (~9 px at the lens, ~4 in the half-res AO) occlude nothing the AO can resolve and sit on
+  // the leaf mound it already sees: skip the G-buffer (snow-day: 74k AO triangles).
+  for (const [m, geo] of b.geometries()) out.push({ geometry: geo, material: m as THREE.Material, castShadow: true, noAO: FOREST_LOD && m === berry });
   return out;
 }
 
@@ -548,7 +578,8 @@ export function buildWinterTwigs(r: Rng): InstancedPart[] {
     }
   }
   const out: InstancedPart[] = [];
-  for (const [mm, geo] of b.geometries()) out.push({ geometry: geo, material: mm as THREE.Material, castShadow: false });
+  // 1-4 cm stalks cast no shadow and are below the half-res AO's reach: no G-buffer draw either.
+  for (const [mm, geo] of b.geometries()) out.push({ geometry: geo, material: mm as THREE.Material, castShadow: false, noAO: FOREST_LOD });
   return out;
 }
 
@@ -871,6 +902,65 @@ function towerIvy(b: MeshBuilder, rng: Rng, R: number, a0: number, a1: number, t
 }
 
 /**
+ * Climbing ivy, grown from the ground up: each vine roots at the wall foot and wanders upwards to its
+ * own height (most stop low, a few reach the crown and spill a little over it), with side shoots
+ * fanning out diagonally. Leaves are densest at the base and thin out upwards, so the cover breaks
+ * into tendrils and patches with ragged edges — never one flat slab with a hard vertical edge.
+ */
+function towerIvyClimb(b: MeshBuilder, rng: Rng, R: number, a0: number, a1: number, top: number, n: number): void {
+  const ivy = ivyMaterial();
+  const leaf = (a: number, y: number, s: number, slot: number, out = 0): void => {
+    const g = new THREE.PlaneGeometry(s, s * 1.1);
+    const nrm = new THREE.Vector3(Math.cos(a), out, Math.sin(a)).normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), nrm);
+    q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler((rng.next() - 0.5) * 0.8, (rng.next() - 0.5) * 0.8, rng.next() * 6.28)));
+    const r = R + 0.3 + rng.next() * 0.1 + out * 0.25;
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r), q, new THREE.Vector3(1, 1, 1));
+    b.add(ivy, g, m, { tint: new THREE.Color(slot, 0.82 + rng.next() * 0.3, 1) });
+  };
+  const slotPick = (): number => {
+    const u = rng.next();
+    return u < 0.34 ? 0.1 : u < 0.64 ? 0.33 : u < 0.88 ? 0.58 : 0.9;
+  };
+  const vine = (a: number, y: number, h: number, depth: number, lean: number): void => {
+    const pts: THREE.Vector3[] = [];
+    let aa = a;
+    let yy = y;
+    const seg = 0.28;
+    const steps = Math.max(2, Math.round((h - y) / seg));
+    for (let i = 0; i <= steps; i++) {
+      const rr = R + 0.29;
+      pts.push(new THREE.Vector3(Math.cos(aa) * rr, yy, Math.sin(aa) * rr));
+      const f = i / steps;
+      // Dense at the root, thinning towards the growing tip; leaves shrink as they climb.
+      const k = f < 0.35 ? 3 : f < 0.7 ? 2 : rng.next() < 0.6 ? 1 : 0;
+      for (let j = 0; j < k; j++) leaf(aa + (rng.next() - 0.5) * (0.2 - f * 0.08), yy + (rng.next() - 0.5) * 0.24, (0.6 - f * 0.26) * (0.75 + rng.next() * 0.45) * (depth ? 0.85 : 1), slotPick());
+      if (depth < 2 && i > 1 && i < steps - 1 && rng.next() < 0.18) vine(aa, yy, yy + (h - yy) * (0.3 + rng.next() * 0.4), depth + 1, rng.next() < 0.5 ? -1 : 1);
+      aa += (rng.next() - 0.5) * 0.1 + lean * 0.045;
+      yy += seg * (0.85 + rng.next() * 0.3);
+      if (yy > h) break;
+    }
+    // A vine that made it to the crown spills a few leaves out over the lip.
+    if (depth === 0 && h > top - 0.4) for (let j = 0; j < 5; j++) leaf(aa + (rng.next() - 0.5) * 0.3, top + 0.15 + rng.next() * 0.3, 0.45 + rng.next() * 0.2, slotPick(), 0.5);
+    if (pts.length < 2) return;
+    const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 2, 0.034 - depth * 0.009, 4, false);
+    b.add('woodDark', tube, undefined, { tint: 0x6a5238 });
+  };
+  for (let k = 0; k < n; k++) {
+    // Uneven spacing (clumps + gaps); the far edge frays out past the sector, the near edge (door /
+    // window side, at a0) stays inside it.
+    const u = (k + 0.5) / n + (rng.next() - 0.5) * 0.9 / n;
+    const a = a0 + u * (a1 - a0 + 0.2);
+    const edge = Math.min(u, 1 - u);
+    // The middle vines climb highest, the patch frays lower towards its edges (a ragged top line).
+    const h = 1.2 + (0.45 + 0.55 * Math.pow(rng.next(), 0.7)) * (top - 1.2) * (0.3 + 0.7 * Math.min(1, edge * 3.0));
+    vine(a, 0.15, Math.min(top, h), 0, rng.next() < 0.5 ? -1 : 1);
+  }
+  // Ground ivy creeping round the wall foot.
+  for (let i = 0; i < 26; i++) leaf(a0 + 0.05 + rng.next() * (a1 - a0 + 0.25), 0.12 + rng.next() * 0.5, 0.5 + rng.next() * 0.25, slotPick());
+}
+
+/**
  * The glade's old watch tower, re-roofed by whoever keeps the ember: coursed stone with a corbelled
  * crown, a slate cone roof (slightly crooked) with an ember finial, an arched oak door with iron
  * straps, a warm lit window, ivy vines, rubble at the foot.
@@ -893,6 +983,14 @@ export function buildRuinedTower(rng: Rng): THREE.Group {
       // notch beside the door that read as a hole in the mesh); dressed jambs fill the rest.
       if (c < 5 && angDist(a, door.a) - Math.PI / n < door.w + 0.12 + 0.01) continue;
       if (c >= win.c0 && c <= win.c1 && angDist(a, win.a) < win.w + 0.1) continue;
+      // The window grew a course taller (dressed jambs fill round it); its stones are still rolled so
+      // the shared random stream is unchanged.
+      if (c === win.c0 - 1 && angDist(a, win.a) < win.w + 0.1) {
+        rng.next();
+        rng.next();
+        rng.next();
+        continue;
+      }
       if ((c === 9 || c === 10) && angDist(a, 5.2) < 0.2) continue;
       const w = (2 * Math.PI * R) / n + 0.02;
       const tint = new THREE.Color(0xc4baa6).multiplyScalar(0.8 + rng.next() * 0.26).lerp(new THREE.Color(0x7d8a5a), c < 3 ? 0.35 * rng.next() : 0);
@@ -974,18 +1072,30 @@ export function buildRuinedTower(rng: Rng): THREE.Group {
   b.add('metal', new THREE.TorusGeometry(0.09, 0.018, 6, 12), mat(Math.cos(da + 0.1) * (R - 0.02), 1.05, Math.sin(da + 0.1) * (R - 0.02), 0, -da, 0), { tint: 0x4a403a });
   b.add(stone, boxUV(roundedBox(1.5, 0.35, 1.3, 0.1), 1), mat(Math.cos(da) * (R - 0.1), 5 * ch + 0.18, Math.sin(da) * (R - 0.1), 0, -da + Math.PI / 2, 0), { tint: 0xb0a690 });
   b.add(stone, boxUV(roundedBox(1.3, 0.16, 0.7, 0.05), 1), mat(Math.cos(da) * (R + 0.45), 0.02, Math.sin(da) * (R + 0.45), 0, -da + Math.PI / 2, 0), { tint: 0xa09882 });
-  // Lit window: glowing pane, oak frame with a cross muntin, stone sill + lintel.
+  // Lit window, three courses tall: a stone reveal behind, the glowing pane nearly flush in an oak
+  // frame with a cross muntin, dressed jamb stones either side, a deep projecting sill and a lintel —
+  // and a soft warm spill of lamplight on the stone round it (not two floating slits).
   {
     const a = win.a;
-    const wy = win.c0 * ch + ((win.c1 - win.c0 + 1) * ch) / 2;
-    const ww = (win.w + 0.1) * 2 * R * 0.92;
-    const wh = (win.c1 - win.c0 + 1) * ch;
-    const rot = mat(Math.cos(a) * (R - 0.08), wy, Math.sin(a) * (R - 0.08), 0, -a + Math.PI / 2, 0);
-    b.add(towerWindowMaterial(), new THREE.PlaneGeometry(ww, wh), rot);
-    b.add('woodDark', roundedBox(0.07, wh, 0.08, 0.02, 1), rot.clone().multiply(mat(0, 0, 0.03)));
-    b.add('woodDark', roundedBox(ww, 0.07, 0.08, 0.02, 1), rot.clone().multiply(mat(0, 0.05, 0.03)));
-    b.add(stone, boxUV(roundedBox(ww + 0.35, 0.14, 0.75, 0.04, 1), 1), mat(Math.cos(a) * R, wy - wh / 2 - 0.05, Math.sin(a) * R, 0, -a + Math.PI / 2, 0), { tint: 0xb8ae98 });
-    b.add(stone, boxUV(roundedBox(ww + 0.3, 0.2, 0.62, 0.04, 1), 1), mat(Math.cos(a) * R, wy + wh / 2 + 0.08, Math.sin(a) * R, 0, -a + Math.PI / 2, 0), { tint: 0xb0a690 });
+    const wy = (win.c0 - 1) * ch + (win.c1 - win.c0 + 2) * ch * 0.5;
+    const wh = (win.c1 - win.c0 + 2) * ch * 0.9;
+    const ww = 0.8;
+    const W = (dx: number, dy: number, dz: number): THREE.Matrix4 => mat(Math.cos(a) * R, wy, Math.sin(a) * R, 0, -a + Math.PI / 2, 0).multiply(mat(dx, dy, dz));
+    b.add(stone, boxUV(roundedBox(ww + 0.6, wh + 0.4, 0.3, 0.05, 1), 1.3), W(0, 0, -0.26), { tint: 0x8a8270 });
+    b.add(towerWindowMaterial(), new THREE.PlaneGeometry(ww, wh), W(0, 0, -0.08));
+    for (const sx of [-1, 1]) b.add('woodDark', roundedBox(0.1, wh + 0.08, 0.14, 0.02, 1), W(sx * (ww / 2 + 0.03), 0, -0.04));
+    for (const sy of [-1, 1]) b.add('woodDark', roundedBox(ww + 0.14, 0.1, 0.14, 0.02, 1), W(0, sy * (wh / 2 + 0.03), -0.04));
+    b.add('woodDark', roundedBox(0.06, wh, 0.08, 0.02, 1), W(0, 0, -0.05));
+    b.add('woodDark', roundedBox(ww, 0.06, 0.08, 0.02, 1), W(0, wh * 0.12, -0.05));
+    for (const sx of [-1, 1]) {
+      for (let k = 0; k < 3; k++) {
+        const hk = wh / 3;
+        b.add(stone, boxUV(roundedBox(k % 2 ? 0.3 : 0.4, hk * 0.94, 0.6, 0.05, 1), 1.3), W(sx * (ww / 2 + 0.24 + (k % 2 ? 0 : 0.05)), -wh / 2 + hk * (k + 0.5), 0.02), { tint: new THREE.Color(0xd2c8b2).multiplyScalar(0.92 + 0.06 * k) });
+      }
+    }
+    b.add(stone, boxUV(roundedBox(ww + 0.55, 0.13, 0.8, 0.04, 1), 1), W(0, -wh / 2 - 0.1, 0.16), { tint: 0xc8bea6 });
+    b.add(stone, boxUV(roundedBox(ww + 0.7, 0.26, 0.66, 0.05, 1), 1), W(0, wh / 2 + 0.17, 0.05), { tint: 0xb8ae98 });
+    b.add(windowSpillMaterial(), new THREE.PlaneGeometry(ww * 2.6, wh * 2.1), W(0, -0.12, 0.3));
   }
   b.add('woodDark', new THREE.CircleGeometry(R - 0.2, 20).rotateX(-Math.PI / 2), mat(0, 0.05, 0), { tint: 0x3a3028 });
   // Rubble at the foot.
@@ -995,9 +1105,14 @@ export function buildRuinedTower(rng: Rng): THREE.Group {
     const d = R + 0.5 + rng.next() * 1.6;
     b.add(rock, smoothRock(rng, 0.2 + rng.next() * 0.2, { detail: 1 }), mat(Math.cos(a) * d, 0, Math.sin(a) * d, 0, rng.next() * 6, 0));
   }
-  // Ivy over the sunny south-west face (leaves the door and window clear).
-  towerIvy(b, rng, R, 2.35, 3.6, topY - 0.2);
-  towerIvy(b, rng, R, 0.5, 1.02, topY - 1.5);
+  // Ivy over the sunny south-west face (leaves the door and window clear), climbing from the foot.
+  // (The old hanging ivy is still rolled into a throwaway builder so the map's shared random stream —
+  // everything placed after the tower — is unchanged; the new vines draw from forked streams.)
+  const burn = new MeshBuilder();
+  towerIvy(burn, rng, R, 2.35, 3.6, topY - 0.2);
+  towerIvy(burn, rng, R, 0.5, 1.02, topY - 1.5);
+  towerIvyClimb(b, rng.fork('ivy-sw'), R, 2.55, 3.7, topY - 0.2, 15);
+  towerIvyClimb(b, rng.fork('ivy-e'), R, 0.35, 0.95, topY - 1.5, 7);
   return b.build({ name: 'ruined-tower' });
 }
 
@@ -1116,12 +1231,23 @@ export function buildFallsRocks(rng: Rng, lip: THREE.Vector3, pool: THREE.Vector
   // lid lying awash at water level.
   const sink = [0.28, 0.12, 0.1];
   pool3.forEach(([dx, dz, r, o, rot], i) => b.add(rock, smoothRock(rng, r, { detail: 3, ...o }), mat(pool.x + dx, pool.y - sink[i]!, pool.z + dz, (rng.next() - 0.5) * 0.12, rot, (rng.next() - 0.5) * 0.12)));
-  for (const [dx, dz, r] of [[3.7, -0.9, 0.42], [-3.9, -1.3, 0.38], [3.0, 3.1, 0.34], [-3.3, 2.6, 0.3]] as const) {
-    b.add(rock, smoothRock(rng, r, { detail: 2, strata: 0.8 }), mat(pool.x + dx, pool.y - 0.12, pool.z + dz, 0, rng.next() * 6, 0));
-  }
+  // (No rim stones: three stones only, so the pool keeps open water for reflections and the bobber.
+  // They are still rolled so the shared random stream — and everything placed after it — is unchanged.)
+  ([[3.7, -0.9, 0.42], [-3.9, -1.3, 0.38], [3.0, 3.1, 0.34], [-3.3, 2.6, 0.3]] as const).forEach(([dx, dz, r], i) => {
+    const g = smoothRock(rng, r, { detail: 2, strata: 0.8 });
+    const m = mat(pool.x + dx, pool.y - 0.12, pool.z + dz, 0, rng.next() * 6, 0);
+    void i;
+    g.dispose();
+    void m;
+  });
   // Rocks the falling water breaks over at the base.
   for (let i = 0; i < 4; i++) {
-    b.add(rock, smoothRock(rng, 0.4 + rng.next() * 0.3, { detail: 2 }), mat(lip.x + (rng.next() - 0.5) * width * 1.1, pool.y - 0.3, pool.z - 0.6 + rng.next() * 0.6, 0, rng.next() * 6, 0));
+    const g = smoothRock(rng, 0.4 + rng.next() * 0.3, { detail: 2 });
+    const m = mat(lip.x + (i - 0.5) * width * 0.8 + (rng.next() - 0.5) * 0.4, pool.y - 0.3, pool.z - 0.7 + rng.next() * 0.4, 0, rng.next() * 6, 0);
+    // (Rolled but not placed: awash at the falls' foot they read as more lily pads.)
+    void i;
+    void m;
+    g.dispose();
   }
   return b.build({ name: 'falls-rocks' });
 }
@@ -1129,9 +1255,32 @@ export function buildFallsRocks(rng: Rng, lip: THREE.Vector3, pool: THREE.Vector
 export function buildSteppingStones(rng: Rng, pts: [number, number][], y: number): THREE.Group {
   const b = new MeshBuilder();
   const rock = forestRockMaterial();
-  for (const [x, z] of pts) {
-    const g = smoothRock(rng, 0.42 + rng.next() * 0.1, { detail: 2, squash: 0.45, elong: 1.1 });
-    b.add(rock, g, mat(x, y, z, 0, rng.next() * 6, 0));
+  // Each stone its own shape: a long slab, a squat boulder, a tilted wedge, a round cobble — sizes,
+  // heights above the water and tilts vary, so winter caps read as different drifts, not coins.
+  const looks = [
+    { r: 0.48, elong: 1.5, squash: 0.62, lumpy: 0.16, strata: 1.2, lift: 0.1, tilt: 0.12 },
+    { r: 0.36, elong: 1.05, squash: 0.95, lumpy: 0.24, strata: 0.6, lift: 0.16, tilt: -0.08 },
+    { r: 0.45, elong: 1.3, squash: 0.7, lumpy: 0.14, strata: 1.4, lift: 0.06, tilt: 0.2 },
+    { r: 0.34, elong: 0.95, squash: 0.85, lumpy: 0.28, strata: 0.4, lift: 0.12, tilt: -0.14 },
+  ];
+  // (The map's shared stream is advanced exactly as the old single-shape stones did, so everything
+  // generated after them keeps its place; the new shapes draw from a forked stream.)
+  for (let i = 0; i < pts.length; i++) {
+    rng.next();
+    smoothRock(rng, 0.42, { detail: 0, squash: 0.45, elong: 1.1 }).dispose();
+    rng.next();
   }
+  const src = rng;
+  rng = src.fork('stepping-stones');
+  pts.forEach(([x, z], i) => {
+    const o = looks[i % looks.length]!;
+    const g = smoothRock(rng, o.r, { detail: 2, squash: o.squash, elong: o.elong, lumpy: o.lumpy, strata: o.strata });
+    b.add(rock, g, mat(x, y + o.lift, z, o.tilt, rng.next() * 6, -o.tilt * 0.6));
+    // A small cobble nestled beside every other stone.
+    if (i % 2 === 0) {
+      const a = rng.next() * Math.PI * 2;
+      b.add(rock, smoothRock(rng, 0.16 + rng.next() * 0.06, { detail: 1, squash: 0.6 }), mat(x + Math.cos(a) * (o.r + 0.12), y - 0.04, z + Math.sin(a) * (o.r + 0.12), 0, rng.next() * 6, 0));
+    }
+  });
   return b.build({ name: 'stepping-stones' });
 }

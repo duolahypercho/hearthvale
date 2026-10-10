@@ -37,7 +37,8 @@ export type DecorKind =
   | 'iceSpike'
   | 'basalt'
   | 'vent'
-  | 'pickStand';
+  | 'pickStand'
+  | 'wallLantern';
 
 export interface DecorSpec {
   kind: DecorKind;
@@ -86,10 +87,17 @@ export interface FloorLayout {
   /** Milestone treasure chest (floors 10, 20, 30, …): reforges the sword. */
   chest: { x: number; z: number } | null;
   rocks: RockSpec[];
+  /** The rock the ladder down hides under (breaking it reveals the ladder on its tile), or null. */
+  ladderRock: { x: number; z: number } | null;
   monsters: { kind: MonsterKind; x: number; z: number }[];
   crystals: CrystalSpec[];
   decor: DecorSpec[];
   lights: LightSpec[];
+  /**
+   * (r6) Every warm practical on the floor (wall / frame lanterns, braziers): the cave shell paints a
+   * cheap fake light pool on the rock round each one (no real light: only 5 accents are real).
+   */
+  lamps: LightSpec[];
   /** BFS distance (tiles) from the spawn over walkable floor (-1 = unreachable). */
   dist: Int16Array;
 }
@@ -400,7 +408,8 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
       const rot = e.dir === 0 ? 0 : e.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
       const ox = e.dir === 1 ? -0.3 : e.dir === 2 ? 0.3 : 0;
       const oz = e.dir === 0 ? -0.3 : 0;
-      lanternToggle = !lanternToggle;
+      // Back-wall frames always carry a lantern (they frame the hall); side posts alternate.
+      lanternToggle = e.dir === 0 ? true : !lanternToggle;
       addDecor(lanternToggle ? 'lanternPost' : 'post', e.x + 0.5 + ox, e.z + 0.5 + oz, rot, 1, true);
       if (lanternToggle) lightSources.push({ x: e.x + 0.5 + ox * 0.2 + (e.dir === 0 ? 0 : 0), y: 1.7, z: e.z + 0.5 + oz * 0.2 + 0.35, color: 0xffa04a, intensity: 9, distance: 7.5, flicker: 1, w: 1.4 });
     }
@@ -451,6 +460,26 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
       const oz = e.dir === 0 ? -0.3 : 0;
       addDecor('lanternPost', e.x + 0.5 + ox, e.z + 0.5 + oz, rot, 1, true);
       lightSources.push({ x: e.x + 0.5 + ox * 0.2, y: 1.7, z: e.z + 0.5 + oz * 0.2 + 0.35, color: 0xffa050, intensity: 10, distance: 7.5, flicker: 1, w: 1.5 });
+    }
+  }
+
+  // Wall lanterns: iron brackets on the back (north) cliff faces, each a warm practical with a
+  // bloom halo, so the walls frame the hall the way a mine's lamp line does. Own rng stream.
+  if (biome !== 'ice') {
+    const wr = rng.fork('wall-lanterns');
+    const lamps: { x: number; z: number }[] = [];
+    const want = biome === 'earth' ? 4 : 3;
+    const north = edges.filter((e) => e.dir === 0);
+    const start = wr.int(0, Math.max(0, north.length - 1));
+    for (let n = 0; n < north.length && lamps.length < want; n++) {
+      const e = north[(start + n * 5) % north.length]!;
+      if (taken[idx(e.x, e.z)] || pool[idx(e.x, e.z)] || !spaced(lamps, e.x, e.z, 6.5) || !spaced(crystalPts, e.x, e.z, 2)) continue;
+      if (decor.some((d) => (d.kind === 'lanternPost' || d.kind === 'post') && Math.hypot(d.x - e.x - 0.5, d.z - e.z - 0.5) < 3.5)) continue;
+      // A full-height wall behind it (2+ solid tiles north), so the bracket has rock to bite into.
+      if (!inb(e.x, e.z - 2) || !solid[idx(e.x, e.z - 2)]) continue;
+      lamps.push(e);
+      decor.push({ kind: 'wallLantern', x: e.x + 0.5, z: e.z + 0.12, rot: 0, scale: 1, solid: false });
+      lightSources.push({ x: e.x + 0.5, y: 1.85, z: e.z + 0.55, color: biome === 'lava' ? 0xffb070 : 0xffa04a, intensity: biome === 'lava' ? 6 : 8, distance: 7, flicker: 0.8, w: 2.2 });
     }
   }
 
@@ -536,30 +565,127 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
   const rocks: RockSpec[] = [];
   const depthInBand = ((floor - 1) % 10) / 9;
   const oreTable = oreTableFor(floor, def.ores, depthInBand, tier);
-  for (let z = 2; z < D - 2; z++) {
-    for (let x = 2; x < W - 2; x++) {
-      const i = idx(x, z);
-      if (!isFloor(x, z) || taken[i] || reserved[i] || pool[i]) continue;
-      const ds = dist[i]!;
-      if (ds < 0 || ds < 3) continue;
-      if (elevator && Math.hypot(x - elevator.x, z - elevator.z) < 2) continue;
-      // Clumps (low-frequency noise) hugging the wall feet and seams; few loose singles mid-hall.
-      const cl = noise.fbm(x * 0.16 + 31, z * 0.16 - 7, 2);
-      const p = 0.07 + Math.max(0, cl) * 1.25 + wallAdj(x, z) * 0.15;
-      if (rng.next() > p) continue;
-      let ore = rng.weighted(oreTable);
-      // Ore veins cluster: a neighbour's ore is contagious.
-      const left = rocks.find((r) => (r.x === x - 1 && r.z === z) || (r.x === x && r.z === z - 1));
-      if (left?.ore && rng.next() < 0.35) ore = left.ore;
-      const big = !ore && rng.next() < 0.1;
-      const oreHp = ore ? ({ copperOre: 1, ironOre: 2, goldOre: 3, coal: 1 } as Record<string, number>)[ore] ?? 2 : 0;
-      rocks.push({ x, z, ore, big, hp: 1 + (big ? 2 : 0) + oreHp + tier + (biome === 'lava' ? 1 : biome === 'ice' ? 0 : 0), seed: rng.int(0, 1e6) });
-      taken[i] = 1;
+  // Designed room, not gravel noise: rocks gather in 3–5 SEAMS hugging the walls / pillars (a
+  // seam is a ragged clump grown out from the wall foot, ≤ 3 tiles deep), the hall middle stays
+  // an open walkable lane, plus a couple of loose stones. Ore is rolled per rock but is
+  // contagious inside a seam, so ore pockets read as a vein you mine out.
+  const wd = new Int16Array(W * D).fill(99);
+  {
+    const q: number[] = [];
+    for (let i = 0; i < W * D; i++) if (solid[i]) {
+      wd[i] = 0;
+      q.push(i);
+    }
+    for (let h = 0; h < q.length; h++) {
+      const i = q[h]!;
+      const x = i % W;
+      const z = (i / W) | 0;
+      for (const [dx, dz] of N4) {
+        if (!inb(x + dx, z + dz)) continue;
+        const j = idx(x + dx, z + dz);
+        if (wd[j]! > wd[i]! + 1) {
+          wd[j] = wd[i]! + 1;
+          q.push(j);
+        }
+      }
     }
   }
+  const canRock = (x: number, z: number): boolean => {
+    if (x < 2 || z < 2 || x >= W - 2 || z >= D - 2) return false;
+    const i = idx(x, z);
+    if (!isFloor(x, z) || taken[i] || reserved[i] || pool[i]) return false;
+    const ds = dist[i]!;
+    if (ds < 0 || ds < 3) return false;
+    if (elevator && Math.hypot(x - elevator.x, z - elevator.z) < 2) return false;
+    return wd[i]! <= 3;
+  };
+  let floorN = 0;
+  for (let i = 0; i < W * D; i++) if (!solid[i] && !lava[i]) floorN++;
+  const rockTarget = Math.round(Math.min(72, Math.max(40, floorN * 0.11)));
+  const seamN = 3 + rng.int(0, 2);
+  const seeds: { x: number; z: number }[] = [];
+  const cands: { x: number; z: number }[] = [];
+  for (let z = 2; z < D - 2; z++) for (let x = 2; x < W - 2; x++) if (canRock(x, z) && wd[idx(x, z)] === 1 && Math.hypot(x - spawn.x, z - spawn.z) > 3.5) cands.push({ x, z });
+  rng.shuffle(cands);
+  for (const c of cands) {
+    if (seeds.length >= seamN + 1) break;
+    if (spaced(seeds, c.x, c.z, 8)) seeds.push(c);
+  }
+  // (r6) Ore pockets cap at ~4 rocks of one ore: a seam reads as a vein you mine out, never a
+  // carpet of 10-15 identical copper lumps (the contagion grew whole fields of it).
+  const rockAt = new Map<number, RockSpec>();
+  const pocket = (x: number, z: number, ore: OreId): number => {
+    const seen = new Set<number>([idx(x, z)]);
+    const q = [idx(x, z)];
+    let n = 0;
+    for (let h = 0; h < q.length && n < 6; h++) {
+      const i = q[h]!;
+      const cx = i % W;
+      const cz = (i / W) | 0;
+      for (const [dx, dz] of N8) {
+        if (!inb(cx + dx, cz + dz)) continue;
+        const j = idx(cx + dx, cz + dz);
+        if (seen.has(j)) continue;
+        seen.add(j);
+        if (rockAt.get(j)?.ore === ore) {
+          n++;
+          q.push(j);
+        }
+      }
+    }
+    return n;
+  };
+  const roll = (x: number, z: number): OreId | null => {
+    let ore = rng.weighted(oreTable);
+    const nb = rocks.find((r) => Math.abs(r.x - x) + Math.abs(r.z - z) === 1 && r.ore);
+    if (nb?.ore && rng.next() < 0.5) ore = nb.ore;
+    if (ore && pocket(x, z, ore) >= 3) ore = null;
+    return ore;
+  };
+  const place = (x: number, z: number, ore: OreId | null): void => {
+    const big = !ore && rng.next() < 0.12;
+    const oreHp = ore ? ({ copperOre: 1, ironOre: 2, goldOre: 3, coal: 1 } as Record<string, number>)[ore] ?? 2 : 0;
+    const spec: RockSpec = { x, z, ore, big, hp: 1 + (big ? 2 : 0) + oreHp + tier + (biome === 'lava' ? 1 : 0), seed: rng.int(0, 1e6) };
+    rocks.push(spec);
+    rockAt.set(idx(x, z), spec);
+    taken[idx(x, z)] = 1;
+  };
+  const per = Math.ceil((rockTarget - 3) / Math.max(1, seeds.length));
+  for (const sd of seeds) {
+    // Grow: frontier tiles weighted towards the wall (low wd) and towards the seam's own mass.
+    const front: { x: number; z: number }[] = [sd];
+    let n = 0;
+    while (front.length && n < per * (0.75 + rng.next() * 0.5)) {
+      let bi = 0;
+      let bs = -1e9;
+      for (let k = 0; k < front.length; k++) {
+        const f = front[k]!;
+        const sc = -wd[idx(f.x, f.z)]! * 1.2 - Math.hypot(f.x - sd.x, f.z - sd.z) * 0.35 + rng.next() * 2.2;
+        if (sc > bs) {
+          bs = sc;
+          bi = k;
+        }
+      }
+      const f = front.splice(bi, 1)[0]!;
+      if (!canRock(f.x, f.z)) continue;
+      place(f.x, f.z, roll(f.x, f.z));
+      n++;
+      for (const [dx, dz] of N8) if (canRock(f.x + dx, f.z + dz) && !front.some((q) => q.x === f.x + dx && q.z === f.z + dz)) front.push({ x: f.x + dx, z: f.z + dz });
+    }
+  }
+  // A few loose stones out in the hall (never in the spawn's lane).
+  let loose = 0;
+  for (let t = 0; t < 200 && loose < 3; t++) {
+    const x = rng.int(3, W - 4);
+    const z = rng.int(3, D - 4);
+    const i = idx(x, z);
+    if (!isFloor(x, z) || taken[i] || reserved[i] || pool[i] || (dist[i] ?? -1) < 5 || wd[i]! < 3) continue;
+    if (rocks.some((r) => Math.hypot(r.x - x, r.z - z) < 3)) continue;
+    place(x, z, roll(x, z));
+    loose++;
+  }
 
-  // Blue-noise thinning: drop ~30 % of the cluster tiles, crowded interiors first, so clusters
-  // get ragged edges and gaps (ore survives a little more often: it is the reward).
+  // Ragged seam edges: drop a few crowded interior tiles (ore survives more often: the reward).
   {
     const at = new Map<number, RockSpec>();
     for (const r of rocks) at.set(idx(r.x, r.z), r);
@@ -568,13 +694,123 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     for (const r of order) {
       let n8 = 0;
       for (const [dx, dz] of N8) if (at.has(idx(r.x + dx, r.z + dz))) n8++;
-      const p = Math.min(0.55, 0.08 + n8 * 0.065) * (r.ore ? 0.65 : 1);
+      const p = n8 >= 6 ? 0.25 * (r.ore ? 0.5 : 1) : 0;
       if (rng.next() < p) {
         at.delete(idx(r.x, r.z));
         taken[idx(r.x, r.z)] = 0;
       }
     }
     for (let i = rocks.length - 1; i >= 0; i--) if (!at.has(idx(rocks[i]!.x, rocks[i]!.z))) rocks.splice(i, 1);
+  }
+
+  // ── rock FIELD: the hall itself is a field of rocks you dig through ─────────────────────
+  // (own rng stream). ~30 % of the open floor fills with noise-clustered rocks; 3–4 winding
+  // lanes from the arrival (and to the lift / chest) stay clear so every part of the cave is
+  // reachable without a pick, and the arrival keeps a small clearing.
+  const fr = rng.fork('rock-field');
+  const fnoise = new Noise2D(fr.int(0, 1e9));
+  const lane = new Uint8Array(W * D);
+  {
+    // Lanes: BFS parents from the spawn, then walk back from a few far, spread-out targets.
+    const sx = Math.floor(spawn.x);
+    const sz = Math.floor(spawn.z);
+    const par = new Int32Array(W * D).fill(-1);
+    const seen = new Uint8Array(W * D);
+    const q: number[] = [idx(sx, sz)];
+    seen[idx(sx, sz)] = 1;
+    for (let h = 0; h < q.length; h++) {
+      const i = q[h]!;
+      const x = i % W;
+      const z = (i / W) | 0;
+      const dirs = N4.slice();
+      fr.shuffle(dirs);
+      for (const [dx, dz] of dirs) {
+        const nx2 = x + dx;
+        const nz2 = z + dz;
+        if (!isFloor(nx2, nz2)) continue;
+        const j = idx(nx2, nz2);
+        if (seen[j]) continue;
+        seen[j] = 1;
+        par[j] = i;
+        q.push(j);
+      }
+    }
+    const far = q.slice().sort((a, b) => (dist[b] ?? 0) - (dist[a] ?? 0));
+    const goals: number[] = [];
+    for (const i of far) {
+      if (goals.length >= 4) break;
+      if ((dist[i] ?? 0) < 6) break;
+      const x = i % W;
+      const z = (i / W) | 0;
+      if (goals.every((g) => Math.hypot((g % W) - x, ((g / W) | 0) - z) > 9)) goals.push(i);
+    }
+    if (elevator) goals.push(idx(elevator.x, elevator.z + 1));
+    if (chest) goals.push(idx(chest.x - 1, chest.z));
+    for (const g of goals) {
+      let i = g;
+      let guard = 0;
+      while (i >= 0 && guard++ < W * D) {
+        lane[i] = 1;
+        // Lanes are ~1.5 tiles wide: a neighbour joins on alternating stretches.
+        if (fr.next() < 0.45) {
+          const x = i % W;
+          const z = (i / W) | 0;
+          const [dx, dz] = N4[fr.int(0, 3)]!;
+          if (isFloor(x + dx, z + dz)) lane[idx(x + dx, z + dz)] = 1;
+        }
+        i = par[i]!;
+      }
+    }
+  }
+  {
+    const target = Math.round(Math.min(300, floorN * 0.31));
+    const cand: { x: number; z: number; v: number }[] = [];
+    for (let z = 2; z < D - 2; z++)
+      for (let x = 2; x < W - 2; x++) {
+        const i = idx(x, z);
+        if (!isFloor(x, z) || taken[i] || reserved[i] || pool[i] || lane[i]) continue;
+        if ((dist[i] ?? -1) < 0) continue;
+        if (Math.hypot(x + 0.5 - spawn.x, z + 0.5 - spawn.z) < 2.6) continue;
+        if (Math.abs(x - ladderUp.x) <= 1 && z >= ladderUp.z && z - ladderUp.z <= 3) continue;
+        if (elevator && Math.hypot(x - elevator.x, z - elevator.z) < 2.2) continue;
+        if (chest && Math.hypot(x - chest.x, z - chest.z) < 2.2) continue;
+        // Not on the molten shore (the lip wanders a tile out).
+        let nearLava = false;
+        for (const [dx, dz] of N8) if (inb(x + dx, z + dz) && lava[idx(x + dx, z + dz)]) nearLava = true;
+        if (nearLava) continue;
+        const v = fnoise.fbm(x * 0.21 + 40, z * 0.21, 2) + fr.next() * 0.42;
+        cand.push({ x, z, v });
+      }
+    cand.sort((a, b) => b.v - a.v);
+    for (const c of cand) {
+      if (rocks.length >= target) break;
+      place(c.x, c.z, roll(c.x, c.z));
+    }
+  }
+  // Something worth swinging at right away: ≥ 3 ore rocks within 6 tiles of the arrival.
+  {
+    const oreIds = oreTable.filter(([o, w]) => o !== null && w > 0) as [OreId, number][];
+    const near = rocks
+      .filter((r) => Math.hypot(r.x + 0.5 - spawn.x, r.z + 0.5 - spawn.z) < 6)
+      .sort((a, b) => Math.hypot(a.x - spawn.x, a.z - spawn.z) - Math.hypot(b.x - spawn.x, b.z - spawn.z));
+    let have = near.filter((r) => r.ore).length;
+    for (const r of near) {
+      if (have >= 3 || !oreIds.length) break;
+      if (r.ore || r.big) continue;
+      const ore = fr.weighted(oreIds);
+      r.ore = ore;
+      const oreHp = ({ copperOre: 1, ironOre: 2, goldOre: 3, coal: 1 } as Record<string, number>)[ore] ?? 2;
+      r.hp = 1 + oreHp + tier + (biome === 'lava' ? 1 : 0);
+      have++;
+    }
+  }
+  // The ladder down hides under one rock on most floors (dig to find the way on): a plain rock
+  // out in the field, well away from the arrival.
+  let ladderRock: { x: number; z: number } | null = null;
+  if (fr.next() < 0.85) {
+    const pool2 = rocks.filter((r) => !r.ore && !r.big && (dist[idx(r.x, r.z)] ?? -1) >= 8);
+    const pick = pool2.length ? pool2[fr.int(0, pool2.length - 1)]! : null;
+    if (pick) ladderRock = { x: pick.x, z: pick.z };
   }
 
   // ── monsters ───────────────────────────────────────────────────
@@ -607,7 +843,12 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     lights.push({ x: l.x, y: l.y, z: l.z, color: l.color, intensity: l.intensity, distance: l.distance, flicker: l.flicker });
   }
 
-  return { floor, biome, tier, w: W, d: D, solid, lava, pool, ladderUp, spawn, elevator, chest, rocks, monsters, crystals, decor, lights, dist };
+  const lamps: LightSpec[] = lightSources
+    .filter((l) => l.flicker > 0 && l.y >= 1.5)
+    .slice(0, 16)
+    .map((l) => ({ x: l.x, y: l.y, z: l.z, color: l.color, intensity: l.intensity, distance: l.distance, flicker: l.flicker }));
+
+  return { floor, biome, tier, w: W, d: D, solid, lava, pool, ladderUp, spawn, elevator, chest, rocks, ladderRock, monsters, crystals, decor, lights, lamps, dist };
 }
 
 /**
@@ -636,13 +877,13 @@ export function oreTableFor(floor: number, ores: [OreId | null, number][], depth
     for (const r of rows) if (f(r[0])) r[1] *= want / cur;
   };
   if (tier === 0 && floor <= 5) {
-    // First floors: sparse ore (12 → 17 % of rocks), gems ≤ 1 %.
-    setShare((o) => o !== null, 0.12 + (floor - 1) * 0.0125);
+    // First floors: 22 → 28 % of rocks carry ore, gems ≤ 1 %.
+    setShare((o) => o !== null, 0.22 + (floor - 1) * 0.015);
     setShare(isGem, 0.01, true);
   } else {
-    // Deeper: richer with depth (≈ 20 % → 40 % of rocks carry ore), gems stay rare finds.
+    // Deeper: richer with depth (≈ 26 % → 48 % of rocks carry ore), gems stay rare finds.
     const band = Math.floor((floor - 1) / 10) % 3;
-    setShare((o) => o !== null, Math.min(0.42, 0.18 + depthInBand * 0.1 + band * 0.05 + tier * 0.06));
+    setShare((o) => o !== null, Math.min(0.48, 0.26 + depthInBand * 0.1 + band * 0.04 + tier * 0.05));
     setShare(isGem, floor < 10 && tier === 0 ? 0.012 : tier > 0 ? 0.045 : 0.03, true);
   }
   if (tier > 0) {

@@ -15,7 +15,7 @@ import './screens.css';
 import './ui.css';
 import * as THREE from 'three';
 import type { Game } from '../core/game';
-import { ICONS, WEATHER_ICON, itemIcon } from './icons';
+import { ICONS, WEATHER_ICON, itemIcon, itemCategory } from './icons';
 import { el, installTextures, tooltip, replay, sfx, Screen, type NavDir } from './kit';
 import { slotInner, itemTooltipHtml, type StackView } from './itemtip';
 import { InventoryScreen } from './inventory';
@@ -23,6 +23,7 @@ import { DialoguePanel } from './dialogue';
 import { TitlePanel } from './title';
 import { FishingPanel } from './panels';
 import { ShopScreen } from './shop';
+import { KintaraScreen, KintaraChip } from './kintara';
 import { CraftingScreen } from './crafting';
 import { MapScreen } from './mapscreen';
 import { SettingsScreen, loadSettings, settings } from './settings';
@@ -33,7 +34,9 @@ import { PlacementGhost } from './placement';
 import { DemoKit } from './demo-kit';
 import { NewGameScreen } from './newgame';
 import { itemDef } from '../data/items';
+import { CROPS } from '../data/crops';
 import { loadJournal, registerJournalSave, journal } from './profile';
+import { setTierSource } from './toolinfo';
 
 export { slotHtml } from './itemtip';
 
@@ -47,12 +50,12 @@ type RichPanel = Panel & Partial<Pick<Screen, 'back' | 'update' | 'key' | 'nav'>
 const WEEKDAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SEASON_NAME = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' } as const;
 /** Panels that stop the clock while open. */
-const PAUSING = new Set(['inventory', 'crafting', 'map', 'settings', 'shop', 'dayend', 'pause', 'saves', 'icons']);
+const PAUSING = new Set(['inventory', 'crafting', 'map', 'settings', 'shop', 'dayend', 'pause', 'saves', 'icons', 'kintara']);
 /** Game-menu tabs (E closes, [ ] / LB RB cycle). */
 export const MENU_TABS = ['inventory', 'crafting', 'map', 'settings'] as const;
 /** Screens that keep the clock / purse plate sharp above their blurred backdrop (you shop with your purse in view). */
 const NOPE_TOOLS = new Set(['hoe', 'pickaxe', 'axe', 'scythe', 'wateringCan']);
-const CRISP_CLOCK = new Set(['inventory', 'crafting', 'map', 'settings', 'shop']);
+const CRISP_CLOCK = new Set(['inventory', 'crafting', 'map', 'settings', 'shop', 'kintara']);
 
 const HILLS: Record<string, [string, string]> = {
   spring: ['#8fcf5a', '#5fa83c'],
@@ -124,6 +127,7 @@ export class Hud {
     loadSettings(game);
     loadJournal();
     registerJournalSave(game);
+    setTierSource((t) => game.services.farming?.toolTier(t) ?? 0);
     installSaveThumbs(game, () => {
       try {
         return localStorage.getItem('hearthvale.journal') ? journal.slot : null;
@@ -149,6 +153,9 @@ export class Hud {
     this.registerPanel('dialogue', new DialoguePanel(game, this.root));
     this.registerPanel('title', new TitlePanel(game, S));
     this.registerPanel('shop', new ShopScreen(game, S));
+    this.registerPanel('kintara', new KintaraScreen(game, S));
+    const plateEl = this.root.querySelector<HTMLElement>('.h-plate');
+    if (plateEl) new KintaraChip(game, plateEl);
     this.registerPanel('crafting', new CraftingScreen(game, S));
     this.registerPanel('map', new MapScreen(game, S));
     this.registerPanel('fishing', new FishingPanel(game, this.root));
@@ -305,12 +312,20 @@ export class Hud {
     this.select(0, false);
   }
 
+  private valTimers = new Map<HTMLElement, number>();
+  /** Show the tube's "value / max" chip for a moment after it changes (always on hover). */
+  private flashVal(bar: HTMLElement): void {
+    bar.classList.add('show-val');
+    clearTimeout(this.valTimers.get(bar));
+    this.valTimers.set(bar, window.setTimeout(() => bar.classList.remove('show-val'), 2200));
+  }
+
   private buildBars(): void {
     const box = el('div', 'hv-energy h-in');
     box.style.animationDelay = '200ms';
     const bar = (cls: string, icon: string, title: string): HTMLElement => {
       const b = el('div', `h-bar ${cls} interactive`);
-      b.innerHTML = `<div class="tube"><div class="fill"></div><div class="ticks"></div><div class="gloss"></div></div><div class="badge">${icon}</div><div class="val"></div>`;
+      b.innerHTML = `<div class="tube"><div class="fill"></div><div class="ticks"></div><div class="gloss"></div></div><div class="badge">${icon}</div><div class="val"></div><div class="pct"></div>`;
       b.title = title;
       return b;
     };
@@ -420,8 +435,12 @@ export class Hud {
       const st = this.stacks[slot];
       const d = st ? itemDef(st.id) : undefined;
       if (d) {
-        this.selName.textContent = d.name;
+        // r5: a parchment banner over the bar for ~1.5 s on every switch — name + one line of what it's for.
+        this.selName.innerHTML = `<span class="ic">${itemIcon(d.id)}</span><span class="tx"><b></b><small></small></span>`;
+        this.selName.querySelector('b')!.textContent = d.name;
+        this.selName.querySelector('small')!.textContent = selInfo(d.id);
         replay(this.selName, 'show');
+        this.selName.classList.toggle('hold', this.demoKit.holdToasts);
       }
     }
   }
@@ -749,14 +768,18 @@ export class Hud {
     const en = this.game.services.energy;
     const e = en ? en.value() / en.max() : 1;
     if (e !== this.energyShown) {
-      if (this.energyShown >= 0) replay(this.energyBar, 'bump');
+      const firstE = this.energyShown < 0;
+      if (!firstE) replay(this.energyBar, 'bump');
       this.energyShown = e;
       const fill = this.energyBar.querySelector('.fill') as HTMLElement;
       fill.style.height = `${Math.max(0, e * 100)}%`;
-      const hue = e > 0.5 ? 100 - (1 - (e - 0.5) * 2) * 50 : 50 * (e / 0.5);
-      fill.style.background = `linear-gradient(90deg, hsl(${hue} 80% 44%), hsl(${hue + 8} 92% 62%) 45%, hsl(${hue} 78% 44%))`;
-      this.energyBar.classList.toggle('low', e < 0.2);
+      // r4: warm leaf green (#6fbf3a-ish) → harvest amber → brick red; never neon against the wood + parchment.
+      const hue = e > 0.5 ? 96 - (1 - (e - 0.5) * 2) * 56 : 8 + 32 * (e / 0.5);
+      fill.style.background = `linear-gradient(90deg, hsl(${hue} 52% 36%), hsl(${hue + 6} 56% 52%) 38%, hsl(${hue + 10} 62% 62%) 50%, hsl(${hue} 52% 40%))`;
+      if (!firstE) this.flashVal(this.energyBar);
+      this.energyBar.classList.toggle('low', e < 0.25);
       (this.energyBar.querySelector('.val') as HTMLElement).textContent = en ? `${en.value()} / ${en.max()}` : '';
+      (this.energyBar.querySelector('.pct') as HTMLElement).textContent = `${Math.round(e * 100)}%`;
     }
     const hp = (this.game.services as Record<string, unknown>).health as { value(): number; max(): number } | undefined;
     const mapId = this.game.world.current?.id ?? 'farm';
@@ -764,15 +787,19 @@ export class Hud {
     // Both tubes always show; a full heart outside the mine rests shorter and dimmer so energy leads.
     this.healthBar.classList.toggle('rest', hv >= 1 && mapId !== 'mine');
     if (hv !== this.healthShown) {
-      if (this.healthShown >= 0) replay(this.healthBar, 'bump');
+      if (this.healthShown >= 0) {
+        replay(this.healthBar, 'bump');
+        this.flashVal(this.healthBar);
+      }
       this.healthShown = hv;
       const fill = this.healthBar.querySelector('.fill') as HTMLElement;
       fill.style.height = `${hv * 100}%`;
-      fill.style.background = 'linear-gradient(90deg, #b8202a, #ff6a5a 45%, #b8202a)';
+      fill.style.background = 'linear-gradient(90deg, #9a2a2a, #d8584a 38%, #f08a72 50%, #a8302c)';
       this.healthBar.classList.toggle('low', hv < 0.25);
       (this.healthBar.querySelector('.val') as HTMLElement).textContent = hp ? `${Math.round(hp.value())} / ${hp.max()}` : '';
+      (this.healthBar.querySelector('.pct') as HTMLElement).textContent = `${Math.round(hv * 100)}%`;
     }
-    this.root.classList.toggle('h-hurt', hv < 0.25 || e < 0.12);
+    this.root.classList.toggle('h-hurt', hv < 0.25 || e < 0.15);
     // FPS chip (Options → Display → Show FPS): real frames, measured here, refreshed twice a second.
     const now = performance.now();
     this.fpsN++;
@@ -794,4 +821,20 @@ export class Hud {
     this.fpsEl.classList.toggle('hv-hidden', !settings.showFps);
     this.ghost.update(this.openPanel === null && !this.root.classList.contains('hv-title-mode'));
   }
+}
+
+/** One line under the selected item's name: what a seed grows into, a tool's job, else its category + price. */
+function selInfo(id: string): string {
+  const d = itemDef(id);
+  if (!d) return '';
+  if (d.kind === 'seed' && d.crop) {
+    const c = CROPS[d.crop];
+    if (c) {
+      const days = c.stageDays.reduce((a, b) => a + b, 0);
+      return `${c.seasons.map((x) => x[0]!.toUpperCase() + x.slice(1)).join(' & ')} · ripe in ${days} days${c.regrow ? ` · regrows` : ''}`;
+    }
+  }
+  if (d.kind === 'tool') return (d.description ?? 'Tool').split(/(?<=\.)\s/)[0]!.replace(/\.$/, '');
+  const cat = itemCategory(id).label;
+  return `${cat}${d.sell ? ` · sells ${d.sell}g` : ''}`;
 }

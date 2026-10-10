@@ -15,6 +15,7 @@
  * helpers in render/wind.ts, render/worldfx.ts do.
  */
 import * as THREE from 'three';
+import { setBatchDetail } from '../../render/batching';
 
 export interface InstancedPart {
   geometry: THREE.BufferGeometry;
@@ -24,6 +25,16 @@ export interface InstancedPart {
   /** Receives per-instance colour (others stay white). */
   tinted?: boolean;
   depthMaterial?: THREE.Material;
+  /**
+   * Skip the half-res GTAO G-buffer (pillar 14): parts whose own occlusion is below what the AO can
+   * resolve (berries, hairline stalks) and that sit on a surface the AO already sees.
+   */
+  noAO?: boolean;
+  /**
+   * Shadow-map proxy (pillar 14): drawn by the sun's shadow pass only (a coarser tessellation of a
+   * colour-pass part that sets `castShadow: false`); render/batching.ts skips it in camera passes.
+   */
+  shadowOnly?: boolean;
 }
 
 const WHITE = new THREE.Color(1, 1, 1);
@@ -48,6 +59,9 @@ class BatchEntry {
     this.mesh.castShadow = part.castShadow ?? true;
     this.mesh.receiveShadow = part.receiveShadow ?? true;
     if (part.depthMaterial) this.mesh.customDepthMaterial = part.depthMaterial;
+    if (part.noAO) this.mesh.userData.noAO = true;
+    // (receiveShadow stays as given: the skipped camera-pass draw keeps sharing the colour twin's program.)
+    if (part.shadowOnly) this.mesh.userData.shadowOnly = true;
     // Per-instance culling happens inside the batch; the batch-level sphere is never stale.
     this.mesh.frustumCulled = false;
     this.mesh.perObjectFrustumCulled = true;
@@ -65,6 +79,7 @@ class BatchEntry {
       this.mesh.setGeometrySize(this.maxV, this.maxI || this.maxV * 2);
     }
     id = this.mesh.addGeometry(geo);
+    setBatchDetail(this.mesh, id, geo);
     this.usedV += v;
     this.usedI += i;
     this.geoIds.set(geo, id);
@@ -104,7 +119,7 @@ export class BatchPool {
   }
 
   entry(part: InstancedPart): BatchEntry {
-    const key = `${part.material.uuid}|${part.depthMaterial?.uuid ?? ''}|${part.castShadow ?? true}|${part.receiveShadow ?? true}|${BatchPool.attrSig(part.geometry)}`;
+    const key = `${part.material.uuid}|${part.depthMaterial?.uuid ?? ''}|${part.castShadow ?? true}|${part.receiveShadow ?? true}|${BatchPool.attrSig(part.geometry)}${part.noAO ? '|noao' : ''}${part.shadowOnly ? '|shadow' : ''}`;
     let e = this.entries.get(key);
     if (!e) {
       e = new BatchEntry(part, `${this.name}:${part.material.name || 'mat'}`);

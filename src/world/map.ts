@@ -91,6 +91,13 @@ export class World {
     return map;
   }
 
+  /** Build + cache a map without switching to it (behind a menu, before a cutscene cuts there). */
+  async prewarm(id: string): Promise<void> {
+    if (this.cache.has(id) || this.current?.id === id) return;
+    const factory = this.factories.get(id);
+    if (factory) this.cache.set(id, await factory(this.game));
+  }
+
   heightAt(x: number, z: number): number {
     return this.current ? this.current.heightAt(x, z) : 0;
   }

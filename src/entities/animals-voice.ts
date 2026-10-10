@@ -5,19 +5,24 @@
  */
 import type { Species } from './animals-models';
 
+import { audioHub, hubContext } from '../audio/hub';
+
 let ctx: AudioContext | null = null;
 let out: GainNode | null = null;
 
+/**
+ * The game's one AudioContext (src/audio/hub.ts): calls go through the SFX bus, so the master
+ * limiter, the SFX / master volume and mute apply. Silent until the audio engine is running.
+ */
 function context(): AudioContext | null {
-  if (ctx) return ctx;
-  try {
-    ctx = new AudioContext();
-    out = ctx.createGain();
-    out.gain.value = 0.32;
-    const comp = ctx.createDynamicsCompressor();
-    out.connect(comp).connect(ctx.destination);
-  } catch {
-    ctx = null;
+  const c = hubContext();
+  if (!c || !audioHub.sfx) return null;
+  if (ctx !== c) {
+    ctx = c;
+    out = c.createGain();
+    // (Was 0.32 straight to the speakers; the SFX bus adds ~+2 dB before the master.)
+    out.gain.value = 0.25;
+    out.connect(audioHub.sfx);
   }
   return ctx;
 }
@@ -50,7 +55,6 @@ export function animalVoice(species: Species, pitch = 1, enabled = true): void {
   if (!enabled) return;
   const c = context();
   if (!c || !out) return;
-  if (c.state === 'suspended') void c.resume();
   const v = VOICES[species];
   const now = c.currentTime + 0.01;
   const n = v.pulses ?? 1;

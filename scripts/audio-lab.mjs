@@ -83,13 +83,22 @@ async function handle(url) {
       log(`${m.name.padEnd(16)} ${fmt(a.peakDb).padStart(6)} ${fmt(a.lufsMomentaryMax).padStart(7)} ${fmt(a.centroidHz, 0).padStart(6)}  ${(b.sub * 100).toFixed(0)}/${(b.bass * 100).toFixed(0)}/${(b.lowmid * 100).toFixed(0)}/${(b.presence * 100).toFixed(0)}/${(b.air * 100).toFixed(0)}`);
     }
   } else if (url.pathname === '/theme' || url.pathname === '/amb') {
+    // ?only=wind,drops — solo ambience beds (Ambience.only; 'drops' = the rain layers).
+    if (q.get('only')) await page.evaluate(async (o) => { (await import('/src/audio/ambience.ts')).Ambience.only = o.split(','); }, q.get('only'));
     const res = url.pathname === '/theme'
-      ? await call('renderTheme', [q.get('id'), Number(q.get('secs') ?? 30), 44100, Number(q.get('seed') ?? 1), q.get('mix') === '1'])
+      ? await call('renderTheme', [q.get('id'), Number(q.get('secs') ?? 30), 44100, Number(q.get('seed') ?? 1), q.get('mix') === '1', q.get('solo') || null])
       : await call('renderAmbience', [q.get('p'), Number(q.get('secs') ?? 30), 44100]);
+    const inter = decode(res);
+    writeWav(resolve(outDir, `${res.name}${q.get('solo') ? `-${q.get('solo')}` : ''}${q.get('only') ? `-only` : ''}.wav`), inter, res.sampleRate);
+    log(HEADER);
+    log(row(res.name, analyze(inter, res.sampleRate), url.pathname === '/amb' ? 'amb' : 'theme'));
+    if (res.stats) log(`  ${JSON.stringify(res.stats)}`);
+  } else if (url.pathname === '/notes') {
+    const res = await call('renderNotes', [q.get('inst'), q.get('seq'), Number(q.get('bpm') ?? 90)]);
     const inter = decode(res);
     writeWav(resolve(outDir, `${res.name}.wav`), inter, res.sampleRate);
     log(HEADER);
-    log(row(res.name, analyze(inter, res.sampleRate), url.pathname === '/amb' ? 'amb' : 'theme'));
+    log(row(res.name, analyze(inter, res.sampleRate), 'theme'));
   } else if (url.pathname === '/gameplay') {
     const full = await call('renderGameplay', ['full']);
     const sfx = await call('renderGameplay', ['sfx']);
@@ -105,7 +114,7 @@ async function handle(url) {
     }
   } else if (url.pathname === '/calibrate') {
     const ids = q.get('ids')?.split(',') ?? (await page.evaluate(() => window.__audioOffline.listThemes()));
-    await calibrate(ids, call, { root, seconds: Number(q.get('secs') ?? 60), log });
+    await calibrate(ids, call, { root, seconds: Number(q.get('secs') ?? 32), log });
   } else if (url.pathname === '/eval') {
     // Arbitrary expression against the offline module (returns JSON).
     const r = await page.evaluate(async (src) => JSON.stringify(await new Function('m', `return (async () => (${src}))()`)(window.__audioOffline)), q.get('js'));
@@ -117,7 +126,7 @@ async function handle(url) {
 }
 
 let busy = Promise.resolve();
-http.createServer((req, res) => {
+const lab = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/quit') {
     res.end('bye\n');
@@ -132,4 +141,9 @@ http.createServer((req, res) => {
       res.end(`error: ${e?.stack ?? e}\n`);
     }
   });
-}).listen(port, '127.0.0.1', () => console.log(`audio lab on http://127.0.0.1:${port}`));
+});
+// (Round 19: a whole-song render on a loaded machine outlasts node's 300 s default request timeout —
+// the socket was reset mid-render.)
+lab.requestTimeout = 0;
+lab.headersTimeout = 0;
+lab.listen(port, '127.0.0.1', () => console.log(`audio lab on http://127.0.0.1:${port}`));

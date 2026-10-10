@@ -50,15 +50,27 @@ const poolD = (x: number, z: number): number => {
  * face), rising inland, so the shelf reads as bedded rock rather than one poured slab.
  */
 const ledgeN = new Noise2D(91733);
-function ledgeAt(S: BeachShape, x: number, z: number): number {
+function ledgeLevel(S: BeachShape, x: number, z: number): number {
   const wr = S.westRock(x, z);
   const inland = Math.min(1, Math.max(0, -wr / 0.7));
   const v = ledgeN.fbm(x * 0.12 + 5, z * 0.15 - 2, 2) * 0.55 + 0.5 + inland * 0.9;
-  const lv = Math.max(0, v * 2.4);
-  const base = Math.floor(lv);
-  const riser = ss(0.84, 0.97, lv - base);
-  return (base + riser) * 0.17 * ss(0.05, -0.12, wr);
+  return Math.max(0, v * 2.4);
 }
+function ledgeAt(S: BeachShape, x: number, z: number): number {
+  const lv = ledgeLevel(S, x, z);
+  const base = Math.floor(lv);
+  // A short, steep riser (≈ 0.3 m run for a 21 cm step): reads as a broken bed, not a ramp.
+  const riser = ss(0.9, 0.985, lv - base);
+  return (base + riser) * 0.21 * ss(0.05, -0.12, S.westRock(x, z));
+}
+/** Per-terrace stone tint (each bed its own warm / cool sandstone), keyed by ledge index. */
+const LEDGE_TINT: [number, number, number][] = [
+  [0.8, 0.86, 0.96],
+  [1.1, 0.98, 0.84],
+  [0.94, 0.92, 0.9],
+  [1.16, 1.02, 0.8],
+  [0.88, 0.9, 0.96],
+];
 
 /**
  * Bowl the slab down into a tide pool: a rounded rim (convex shoulder) that rolls over from the top
@@ -136,8 +148,16 @@ export function buildShelf(S: BeachShape, seed: number, groundAt: (x: number, z:
     const lg = ledgeAt(S, x + 0.15, z) - ledgeAt(S, x - 0.15, z);
     const lz = ledgeAt(S, x, z + 0.15) - ledgeAt(S, x, z - 0.15);
     const riser = Math.min(1, Math.hypot(lg, lz) * 5);
-    const a = (1 - seam * 0.35 * topK) * (0.9 + pit * 0.12) * (1 - foot * 0.35) * (1 - riser * 0.32);
-    C.push(a, a, a);
+    const a = (1 - seam * 0.35 * topK) * (0.9 + pit * 0.12) * (1 - foot * 0.35) * (1 - riser * 0.55);
+    // Terrace tint (cross-faded over the riser so a bed's colour turns the corner with it).
+    const lvv = ledgeLevel(S, x, z);
+    const li = Math.floor(lvv);
+    const tf = ss(0.9, 0.985, lvv - li);
+    const t0 = LEDGE_TINT[li % LEDGE_TINT.length]!;
+    const t1 = LEDGE_TINT[(li + 1) % LEDGE_TINT.length]!;
+    // The sunlit lip of each step (just above the riser) catches a pale highlight.
+    const lip = ss(0.0, 0.06, lvv - li) * ss(0.22, 0.06, lvv - li) * (li > 0 ? 1 : 0) * 0.12;
+    C.push(a * (t0[0] + (t1[0] - t0[0]) * tf + lip), a * (t0[1] + (t1[1] - t0[1]) * tf + lip), a * (t0[2] + (t1[2] - t0[2]) * tf + lip));
     // uv.x = 1 - moss: weed only on the low, spray-fed parts; uv.y = wet lip around the pools.
     const low = ss(0.72, 0.45, y);
     U.push(1 - Math.min(1, low * 0.6 + ss(1.3, 1.0, pd) * 0.25), ss(1.3, 0.95, pd) * 0.75);
@@ -345,6 +365,101 @@ export function buildAlgaeTufts(S: BeachShape, rng: Rng, heightAt: (x: number, z
   applyWorldFx(mat, { snow: false });
   const m = new THREE.Mesh(g, mat);
   m.name = 'algae-tufts';
+  m.receiveShadow = true;
+  m.userData.perfTag = 'props';
+  return m;
+}
+
+/**
+ * Barnacle + limpet crust on the shelf: clustered (never a uniform speckle) along the wet sea rim,
+ * round the pool lips and in the seams — real little cones with dark craters that catch the light,
+ * instead of painted dots. One merged, flat-shaded mesh (~15k tris).
+ */
+export function buildShelfCrust(S: BeachShape, rng: Rng, heightAt: (x: number, z: number) => number): THREE.Mesh {
+  const P: number[] = [];
+  const C: number[] = [];
+  const tri = (a: number[], b: number[], c: number[], ca: number[], cb: number[], cc: number[]): void => {
+    P.push(a[0]!, a[1]!, a[2]!, b[0]!, b[1]!, b[2]!, c[0]!, c[1]!, c[2]!);
+    C.push(ca[0]!, ca[1]!, ca[2]!, cb[0]!, cb[1]!, cb[2]!, cc[0]!, cc[1]!, cc[2]!);
+  };
+  /** A barnacle: a 6-sided volcano (pale plates, dark crater). */
+  const barnacle = (x: number, y: number, z: number, r: number, tone: number): void => {
+    const h = r * (0.7 + rng.next() * 0.5);
+    const sides = 6;
+    const a0 = rng.next() * 6.28;
+    // (Weathered grey-buff, darker than the stone's sunlit top: bright cones read as spray.)
+    const base = [0.2 * tone, 0.19 * tone, 0.17 * tone];
+    const rim = [0.34 * tone, 0.32 * tone, 0.28 * tone];
+    const hole = [0.1, 0.09, 0.08];
+    const cx = [x, y + h * 0.55, z];
+    for (let i = 0; i < sides; i++) {
+      const a = a0 + (i / sides) * 6.283;
+      const b = a0 + ((i + 1) / sides) * 6.283;
+      const w = 1 + (rng.next() - 0.5) * 0.2;
+      const B0 = [x + Math.cos(a) * r * w, y - 0.01, z + Math.sin(a) * r * w];
+      const B1 = [x + Math.cos(b) * r, y - 0.01, z + Math.sin(b) * r];
+      const T0 = [x + Math.cos(a) * r * 0.42, y + h, z + Math.sin(a) * r * 0.42];
+      const T1 = [x + Math.cos(b) * r * 0.42, y + h, z + Math.sin(b) * r * 0.42];
+      tri(B0, T0, B1, base, rim, base);
+      tri(B1, T0, T1, base, rim, rim);
+      tri(T0, cx, T1, rim, hole, rim);
+    }
+  };
+  /** A limpet: a low ribbed cone, off-centre apex, banded brown / cream. */
+  const limpet = (x: number, y: number, z: number, r: number): void => {
+    const sides = 8;
+    const a0 = rng.next() * 6.28;
+    const ap = [x + (rng.next() - 0.5) * r * 0.3, y + r * (0.5 + rng.next() * 0.2), z + (rng.next() - 0.5) * r * 0.3];
+    const tip = [0.78, 0.72, 0.6];
+    for (let i = 0; i < sides; i++) {
+      const a = a0 + (i / sides) * 6.283;
+      const b = a0 + ((i + 1) / sides) * 6.283;
+      const c = i % 2 ? [0.42, 0.33, 0.24] : [0.62, 0.54, 0.42];
+      tri([x + Math.cos(a) * r, y - 0.005, z + Math.sin(a) * r], ap, [x + Math.cos(b) * r, y - 0.005, z + Math.sin(b) * r], c, tip, c);
+    }
+  };
+  const cluster = (x: number, z: number, spread: number, n: number, limpets: number): void => {
+    // Packed tighter in the middle; bigger barnacles in the middle, a fringe of small ones.
+    for (let i = 0; i < n; i++) {
+      const rr = Math.pow(rng.next(), 0.8) * spread;
+      const a = rng.next() * 6.283;
+      const px = x + Math.cos(a) * rr;
+      const pz = z + Math.sin(a) * rr * 0.8;
+      const r = (0.03 + rng.next() * 0.035) * (1.15 - (rr / spread) * 0.5);
+      barnacle(px, heightAt(px, pz), pz, r, 0.8 + rng.next() * 0.3);
+    }
+    for (let i = 0; i < limpets; i++) {
+      const rr = (0.6 + rng.next() * 0.6) * spread;
+      const a = rng.next() * 6.283;
+      const px = x + Math.cos(a) * rr;
+      const pz = z + Math.sin(a) * rr;
+      limpet(px, heightAt(px, pz), pz, 0.035 + rng.next() * 0.03);
+    }
+  };
+  let placed = 0;
+  // The wet sea rim: dense colonies.
+  for (let i = 0; i < 900 && placed < 70; i++) {
+    const x = -5 + rng.next() * 26;
+    const z = 36 + rng.next() * 18;
+    const wr = S.westRock(x, z);
+    if (wr < -0.25 || wr > 0.04) continue;
+    if (poolD(x, z) < 1.1 || heightAt(x, z) > 0.8) continue;
+    cluster(x, z, 0.2 + rng.next() * 0.25, 22 + Math.floor(rng.next() * 20), Math.floor(rng.next() * 3));
+    placed++;
+  }
+  // (No colonies on the pool walls: on the steep bowl they stack into vertical streaks that read
+  // as spray.)
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 });
+  mat.name = 'shelfCrust';
+  applyWorldFx(mat, { snowUp: 0.7 });
+  const m = new THREE.Mesh(g, mat);
+  m.name = 'shelf-crust';
+  m.castShadow = false;
   m.receiveShadow = true;
   m.userData.perfTag = 'props';
   return m;
