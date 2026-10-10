@@ -53,11 +53,25 @@ export interface Critique {
     leapExamples: string[];
     repeatPct: number;
     strongChordTonePct: number;
+    /**
+     * Phrasing (round 7): share of 8-bar phrases whose highest note is sounded at most twice (a
+     * placed peak, not a ceiling the tune keeps bumping into), and audible breaths (a gap of at
+     * least a fifth of a bar and 0.4 s between tune notes, or a hold of 70 % of a bar) per 8 bars.
+     */
+    peakPct: number;
+    breathsPer8: number;
   };
   harmony: { chords: number; distinct: number; clashes: number; b9: number; appoggiaturas: number; clashesPerMin: number; worst: Rub[] };
   parallels: { count: number; perMin: number; examples: string[] };
   cadences: string[];
   texture: { peakPoly: number; meanPoly: number; notesPerSec: Record<string, number> };
+  /**
+   * Register: `crowdPct` = share of tune notes with an accompaniment note (accomp / accomp2)
+   * sounding at or above the tune minus a whole tone (the tune is buried in its comping);
+   * `tenorGap` = mean empty span (semitones) between the bass and the next voice up while both
+   * sound (a hollow middle).
+   */
+  register: { crowdPct: number; crowdBy: string; tenorGap: number };
   flags: string[];
 }
 
@@ -157,8 +171,50 @@ export function critiquePiece(id: string, seed = 1): Critique {
     }
   }
   const moves = Math.max(1, steps + leaps + repeats);
+  // ── phrasing: placed peaks and breaths, per 8-bar phrase
+  const barSec = p.duration / Math.max(1, p.bars);
+  const phrases = new Map<number, number[]>();
+  let breaths = 0;
+  // (Round 18: phrases are counted from each section's first bar — bar / 8 from the top of the piece
+  // straddled every A / B seam whenever the intro was not 8 bars long, so a strain's peak was judged
+  // together with the next strain's.)
+  const secStart: number[] = [];
+  (p.barInfo ?? []).forEach((b, i) => secStart.push(b.section || i === 0 ? i : secStart[i - 1]!));
+  for (let i = 0; i < mel.length; i++) {
+    const n = mel[i]!;
+    const bar = spanAt(spans, n.t)?.bar ?? 0;
+    const s0 = secStart[bar] ?? 0;
+    const k = s0 * 1000 + Math.floor((bar - s0) / 8);
+    if (!phrases.has(k)) phrases.set(k, []);
+    phrases.get(k)!.push(n.midi);
+    const nx = mel[i + 1];
+    // A breath: a gap of about a beat before the next note, or a phrase-end hold of 3+ beats
+    // (the line rests on it while the band moves).
+    if (nx && (nx.t - (n.t + n.dur) >= Math.max(0.4, barSec * 0.2) || nx.t - n.t >= barSec * 0.7)) breaths++;
+  }
+  let phraseN = 0;
+  let peaked = 0;
+  for (const ps of phrases.values()) {
+    if (ps.length < 6) continue;
+    phraseN++;
+    const top = Math.max(...ps);
+    if (ps.filter((m) => m === top).length <= 2) peaked++;
+  }
+  const peakPct = phraseN ? Math.round((peaked / phraseN) * 100) : 100;
+  // (Per 8 bars of tune: the intro / outro bars carry no melody to breathe in.)
+  const tuneBars = new Set(mel.map((n) => spanAt(spans, n.t)?.bar ?? 0)).size;
+  const breathsPer8 = Math.round((breaths / Math.max(1, tuneBars / 8)) * 10) / 10;
   const lo = mel.reduce((m, e) => Math.min(m, e.midi), 999);
   const hi = mel.reduce((m, e) => Math.max(m, e.midi), 0);
+  // (Round 19) Range is a property of a voice: when B / C hand the tune to another instrument (and its
+  // own register — First Furrow's clarinet bridge an octave under the flute), each player's compass is
+  // judged on its own; NARROW / WIDE use the widest single voice.
+  const byInst = new Map<string, [number, number]>();
+  for (const e of mel) {
+    const r = byInst.get(e.inst) ?? [999, 0];
+    byInst.set(e.inst, [Math.min(r[0], e.midi), Math.max(r[1], e.midi)]);
+  }
+  const voiceRange = Math.max(0, ...[...byInst.values()].map(([a, b]) => b - a));
 
   // ── rubs against sounding harmony
   const rubs: Rub[] = [];
@@ -273,19 +329,75 @@ export function critiquePiece(id: string, seed = 1): Critique {
   for (const e of ev) nps[e.track] = (nps[e.track] ?? 0) + 1;
   for (const k of Object.keys(nps)) nps[k] = Math.round((nps[k]! / p.duration) * 10) / 10;
 
+  // ── register: the tune vs its comping; the bass vs the next voice up
+  const comp = ev.filter((e) => e.track === 'accomp' || e.track === 'accomp2');
+  let crowded = 0;
+  const crowdBy: Record<string, number> = {};
+  for (const m of mel) {
+    const hit = comp.find((c) => c.t <= m.t + 0.05 && heardEnd(c) > m.t + 0.02 && c.midi >= m.midi - 2);
+    if (hit) {
+      crowded++;
+      crowdBy[hit.track] = (crowdBy[hit.track] ?? 0) + 1;
+    }
+  }
+  const crowdPct = mel.length ? Math.round((crowded / mel.length) * 100) : 0;
+  const crowdWorst = Object.entries(crowdBy).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+  let gapSum = 0;
+  let gapN = 0;
+  const voiced = ev.filter((e) => e.track !== 'perc');
+  // (Register fill counts a plucked note's ring — up to 1.2 s — not just its attack.)
+  const ringEnd = (e: NoteEvent): number => e.t + (DECAYING.has(e.inst) ? Math.min(e.dur, 1.2) : e.dur);
+  for (let t = 0.5; t < p.duration; t += 0.25) {
+    const sounding = voiced.filter((e) => e.t <= t && ringEnd(e) > t);
+    const bassN = sounding.filter((e) => e.track === 'bass');
+    if (!bassN.length) continue;
+    const top = Math.max(...bassN.map((e) => e.midi));
+    const above = sounding.filter((e) => e.track !== 'bass' && e.midi > top).map((e) => e.midi);
+    if (!above.length) continue;
+    gapSum += Math.min(...above) - top;
+    gapN++;
+  }
+  const tenorGap = gapN ? Math.round((gapSum / gapN) * 10) / 10 : 0;
+
   const strongPct = strong ? Math.round((strongCt / strong) * 100) : 100;
   const unrecPct = leaps ? unrec / leaps : 0;
   if (!ambient) {
     if (b9 > 0) flags.push('B9-BASS');
     if (clashes / minutes > 2.5) flags.push('CLASHY');
     if (strongPct < 60) flags.push('WEAK-STRONG-BEATS');
-    if (hi - lo < 9) flags.push('NARROW');
-    if (hi - lo > 26) flags.push('WIDE');
+    if (voiceRange < 9) flags.push('NARROW');
+    if (voiceRange > 26) flags.push('WIDE');
     if (unrecPct > 0.35 && unrec > 3) flags.push('LEAPY');
+    // Round 7 (critic r6: "conspicuously leap-heavy … algorithmically busy"): more than half the
+    // moves skipping a third or more, or more than 8 % of all moves an unrecovered leap of a 4th+.
+    if (leaps / moves > 0.52) flags.push(`LEAPY(${Math.round((leaps / moves) * 100)} % leaps)`);
+    else if (unrec / moves > 0.08) flags.push(`LEAPY(${unrec} unrecovered)`);
+    // …and loops that come round too soon: a song under 85 s (a scene cue under 60 s) repeats
+    // before a player has finished a chore.
+    const isCue = id.startsWith('event-');
+    if (p.duration < (isCue ? 60 : 85)) flags.push(`SHORT-LOOP(${Math.round(p.duration)} s)`);
+    if (breathsPer8 < 1) flags.push(`NO-BREATH(${breathsPer8}/8 bars)`);
     if (repeats / moves > 0.35) flags.push('STATIC');
     if (steps / moves < 0.3) flags.push('ANGULAR');
     if (parallels / minutes > 4) flags.push('PARALLELS');
     if (finalDeg && finalDeg !== '1') flags.push(`NO-TONIC-CADENCE(${finalDeg})`);
+    if (crowdPct > 25) flags.push(`MASKED-TUNE(${crowdWorst})`);
+    if (tenorGap > 22) flags.push('HOLLOW-MIDDLE');
+  }
+  // Round 18: a written tune bar that does not fill its bar (the composer only warns, then plays it
+  // late or crowds the next bar) — e.g. a 9-eighth bar slipped into a 4/4 tune.
+  const tune = th.melody?.tune as Record<string, unknown> | undefined;
+  if (tune) {
+    const bad: string[] = [];
+    for (const [sec, bars] of Object.entries(tune)) {
+      if (!Array.isArray(bars)) continue; // octave, pickup
+      bars.forEach((src: unknown, i) => {
+        if (typeof src !== 'string') return;
+        const n = src.trim().split(/\s+/).filter(Boolean).reduce((a, tok) => a + Number(/:(\d+(?:\.\d+)?)$/.exec(tok)?.[1] ?? 2), 0);
+        if (Math.abs(n - S) > 1e-6) bad.push(`${sec}${i + 1}=${n}`);
+      });
+    }
+    if (bad.length) flags.push(`BAR-LENGTH(${bad.slice(0, 3).join(' ')})`);
   }
   const distinct = new Set(spans.map((s) => s.sym)).size;
   return {
@@ -306,6 +418,8 @@ export function critiquePiece(id: string, seed = 1): Critique {
       leapExamples: leapEx,
       repeatPct: Math.round((repeats / moves) * 100),
       strongChordTonePct: strongPct,
+      peakPct,
+      breathsPer8,
     },
     harmony: {
       chords: spans.length,
@@ -319,6 +433,7 @@ export function critiquePiece(id: string, seed = 1): Critique {
     parallels: { count: parallels, perMin: Math.round((parallels / minutes) * 10) / 10, examples: pex },
     cadences,
     texture: { peakPoly: peak, meanPoly: Math.round((area / Math.max(1e-6, lastT)) * 10) / 10, notesPerSec: nps },
+    register: { crowdPct, crowdBy: crowdWorst, tenorGap },
     flags,
   };
 }

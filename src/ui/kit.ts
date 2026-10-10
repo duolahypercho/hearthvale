@@ -37,6 +37,12 @@ export function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }
 
+/** A villager's everyday name: first name, or "Dr. Pell" for a titled one (never a bare "Dr."). */
+export function shortName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return /^(Dr|Mr|Mrs|Ms|Mx)\.?$/.test(parts[0] ?? '') && parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1]}` : (parts[0] ?? name);
+}
+
 /** Restart a CSS animation class on an element. */
 export function replay(e: Element | null | undefined, cls: string): void {
   if (!e) return;

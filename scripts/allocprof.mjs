@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const args = { demos: '', warmup: 3000, record: 6000, top: 25, w: 1920, h: 1080, extra: '' };
+const args = { demos: '', warmup: 3000, record: 6000, top: 25, w: 1920, h: 1080, extra: '', trace: '' };
 {
   const a = process.argv.slice(2);
   for (let i = 0; i < a.length; i++) {
@@ -46,6 +46,11 @@ function walk(node, stack, out) {
     for (let i = s.length - 1; i >= 0; i--) if (s[i].game) { owner = s[i].name; break; }
     out.owner.set(owner, (out.owner.get(owner) ?? 0) + self);
     out.total += self;
+    // --trace <regex>: the call chains (innermost 8 frames) that allocate inside matching functions.
+    if (args.trace && new RegExp(args.trace).test(name)) {
+      const chain = s.slice(-8).map((f) => f.name.replace(/http:\/\/[^ ]*\/deps\//, '')).join(' < ');
+      out.trace.set(chain, (out.trace.get(chain) ?? 0) + self);
+    }
   }
   for (const c of node.children) walk(c, s, out);
 }
@@ -81,7 +86,7 @@ async function main() {
       const { profile } = await cdp.send('HeapProfiler.stopSampling');
       const f1 = await page.evaluate(() => window.__game.info().frame);
       const frames = Math.max(1, f1 - f0);
-      const out = { self: new Map(), owner: new Map(), total: 0 };
+      const out = { self: new Map(), owner: new Map(), total: 0, trace: new Map() };
       walk(profile.head, [], out);
       const kb = (b) => +(b / frames / 1024).toFixed(2);
       const top = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, args.top).map(([k, v]) => ({ kbPerFrame: kb(v), fn: k }));
@@ -89,6 +94,10 @@ async function main() {
       writeFileSync(resolve(root, `shots/perf/alloc-${name}.json`), JSON.stringify(res, null, 1));
       console.log(`\n[alloc] ${name}: ${res.kbPerFrame} KB/frame over ${frames} frames`);
       for (const r of res.byOwner) console.log(`  ${String(r.kbPerFrame).padStart(7)} KB  ${r.fn}`);
+      if (args.trace) {
+        console.log(`  -- chains allocating in /${args.trace}/:`);
+        for (const r of top(out.trace).slice(0, 15)) console.log(`  ${String(r.kbPerFrame).padStart(7)} KB  ${r.fn}`);
+      }
       await ctx.close();
     }
   } finally {

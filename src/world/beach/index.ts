@@ -44,8 +44,8 @@ import {
   LIGHTHOUSE_PATH,
   BeachShape,
 } from './layout';
-import { addBeachRock, beachRockMaterial } from './rocks';
-import { buildShelf, buildAlgaeTufts, shelfTopAt } from './shelf';
+import { addBeachRock, beachRockMaterial, beachRockGeometry } from './rocks';
+import { buildShelf, buildAlgaeTufts, buildShelfCrust, shelfTopAt } from './shelf';
 import { SeaProps, LampPools } from './sea';
 import { createOcean, createHorizonClouds, setOceanPilings, setOceanLamps, createPoolWater } from './ocean';
 import { applyBeachSand } from './sand';
@@ -129,7 +129,7 @@ export class BeachMap implements GameMap {
     const S = this.shape;
 
     this.terrain = new Terrain({ ...BEACH_EXTENT, step: 0.5, height: (x, z) => S.height(x, z), waterLevel: SEA_LEVEL });
-    applyBeachSand(this.terrain.material, SEA_LEVEL, TIDE_POOLS);
+    applyBeachSand(this.terrain.material, SEA_LEVEL, TIDE_POOLS, BEACH_EXTENT);
     this.root.add(this.terrain.mesh);
     this.paintGround();
     this.classifyTiles();
@@ -189,8 +189,9 @@ export class BeachMap implements GameMap {
     this.root.add(this.grass.group);
     mark(`grass (${this.grass.instanceCount})`);
 
-    // Wildlife: gulls perch on the pier lamps + a driftwood log, crabs work the wet sand.
-    const perches = props.lamps.map((l) => new THREE.Vector3(l.x + (l.x > PIER.x ? 0.2 : -0.2), PIER.deckY + 2.02, l.z));
+    // Wildlife: one gull on the pier-root lamp (a story beat, clear of the fishing lane) + one on a
+    // driftwood log; crabs work the wet sand.
+    const perches = props.lamps.slice(0, 1).map((l) => new THREE.Vector3(l.x + (l.x > PIER.x ? 0.2 : -0.2), PIER.deckY + 2.02, l.z));
     perches.push(new THREE.Vector3(36.2, this.terrain.heightAt(36.2, 36.6) + 0.34, 36.6));
     // Crabs: a handful (≤ 5), Poisson-disk scattered (≥ 6 m apart) over a deep band of wet + damp sand, never lined up.
     const crabs: THREE.Vector3[] = [];
@@ -210,11 +211,13 @@ export class BeachMap implements GameMap {
     this.sea = new SeaProps(
       this.rng.fork('sea'),
       SEA_LEVEL,
+      // Swim area west of the groyne (r5: it used to run from the pier straight through the cast
+      // lane, splitting every fishing frame and competing with the red float).
       [
-        [PIER.x - PIER.w / 2 - 0.3, 47.2],
-        [43.2, 48.2],
-        [37.8, 48.9],
-        [34.2, 48.4],
+        [31.4, 51.6],
+        [27.0, 52.8],
+        [22.6, 52.6],
+        [19.8, 51.2],
       ],
       // Moored well south of the walkway cast corridor (x 37-48, z 50-55), clear of the fishing frames.
       { x: 38.2, z: 60.4, rot: 0.32 },
@@ -383,6 +386,9 @@ export class BeachMap implements GameMap {
     const algae = buildAlgaeTufts(S, this.rng.fork('algae'), (x, z) => Math.max(S.height(x, z) + 0.05, shelfTopAt(S, this.groundAt, x, z) + 0.02));
     algae.userData.noAO = true;
     this.root.add(algae);
+    const crust = buildShelfCrust(S, this.rng.fork('crust'), (x, z) => Math.max(S.height(x, z) + 0.03, shelfTopAt(S, this.groundAt, x, z)));
+    crust.userData.noAO = true;
+    this.root.add(crust);
     const life = buildTidePoolLife(this.rng.fork('tidepool'), TIDE_POOLS, (x, z) => this.terrain.heightAt(x, z));
     life.userData.noAO = true;
     this.root.add(life);
@@ -409,7 +415,8 @@ export class BeachMap implements GameMap {
 
     // Pier.
     const pier = buildPier(r.fork('pier'), hAt);
-    setOceanPilings(this.ocean, pier.pilings);
+    // Foam collars: the pier's legs + every boulder standing in the surf (added with the rocks below).
+    const collars = pier.pilings.slice();
     setOceanLamps(this.ocean, pier.lamps);
     this.root.add(pier.static);
     this.staticRoots.push(pier.static);
@@ -482,10 +489,12 @@ export class BeachMap implements GameMap {
     addBoatVignette(b, r.fork('boatv'), ROWBOAT.x, ROWBOAT.z, ROWBOAT.rot, hAt);
     addBeachSign(b, 26.2, 29.2, hAt);
     addSandcastle(b, r.fork('castle'), 45.6, 35.2, hAt);
-    addParasolVignette(b, r.fork('parasol'), 41.6, 31.4, hAt);
-    this.block(41.6, 31.4, 0.5, 'parasol');
-    this.block(40.9, 31.8, 0.4, 'cooler');
-    T.stampCover('ao', 42.1, 32.2, 1.6, 0.25);
+    // (r6: moved west beside the campfire — at 41.6 / 31.4 it sat in beach-day's foreground under the
+    // toolbar.)
+    addParasolVignette(b, r.fork('parasol'), 28.8, 31.4, hAt);
+    this.block(28.8, 31.4, 0.5, 'parasol');
+    this.block(28.1, 31.8, 0.4, 'cooler');
+    T.stampCover('ao', 29.3, 32.2, 1.6, 0.25);
     this.block(45.6, 35.2, 0.9, 'sandcastle');
     T.stampCover('ao', 45.6, 35.2, 1.2, 0.35);
     this.block(26.2, 29.2, 0.6, 'sign');
@@ -533,7 +542,11 @@ export class BeachMap implements GameMap {
     // Rocks (smooth, sea-worn; wet band + barnacles below the tide line): the west shelf rim, the
     // headland toe, a few awash in the surf.
     const rr = r.fork('rocks');
-    const rock = (x: number, z: number, rad: number, squash: number, sink = 0.12): void => addBeachRock(b, rr, x, hAt(x, z) - rad * sink, z, rad, { squash });
+    const rock = (x: number, z: number, rad: number, squash: number, sink = 0.12): void => {
+      addBeachRock(b, rr, x, hAt(x, z) - rad * sink, z, rad, { squash });
+      // Awash: the sea wraps it in a foam collar (footprint ≈ its waterline girth).
+      if (hAt(x, z) < SEA_LEVEL + 0.2) collars.push({ x, z, r: rad * 0.8 });
+    };
     for (let i = 0; i < 26; i++) {
       const a = (i / 26) * Math.PI * 2 + rr.next() * 0.2;
       const x = 8 + Math.cos(a) * 11 * (0.95 + rr.next() * 0.15);
@@ -551,6 +564,36 @@ export class BeachMap implements GameMap {
       rock(x, z, rad, 0.6 + rr.next() * 0.35, 0.2);
       this.block(x, z, rad * 0.8, 'rock');
     }
+    // Headland flank strata: the bare slope below the sward is stepped into stacked sandstone ledges
+    // (long flat slabs laid along three contours, each tier its own bed colour), so the cliff has
+    // real vertical relief — layered rock with lit lips and shadowed risers, not a painted decal.
+    {
+      const sr = r.fork('strata');
+      const TIERS: [number, number][] = [[0.8, 0xd6c3a8], [1.6, 0xf0d4a6], [2.4, 0xcdbfae], [3.1, 0xead0a6]];
+      for (const [hy, tint] of TIERS) {
+        for (let a = Math.PI * 0.52; a < Math.PI * 1.62; a += 0.11 + sr.next() * 0.05) {
+          const dx = Math.cos(a);
+          const dz = Math.sin(a);
+          // March out from the knoll's centre to where the slope drops through this tier's height.
+          let k = 0.3;
+          while (k < 1.6 && hAt(77 + dx * 9 * k, 42 + dz * 11 * k) > hy) k += 0.02;
+          if (k >= 1.6 || k <= 0.32) continue;
+          const x = 77 + dx * 9 * k + (sr.next() - 0.5) * 0.3;
+          const z = 42 + dz * 11 * k + (sr.next() - 0.5) * 0.3;
+          if (this.pathDist(x, z) < 1.7 || hAt(x, z) < SEA_LEVEL + 0.15) continue;
+          if (sr.next() < 0.18) continue; // gaps: the ledges break, they're not a fence
+          // Tangent to the contour (the slab's long axis), sunk into the slope behind it.
+          const tx = -9 * dz;
+          const tz = 11 * dx;
+          // Level beds (no random tilt: bedding planes are flat), chunky, sunk deep into the slope.
+          const rad = 0.75 + sr.next() * 0.35;
+          const geo = beachRockGeometry(sr, rad, { squash: 0.5 + sr.next() * 0.1, elong: 1.7 + sr.next() * 0.4, facet: 0.85, lumpy: 0.18 });
+          const yaw = Math.atan2(-tz, tx) + (sr.next() - 0.5) * 0.2;
+          const mtx = new THREE.Matrix4().compose(new THREE.Vector3(x, hy - rad * 0.42, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(1, 1, 1));
+          b.add(beachRockMaterial(), geo, mtx, { tint: new THREE.Color(tint).multiplyScalar(0.95 + sr.next() * 0.1) });
+        }
+      }
+    }
     // Shelf clutter: a few loose boulders + cobbles on the shelf (never inside a pool), for relief.
     for (let i = 0; i < 26; i++) {
       const x = -2 + rr.next() * 22;
@@ -559,6 +602,31 @@ export class BeachMap implements GameMap {
       if (TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.3)) continue;
       const rad = 0.3 + rr.next() * 0.4;
       addBeachRock(b, rr, x, hAt(x, z) - rad * 0.12, z, rad, { squash: 0.5 + rr.next() * 0.25 });
+    }
+    // Rubble groups (a broken-off block + its cobbles) on the shelf ledges: chunky faceted stone that
+    // breaks the slab's smooth expanse into readable, composed beats.
+    for (let i = 0, groups = 0; i < 60 && groups < 7; i++) {
+      const x = -2 + rr.next() * 21;
+      const z = 38.5 + rr.next() * 14;
+      if (this.shape.westRock(x, z) > -0.15) continue;
+      if (TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(x - px, (z - pz) * 1.15) < pr * 1.6)) continue;
+      if (Math.hypot(x - 12, z - 40) < 2.5) continue; // the demo spot / the way onto the shelf
+      groups++;
+      // (Seated on the slab's own top — its ledges stand up to ~0.6 m proud of the terrain.)
+      const sTop = (px: number, pz: number): number => Math.max(hAt(px, pz), shelfTopAt(this.shape, this.groundAt, px, pz));
+      const big = 0.55 + rr.next() * 0.35;
+      addBeachRock(b, rr, x, sTop(x, z) - big * 0.15, z, big, { squash: 0.55 + rr.next() * 0.2, elong: 1.1 + rr.next() * 0.4, tint: 0xe2c6a2 });
+      this.block(x, z, big * 0.75, 'rock');
+      const n = 2 + Math.floor(rr.next() * 3);
+      for (let k = 0; k < n; k++) {
+        const a = rr.next() * Math.PI * 2;
+        const d = big * (1.0 + rr.next() * 0.7);
+        const cx = x + Math.cos(a) * d;
+        const cz = z + Math.sin(a) * d;
+        if (TIDE_POOLS.some(([px, pz, pr]) => Math.hypot(cx - px, (cz - pz) * 1.15) < pr * 1.4)) continue;
+        const rad = 0.14 + rr.next() * 0.2;
+        addBeachRock(b, rr, cx, sTop(cx, cz) - rad * 0.2, cz, rad, { squash: 0.5 + rr.next() * 0.25, tint: 0xe2c6a2 });
+      }
     }
     for (const [x, z, rad] of [[69.5, 56.5, 1.6], [67.4, 57.8, 0.9], [71.4, 55.2, 1.1]] as const) rock(x, z, rad, 0.85, 0.25);
     // The groyne: boulders piled two abreast along the ridge, smaller + lower out into the surf.
@@ -599,6 +667,7 @@ export class BeachMap implements GameMap {
       this.block(x, z, rad * 0.7, 'rock');
     }
     void beachRockMaterial;
+    setOceanPilings(this.ocean, collars);
     const small = b.build({ name: 'beach-bits' });
     this.root.add(small);
     this.staticRoots.push(small);
@@ -709,7 +778,7 @@ export class BeachMap implements GameMap {
       if (r.next() > 0.14 + clump * 0.6) continue;
       const rim = smoothstep(-0.35, -0.08, eh);
       const k = r.next();
-      if (k < 0.2 + rim * 0.45) F.addThrift(x, h, z, 0.9 + r.next() * 0.7);
+      if (k < 0.06 + rim * 0.55) F.addThrift(x, h, z, 0.9 + r.next() * 0.7);
       else if (k < 0.62) F.addSedge(x, h, z, 0.8 + r.next() * 0.5);
       else if (k < 0.88) F.addMarram(x, h, z, 0.6 + r.next() * 0.4);
       else F.addPea(x, h, z, 0.9 + r.next() * 0.5);
@@ -720,6 +789,11 @@ export class BeachMap implements GameMap {
       [44.5, 4.8, 1.15], [51, 1.2, 1.3], [58.5, 5.2, 1.05], [65, 2.4, 1.3], [72, 6.4, 1.1], [79, 3.2, 1.25], [86, 7, 1.2],
       [-10, 10, 1.3], [-12, 1, 1.35], [92, 2, 1.3], [80.5, 36.5, 1.0], [83, 45, 1.15], [72.8, 38.2, 0.85],
     ];
+    // (r6) A windbreak of pines on the lighthouse knoll, so the bent silhouettes read from the beach
+    // (beach-day) and not only along the bluff behind the camera.
+    for (const [x, z, s] of [[79.6, 51.2, 0.85], [83.2, 48.2, 0.95], [78.2, 54.2, 0.7], [85.2, 53.0, 0.8]] as const) {
+      if (hAt(x, z) > 2.4) pines.push([x, z, s]);
+    }
     for (const [x, z, s] of pines) {
       F.addPine(x, hAt(x, z), z, s * (0.95 + r.next() * 0.15), 0);
       this.terrain.stampCover('ao', x, z, 2.2 * s, 0.5);
@@ -809,7 +883,7 @@ export class BeachMap implements GameMap {
     this.ambience.update(dt, t, focus, night, h);
     this.fx.update(dt, h);
     const hr0 = game.calendar.hour;
-    this.life.update(dt, t, game.player.position, h, game.rc.camera, hr0);
+    this.life.update(dt, t, game.player.position, h, game.rc.camera, hr0, game.services.fishing?.busyAnglers() ?? []);
     this.sea.update(dt, t);
     this.sea.setNight(night);
     this.smoke.update(dt, night, h);

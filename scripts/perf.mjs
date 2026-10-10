@@ -10,9 +10,13 @@
  *   npm run perf -- --headed                       # headed, window parked off-screen (see "Timing mode")
  *   npm run perf -- --no-history                   # don't append to shots/perf/history.jsonl
  *   npm run perf -- --eval "<js>"                   # run JS after ready (A/B experiments; tag with --label)
+ *   npm run perf -- --params 'warmkit=0'          # extra URL params (A/B switches; tag with --label)
  *   npm run perf -- --profile 15                   # + top-15 self-time JS functions per demo (CDP sampling profiler)
- *   npm run perf -- --ready-budget 200000         # ms allowed for page load + __game.ready() (default 150000)
+ *   npm run perf -- --frames                       # + per-frame series to shots/perf/frames-<demo>.json (tail forensics)
+ *   npm run perf -- --ready-budget 200000        # ms allowed for page load + __game.ready() (default 150000)
  *   npm run perf -- --resume                       # skip demos already in shots/perf/partial.json (after a killed run)
+ *   npm run perf -- --no-prime                     # skip the unrecorded priming load of the first demo (cold-GPU tax;
+ *                                                  # when primed, that demo is recorded last)
  *
  * Per demo: fresh page on `?demo=<name>&quality=<q>`, await __game.ready(), warm up `--warmup` ms,
  * then record `--record` ms of requestAnimationFrame deltas plus:
@@ -27,8 +31,14 @@
  *   FAIL  avg < 60 fps or p99 > 25 ms (the pillar-14 bar),
  *   REGR  vs the median of the last 3 comparable history runs: avg fps −10 % (and ≥ 3 fps),
  *         p99 +25 % (and ≥ 3 ms), or draw calls / triangles +20 % (content growth, noise-free).
- *   REGR? a timing drop measured while the machine was saturated (load > 1.5× cores or main
- *         thread on-CPU < 35 %) — reported, not trusted; re-run `--demos <name>` on a quiet machine.
+ *   REGR? a timing drop measured while the machine was saturated (load > 1.5× cores, main
+ *         thread on-CPU < 35 %, or the empty-canvas calibration < 75 % of its history median = the
+ *         GPU is shared with another process, or another browser's GPU process — desktop Chrome
+ *         included — sat at ≥ 40 % CPU during the demo: `foreignGpuPct`) — reported, not trusted;
+ *         re-run `--demos <name>` quiet.
+ *   Tail diagnosis per demo: `refreshPct` (shadow-cache refresh frames), `hitchOnRefreshPct` (share
+ *   of > 25 ms frames that are refresh frames) and `slowCpuMs` (Game.step CPU on those frames): a
+ *   low hitchOnRefreshPct with slowCpuMs ≈ cpuAvgMs and on-CPU < 35 % = the GPU was time-sliced.
  *
  * Timing mode: HEADLESS by default — Playwright's full Chromium (channel 'chromium' = new headless,
  * same compositor as desktop Chrome, not chrome-headless-shell) with ANGLE/Metal on the real GPU and
@@ -61,6 +71,7 @@ function parseArgs(argv) {
     if (!a.startsWith('--')) continue;
     const key = a.slice(2);
     if (key === 'no-history') { out.history = false; continue; }
+    if (key === 'no-prime') { out.prime = 'false'; continue; }
     if (key === 'headed' || key === 'strict' || key === 'resume') { out[key] = true; continue; }
     const val = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : 'true';
     out[key] = ['w', 'h', 'dpr', 'warmup', 'record', 'timeout'].includes(key) ? Number(val) : val;
@@ -101,7 +112,30 @@ function envLoad() {
       if (/scripts\/(shot|shots|smoke|perf)\.mjs/.test(line)) shots++;
     }
   } catch { /* ignore */ }
-  return { gpuProcesses: chromium, harnessProcesses: shots, loadavg: loadavg().map(r2), cpus: cpus().length };
+  return { gpuProcesses: chromium, harnessProcesses: shots, foreignGpu: foreignGpu(), loadavg: loadavg().map(r2), cpus: cpus().length };
+}
+
+/**
+ * Busy GPU processes of OTHER browsers / Electron apps (desktop Chrome, another agent's headed browser,
+ * …): any `--type=gpu-process` not parented by this script's own browser, at ≥ 25 % CPU. The
+ * Chromium-only count above misses desktop Chrome, and an empty-canvas calibration barely touches the
+ * GPU, so a WebGL page in another Chrome at 100 % GPU-process CPU went undetected (r6b: barn-interior
+ * flagged REGR at 173 → 138 fps while desktop Chrome's GPU process ran at 106 %). Returns the summed
+ * CPU % and the top offenders.
+ */
+function foreignGpu() {
+  try {
+    const rows = execSync('ps -Ao pid=,ppid=,pcpu=,command=', { encoding: 'utf8' }).split('\n').map((l) => {
+      const m = l.trim().match(/^(\d+)\s+(\d+)\s+([\d.]+)\s+(.*)$/);
+      return m ? { pid: +m[1], ppid: +m[2], pcpu: +m[3], cmd: m[4] } : null;
+    }).filter(Boolean);
+    const ownBrowsers = new Set(rows.filter((r) => r.ppid === process.pid).map((r) => r.pid));
+    const busy = rows.filter((r) => /--type=gpu-process/.test(r.cmd) && !ownBrowsers.has(r.ppid) && r.pcpu >= 25);
+    const app = (cmd) => (cmd.match(/\/([^/]+)\.app\//) || [, 'gpu'])[1];
+    return { pct: Math.round(busy.reduce((s, r) => s + r.pcpu, 0)), top: busy.sort((a, b) => b.pcpu - a.pcpu).slice(0, 3).map((r) => `${app(r.cmd)}:${Math.round(r.pcpu)}%`) };
+  } catch {
+    return { pct: 0, top: [] };
+  }
 }
 
 function gitRev() {
@@ -333,7 +367,7 @@ async function measureDemo(ctx, base, name) {
     const cdp = await ctx.newCDPSession(page);
     await cdp.send('Performance.enable', { timeDomain: 'timeTicks' });
     const t0 = Date.now();
-    await guard(page.goto(`${base}?demo=${encodeURIComponent(name)}&quality=${args.quality}`, { waitUntil: 'domcontentloaded', timeout: args.timeout }));
+    await guard(page.goto(`${base}?demo=${encodeURIComponent(name)}&quality=${args.quality}${args.params ? `&${args.params}` : ''}`, { waitUntil: 'domcontentloaded', timeout: args.timeout }));
     await guard(page.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: args.timeout }));
     await guard(page.evaluate(() => window.__game.ready()));
     const readyMs = Date.now() - t0;
@@ -355,6 +389,13 @@ async function measureDemo(ctx, base, name) {
       profile = topSelf(prof, Number(args.profile) || 15);
     }
     const frames = r.deltas.length || 1;
+    // --frames: dump the per-frame series (rAF delta, Game.step CPU ms, draw calls) to
+    // shots/perf/frames-<demo>.json - for tail forensics (periodic hitches, vsync quantisation).
+    if (args.frames) {
+      try {
+        writeFileSync(resolve(root, `shots/perf/frames-${name}.json`), JSON.stringify({ demo: name, loadavg1: loadavg()[0], deltas: r.deltas.map(r2), cpu: (r.cpu || []).map(r2), drawCalls: r.perfSamples.map((s) => s.drawCalls) }));
+      } catch (e) { console.warn('[perf] frames dump failed', e.message); }
+    }
     const d = (k) => (m1[k] ?? 0) - (m0[k] ?? 0);
     const sumMs = r.deltas.reduce((a, b) => a + b, 0);
     const dcs = r.perfSamples.map((s) => s.drawCalls);
@@ -375,6 +416,19 @@ async function measureDemo(ctx, base, name) {
       over20Pct: r1((100 * r.deltas.filter((x) => x > 20).length) / Math.max(1, r.deltas.length)),
       hitches25: r.deltas.filter((x) => x > 25).length,
       hitches50: r.deltas.filter((x) => x > 50).length,
+      // Shadow-cache refresh frames (draw calls well above the steady median) and how many of the
+      // > 25 ms frames coincide with one (± 1 sample: the rAF callback order vs Game's render varies).
+      // High hitchOnRefreshPct = the p99 is the cache refresh, not contention or a CPU spike.
+      ...(() => {
+        const m = median(dcs);
+        const isRef = (i) => (dcs[i] ?? 0) > m + 10;
+        const slow = r.deltas.map((x, i) => (x > 25 ? i : -1)).filter((i) => i >= 0);
+        return {
+          refreshPct: r1((100 * dcs.filter((x) => x > m + 10).length) / Math.max(1, dcs.length)),
+          hitchOnRefreshPct: slow.length ? r1((100 * slow.filter((i) => isRef(i) || isRef(i - 1) || isRef(i + 1)).length) / slow.length) : null,
+          slowCpuMs: slow.length ? r2(mean(slow.map((i) => r.cpu[i] ?? 0))) : null,
+        };
+      })(),
       cpuAvgMs: r2(mean(r.cpu)),
       cpuP95Ms: r2(pct(r.cpu, 95)),
       // GPU ms per frame (timer query around Game.step: shadow + AO + main + post). ≈ frame time → GPU-bound.
@@ -544,7 +598,7 @@ async function main() {
     }
     const mode = args.headed ? 'headed (window off-screen)' : 'headless (new headless)';
     console.log(`[perf] ${gpu} · ${mode} · ${args.w}x${args.h} quality=${args.quality} · warmup ${args.warmup} ms, record ${args.record} ms · ${demos.length} demos`);
-    console.log(`[perf] concurrent load: ${envStart.gpuProcesses} other Chromium GPU processes, ${envStart.harnessProcesses} harness scripts, loadavg ${envStart.loadavg.join(' ')} · empty-canvas calibration ${calib.fps} fps (p99 ${calib.p99Ms} ms)`);
+    console.log(`[perf] concurrent load: ${envStart.gpuProcesses} other Chromium GPU processes, foreign busy GPU ${envStart.foreignGpu.pct}% CPU ${envStart.foreignGpu.top.join(' ')}, ${envStart.harnessProcesses} harness scripts, loadavg ${envStart.loadavg.join(' ')} · empty-canvas calibration ${calib.fps} fps (p99 ${calib.p99Ms} ms)`);
 
     // Checkpoint after every demo (shots/perf/partial.json); `--resume` skips demos already measured there
     // with the same resolution / quality (after a crashed or killed run).
@@ -559,7 +613,23 @@ async function main() {
     }
     const results = [];
     const isClosed = (e) => /closed|disconnected|crash/i.test(String(e?.message || e));
-    for (const [i, name] of demos.entries()) {
+    // Priming pass (unrecorded): the first demo of a fresh browser paid a cold-GPU tax — ANGLE/Metal
+    // pipeline states + GPU clocks — that no later demo pays: r13 measured farm-morning at 60 fps / 39 ms
+    // GPU as demo 1 and 91 fps / 23.6 ms GPU as demo 3 of the same run (it had been "worst" in every survey
+    // because it is always listed first). One throwaway load of the first demo absorbs it. `--no-prime` skips.
+    if (args.prime !== 'false' && demos.length && !done.has(demos[0])) {
+      const keep = { warmup: args.warmup, record: args.record };
+      args.warmup = 2500;
+      args.record = 1500;
+      await measureDemoSafe(ctx, base, demos[0]).catch(() => {});
+      Object.assign(args, keep);
+      console.log(`[perf] primed on ${demos[0]} (unrecorded)`);
+    }
+    // g14: the primed demo is recorded LAST. Recorded straight after its own 4 s priming load it still
+    // scored 35-60 fps in survey after survey (90+ on recheck): the priming load is too short to bring
+    // the GPU clocks / pipeline caches to steady state. Reports keep the requested order.
+    const order = args.prime !== 'false' && demos.length > 1 ? [...demos.slice(1), demos[0]] : demos;
+    for (const [i, name] of order.entries()) {
       if (done.has(name)) { results.push(done.get(name)); continue; }
       let res;
       for (let attempt = 0; ; attempt++) {
@@ -574,6 +644,8 @@ async function main() {
           await launch().catch(() => {});
         }
       }
+      // ps %CPU is a decaying average over the last few seconds — sampled right after the record window.
+      if (!res.error) res.foreignGpuPct = foreignGpu().pct;
       results.push(res);
       try {
         mkdirSync(dirname(partialPath), { recursive: true });
@@ -582,6 +654,7 @@ async function main() {
       if (res.error) console.log(`[perf] ${i + 1}/${demos.length} ${name}: ERROR ${res.error}`);
       else console.log(`[perf] ${i + 1}/${demos.length} ${name}: ${res.avgFps} fps  p95 ${res.p95Ms}  p99 ${res.p99Ms} ms  gpu ${res.gpuAvgMs ?? '-'} ms  cpu ${res.cpuAvgMs} ms (on-cpu ${Math.round(res.onCpuRatio * 100)}%)  alloc ${res.allocMBs} MB/s  ${res.drawCalls} dc (peak ${res.drawCallsPeak})  ${(res.triangles / 1e6).toFixed(2)}M tris`);
     }
+    results.sort((x, y) => demos.indexOf(x.demo) - demos.indexOf(y.demo));
     const envEnd = envLoad();
 
     // Compare with history.
@@ -591,6 +664,10 @@ async function main() {
     const fails = [];
     const regressions = [];
     const suspect = [];
+    const calibHist = history.map((h) => h.env?.calibration?.fps).filter((x) => x > 0).slice(-8);
+    const calibRef = calibHist.length >= 2 ? median(calibHist) : 0;
+    const gpuShared = calibRef > 0 && (envStart.calibration?.fps ?? calibRef) < calibRef * 0.75;
+    if (gpuShared) console.log(`[perf] GPU shared: calibration ${envStart.calibration.fps} fps < 75 % of its history median ${calibRef} — timing drops are reported as REGR?, not REGR`);
     for (const r of results) {
       if (r.error) { fails.push({ demo: r.demo, why: `error: ${r.error}` }); continue; }
       const why = [];
@@ -607,7 +684,12 @@ async function main() {
       // Timing is only trusted when the machine was not saturated during this demo (1-min load average
       // below 1.5× cores and the main thread was on-CPU ≥ 35 % of the time); otherwise a timing drop is
       // reported as 'suspect' (REGR?) and does not fail --strict. Content growth is always trusted.
-      const contended = r.loadavg1 > envStart.cpus * 1.5 || r.onCpuRatio < 0.35;
+      // A third signal: the GPU itself is shared (another project's Chromium pinned at 100 % GPU
+      // keeps load and on-CPU looking normal) — the empty-canvas calibration falls well below its
+      // history median.
+      // Fourth: another browser's GPU process is busy (≥ 40 % CPU summed) during this demo (r13: desktop
+      // Chrome at 44-48 % time-sliced the GPU into 2-frame hitches and slipped under the old 50 % bar).
+      const contended = r.loadavg1 > envStart.cpus * 1.5 || r.onCpuRatio < 0.35 || gpuShared || (r.foreignGpuPct ?? 0) >= 40;
       const tw = [];
       if (r.avgFps < b.avgFps * 0.9 && b.avgFps - r.avgFps >= 3) tw.push(`avg ${b.avgFps}→${r.avgFps} fps`);
       if (r.p99Ms > b.p99Ms * 1.25 && r.p99Ms - b.p99Ms >= 3) tw.push(`p99 ${b.p99Ms}→${r.p99Ms} ms`);
@@ -615,7 +697,7 @@ async function main() {
       if (r.triangles > b.triangles * 1.2 && r.triangles - b.triangles >= 50000) rw.push(`tris ${(b.triangles / 1e6).toFixed(2)}M→${(r.triangles / 1e6).toFixed(2)}M`);
       if (!contended) rw.push(...tw);
       if (rw.length) regressions.push({ demo: r.demo, why: rw.join(', ') });
-      else if (tw.length) suspect.push({ demo: r.demo, why: `${tw.join(', ')} (contended: load ${r.loadavg1}, on-CPU ${Math.round(r.onCpuRatio * 100)} %)` });
+      else if (tw.length) suspect.push({ demo: r.demo, why: `${tw.join(', ')} (contended: load ${r.loadavg1}, on-CPU ${Math.round(r.onCpuRatio * 100)} %, foreign GPU ${r.foreignGpuPct ?? 0} %)` });
     }
 
     // Table.
@@ -664,7 +746,7 @@ async function main() {
       for (const r of results) {
         compact[r.demo] = r.error
           ? { error: r.error }
-          : { avgFps: r.avgFps, p95Ms: r.p95Ms, p99Ms: r.p99Ms, cpuAvgMs: r.cpuAvgMs, gpuAvgMs: r.gpuAvgMs, onCpu: r.onCpuRatio, drawCalls: r.drawCalls, triangles: r.triangles, drawCallsPeak: r.drawCallsPeak, trianglesPeak: r.trianglesPeak, allocMBs: r.allocMBs };
+          : { avgFps: r.avgFps, p95Ms: r.p95Ms, p99Ms: r.p99Ms, cpuAvgMs: r.cpuAvgMs, gpuAvgMs: r.gpuAvgMs, onCpu: r.onCpuRatio, drawCalls: r.drawCalls, triangles: r.triangles, drawCallsPeak: r.drawCallsPeak, trianglesPeak: r.trianglesPeak, allocMBs: r.allocMBs, foreignGpu: r.foreignGpuPct };
       }
       mkdirSync(dirname(histPath), { recursive: true });
       appendFileSync(histPath, JSON.stringify({ ts: run.ts, rev: run.rev, label: run.label, gpu, mode, w: run.w, h: run.h, quality: run.quality, env: envStart, results: compact }) + '\n');

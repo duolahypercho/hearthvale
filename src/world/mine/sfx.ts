@@ -1,162 +1,96 @@
 /**
- * Procedural mine / combat SFX (WebAudio, no files): pick clink, rock crumble, gem chime,
- * sword whoosh, flesh / shell hits, slime squish, bat screech, monster pop, player hurt,
- * ladder rattle, lift clank, pickup blip, cave drips. Lazily creates its own context after the
- * first user gesture (the main audio system owns music / ambience).
+ * Mine / combat sound cues. No audio of its own: every cue is voiced by the game's one audio graph
+ * (src/audio/sfx.ts designs, through the master limiter, the sidechain ducker, the cave reverb, the
+ * voice budget and the volume / mute settings) via the audio hub, placed at the world position it
+ * happens at — so a co-op partner's sword fight down the tunnel pans and fades with distance.
+ *
+ * The local farmer's own sword swing is voiced by `tool:swing` (systems/audio.ts), so `whoosh` is
+ * only called for remote partners' arcs. Simultaneous monster hits from one swing collapse into one
+ * voice per kind (+1.5 dB per extra target) in systems/audio.ts.
  */
-type Ctx = AudioContext;
+import type { MonsterKind } from './biomes';
+import { audioHub } from '../../audio/hub';
 
-let ctx: Ctx | null = null;
-let out: GainNode | null = null;
-let noiseBuf: AudioBuffer | null = null;
+type At = { x: number; z: number } | null | undefined;
 
-function ac(): Ctx | null {
-  if (ctx) return ctx.state === 'running' ? ctx : (void ctx.resume(), ctx);
-  const ua = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
-  if (ua && !ua.hasBeenActive) return null;
-  const C = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!C) return null;
-  ctx = new C();
-  out = ctx.createGain();
-  out.gain.value = 0.55;
-  const comp = ctx.createDynamicsCompressor();
-  comp.threshold.value = -14;
-  out.connect(comp).connect(ctx.destination);
-  noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-  const d = noiseBuf.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  return ctx;
-}
-
-function env(g: GainNode, t: number, a: number, peak: number, dec: number): void {
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(peak, t + a);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + a + dec);
-}
-
-function tone(freq: number, dur: number, type: OscillatorType, vol: number, bend = 1, delay = 0, pan = 0): void {
-  const c = ac();
-  if (!c || !out) return;
-  const t = c.currentTime + delay;
-  const o = c.createOscillator();
-  o.type = type;
-  o.frequency.setValueAtTime(freq, t);
-  o.frequency.exponentialRampToValueAtTime(Math.max(20, freq * bend), t + dur);
-  const g = c.createGain();
-  env(g, t, 0.004, vol, dur);
-  const p = c.createStereoPanner();
-  p.pan.value = pan;
-  o.connect(g).connect(p).connect(out);
-  o.start(t);
-  o.stop(t + dur + 0.05);
-}
-
-function noise(dur: number, vol: number, f0: number, f1: number, q = 1, type: BiquadFilterType = 'bandpass', delay = 0): void {
-  const c = ac();
-  if (!c || !out || !noiseBuf) return;
-  const t = c.currentTime + delay;
-  const s = c.createBufferSource();
-  s.buffer = noiseBuf;
-  s.playbackRate.value = 0.8 + Math.random() * 0.4;
-  const f = c.createBiquadFilter();
-  f.type = type;
-  f.Q.value = q;
-  f.frequency.setValueAtTime(f0, t);
-  f.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
-  const g = c.createGain();
-  env(g, t, 0.003, vol, dur);
-  s.connect(f).connect(g).connect(out);
-  s.start(t, Math.random() * 0.5);
-  s.stop(t + dur + 0.05);
-}
-
-const r = (a: number, b: number): number => a + Math.random() * (b - a);
+const play = (name: string, at?: At, opts?: { gain?: number; level?: number }): void => {
+  audioHub.play?.(name, at ?? null, opts);
+};
 
 export const mineSfx = {
-  pick(ore: boolean): void {
-    tone(r(1800, 2300), 0.12, 'triangle', 0.18, 0.92);
-    tone(r(3200, 3900), 0.07, 'sine', 0.08, 0.95);
-    noise(0.09, 0.3, 3000, 900, 1.2);
-    if (ore) tone(r(2600, 2900), 0.35, 'sine', 0.07, 1.0, 0.02);
+  /** Pickaxe on stone (every strike; ore veins ring). */
+  pick(ore: boolean, at?: At): void {
+    play('mine:pick', at, { level: ore ? 1 : 0 });
   },
-  crumble(big: boolean): void {
-    noise(big ? 0.55 : 0.4, 0.5, 900, 120, 0.8, 'lowpass');
-    noise(0.25, 0.25, 2400, 600, 1.4);
-    tone(r(90, 120), 0.3, 'sine', 0.3, 0.5);
-    for (let i = 0; i < 4; i++) noise(0.05, 0.12, r(1500, 3000), 800, 3, 'bandpass', 0.05 + i * r(0.04, 0.09));
+  /** The rock splits (bigger boulders rumble longer). */
+  crumble(big: boolean, at?: At): void {
+    play('mine:break', at, { level: big ? 1 : 0 });
   },
-  gem(): void {
-    const base = r(1100, 1300);
-    [1, 1.25, 1.5, 2].forEach((m, i) => tone(base * m, 0.5, 'sine', 0.07, 1, i * 0.06));
+  gem(at?: At): void {
+    play('gem', at);
   },
-  whoosh(): void {
-    noise(0.22, 0.35, 500, 2600, 1.6);
-    noise(0.18, 0.12, 3000, 6000, 2, 'bandpass', 0.03);
+  /** A partner's sword arc (the local swing is voiced by tool:swing). */
+  whoosh(at?: At): void {
+    play('sword', at, { gain: 0.9 });
   },
-  hitFlesh(crit: boolean): void {
-    tone(crit ? 180 : 150, 0.14, 'square', 0.12, 0.45);
-    noise(0.12, 0.45, 1400, 300, 1, 'lowpass');
-    if (crit) tone(900, 0.2, 'triangle', 0.08, 1.4, 0.01);
+  /** A sword / pick blow landing on a monster: one voice per kind (slime squelch, crab shell clank, bat screech, wisp zap, imp ember). */
+  hit(kind: MonsterKind | string, crit: boolean, killed: boolean, at?: At): void {
+    play(`hit:${kind}`, at, { level: (crit ? 1 : 0) + (killed ? 2 : 0) });
   },
-  hitShell(): void {
-    tone(r(700, 900), 0.18, 'triangle', 0.16, 0.8);
-    noise(0.1, 0.35, 2600, 1200, 2);
+  /** Legacy name (a generic flesh hit): voiced as a slime-ish hit. */
+  hitFlesh(crit: boolean, at?: At): void {
+    play('hit:flesh', at, { level: crit ? 1 : 0 });
   },
-  squish(): void {
-    tone(r(220, 280), 0.18, 'sine', 0.22, 0.45);
-    noise(0.16, 0.25, 700, 250, 3);
+  /** A projectile parried off the blade. */
+  hitShell(at?: At): void {
+    play('parry', at);
   },
-  hop(): void {
-    tone(r(300, 360), 0.09, 'sine', 0.06, 1.6);
+  /** A monster's death pop (skipped when its kill blow already voiced the death). */
+  pop(at?: At): void {
+    play('monster:pop', at);
   },
-  screech(): void {
-    tone(r(2400, 2800), 0.14, 'sawtooth', 0.03, 1.3);
-    tone(r(3000, 3400), 0.12, 'sine', 0.03, 0.8, 0.05);
+  /** Loot vacuumed up. */
+  blip(): void {
+    play('pickup', null, { gain: 0.8 });
   },
-  pop(): void {
-    tone(520, 0.16, 'sine', 0.2, 2.2);
-    noise(0.25, 0.25, 1600, 300, 0.8, 'lowpass');
-    tone(880, 0.25, 'triangle', 0.06, 1.5, 0.08);
+  /** The ladder down is uncovered. */
+  reveal(at?: At): void {
+    play('mine:reveal', at);
+  },
+  /** Lava singes the farmer. */
+  sizzle(at?: At): void {
+    play('sizzle', at);
+  },
+  /** An imp lobs a fireball. */
+  fireball(at?: At): void {
+    play('fireball', at);
+  },
+  chest(at?: At): void {
+    play('chest', at);
   },
   hurt(): void {
-    tone(260, 0.22, 'square', 0.1, 0.55);
-    tone(190, 0.25, 'sawtooth', 0.06, 0.6, 0.02);
-    noise(0.15, 0.3, 900, 200, 1, 'lowpass');
-  },
-  ladder(): void {
-    for (let i = 0; i < 5; i++) {
-      tone(r(300, 380), 0.08, 'triangle', 0.09, 0.8, i * 0.13);
-      noise(0.05, 0.1, 1200, 500, 2, 'bandpass', i * 0.13);
-    }
-  },
-  lift(): void {
-    tone(90, 0.8, 'sawtooth', 0.05, 1.1);
-    for (let i = 0; i < 6; i++) tone(r(600, 700), 0.05, 'square', 0.03, 1, i * 0.12);
-    tone(1200, 0.4, 'sine', 0.08, 1, 0.8);
-  },
-  blip(): void {
-    tone(r(900, 1000), 0.08, 'sine', 0.08, 1.5);
-  },
-  reveal(): void {
-    [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.3, 'triangle', 0.07, 1, i * 0.07));
-  },
-  sizzle(): void {
-    noise(0.45, 0.35, 5200, 2200, 0.7, 'highpass');
-    noise(0.3, 0.2, 900, 300, 1, 'lowpass', 0.03);
-  },
-  chest(): void {
-    noise(0.2, 0.25, 600, 200, 1, 'lowpass');
-    [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, 0.45, 'triangle', 0.08, 1, 0.12 + i * 0.08));
-  },
-  zap(): void {
-    tone(r(1500, 1700), 0.25, 'sine', 0.06, 0.4);
-    noise(0.2, 0.12, 4000, 1500, 2, 'bandpass', 0.02);
-  },
-  fireball(): void {
-    noise(0.35, 0.25, 400, 1400, 0.8, 'bandpass');
-    tone(r(140, 170), 0.3, 'sawtooth', 0.04, 0.7);
+    play('hurt');
   },
   passOut(): void {
-    [392, 330, 262, 196].forEach((f, i) => tone(f, 0.5, 'triangle', 0.08, 0.98, i * 0.22));
+    play('passout');
+  },
+  ladder(): void {
+    play('ladder');
+  },
+  lift(): void {
+    play('lift');
+  },
+  // (Kept for callers that voiced kinds separately; the kind now lives in hit().)
+  squish(at?: At): void {
+    play('hit:slime', at);
+  },
+  screech(at?: At): void {
+    play('hit:bat', at);
+  },
+  zap(at?: At): void {
+    play('hit:wisp', at);
+  },
+  hop(): void {
+    /* slime hops are carried by the mine ambience */
   },
 };

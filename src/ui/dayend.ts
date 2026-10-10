@@ -11,8 +11,9 @@ import type { Game } from '../core/game';
 import { itemDef } from '../data/items';
 import { NPCS } from '../data/npcs';
 import { ICONS, itemIcon, itemIconUrl, itemCategory, qualityStar } from './icons';
-import { Screen, el, sfx, rollTo, replay, escapeHtml } from './kit';
+import { Screen, el, sfx, rollTo, replay, escapeHtml, shortName } from './kit';
 import { nightValleySvg, quietVignetteSvg } from './dayend-art';
+import { flyItemTo } from './item-fly';
 
 interface Summary {
   passedOut: boolean;
@@ -28,13 +29,17 @@ interface Summary {
     hungry: number;
     hungryNames: string[];
     petted: number;
-    produce: { item: string; q: number }[];
+    produce: { item: string; q: number; from?: string }[];
     pet?: { name: string; species: string; bowl: boolean };
     chores?: { icon: string; text: string }[];
+    /** Eggs still in the nests from earlier days (apart from tonight's produce). */
+    leftover?: number;
+    /** Per-animal recap (portrait, care marks, hearts, overnight change), happiest first. */
+    herd?: { name: string; species: string; portrait?: string; fed: boolean; petted: boolean; hearts: number; delta: number; best?: boolean }[];
   };
 }
 
-type Line = { itemId: string; qty: number; value: number };
+type Line = { itemId: string; qty: number; value: number; quality?: number };
 
 const SEASON_NAME: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' };
 const WEEKDAY = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -45,8 +50,26 @@ const ALMANAC: Record<string, string[]> = {
   fall: ['Pumpkins like room. Give them a little more than you think.', 'Stack wood now; winter comes quicker than you’d like.', 'The forest drops its best gifts after a wind.'],
   winter: ['Snow is a blanket, not an ending. Plan the spring beds.', 'The mines are warm in winter. Mind the slimes.', 'Visit folk. A kind word keeps longer than jam.'],
 };
+/** Almanac lines for a day spent with the herd (nothing shipped, the animals card on show). */
+const ANIMAL_ALMANAC = [
+  'A pat every morning is worth more than the finest hay. They remember who stops to say hello.',
+  'Happy hens lay golden-star eggs. Fill the trough before you fill your own plate.',
+  'Let them out on a fine day — sunshine and grass make the sweetest milk.',
+];
 /** Fair-ribbon rosette for the day's best line (a sun here read as tomorrow's weather). */
 const ROSETTE = `<svg viewBox="0 0 40 44" xmlns="http://www.w3.org/2000/svg"><path d="M13 22 L7 41 L13.5 37.5 L16.5 43 L21 25 Z" fill="#3f7fc4" stroke="#1d3f66" stroke-width="1.4" stroke-linejoin="round"/><path d="M27 22 L33 41 L26.5 37.5 L23.5 43 L19 25 Z" fill="#3474b8" stroke="#1d3f66" stroke-width="1.4" stroke-linejoin="round"/><path d="M20 2 L23.2 5.4 L27.8 4.4 L28.8 9 L33.2 10.8 L31.8 15.3 L34.6 19 L31.2 22.2 L31.6 26.9 L27 27.5 L24.6 31.6 L20 29.8 L15.4 31.6 L13 27.5 L8.4 26.9 L8.8 22.2 L5.4 19 L8.2 15.3 L6.8 10.8 L11.2 9 L12.2 4.4 L16.8 5.4 Z" fill="#f2b632" stroke="#8a5a0a" stroke-width="1.4" stroke-linejoin="round"/><circle cx="20" cy="17" r="8.6" fill="#ffe28a" stroke="#b07a14" stroke-width="1.3"/><path d="M20 11.4 L21.7 15 L25.6 15.4 L22.7 18 L23.5 21.9 L20 19.9 L16.5 21.9 L17.3 18 L14.4 15.4 L18.3 15 Z" fill="#fff6d0" stroke="#b07a14" stroke-width="1" stroke-linejoin="round"/><ellipse cx="15.5" cy="12" rx="3" ry="1.4" fill="#fff" opacity=".6" transform="rotate(-35 15.5 12)"/></svg>`;
+/** r5: lifetime shipping milestones (the side column's progress bar). */
+const MILESTONES: [number, string][] = [
+  [1000, 'First thousand'],
+  [5000, 'Market regular'],
+  [15000, 'Trusted grower'],
+  [40000, 'Valley supplier'],
+  [100000, 'Harvest baron'],
+  [250000, 'Legend of the valley'],
+  [1e9, 'Legend of the valley'],
+];
+/** The shipping crate the ledger's lines fly into. */
+const BIN_SVG = `<svg viewBox="0 0 48 44" xmlns="http://www.w3.org/2000/svg"><path d="M5 14 L43 14 L40 41 L8 41 Z" fill="#a8672e" stroke="#4a2810" stroke-width="2" stroke-linejoin="round"/><path d="M7 22 H41 M8 31 H40" stroke="#6e3c16" stroke-width="2"/><path d="M14 15 L16 40 M34 15 L32 40" stroke="#c98a4a" stroke-width="2.4" opacity=".7"/><path d="M3 9 Q24 1 45 9 L44 15 L4 15 Z" fill="#c8843c" stroke="#4a2810" stroke-width="2" stroke-linejoin="round"/><path d="M8 9.5 Q24 4 40 9.5" stroke="#f0c07a" stroke-width="2" fill="none" opacity=".8"/><circle cx="18" cy="11" r="3.4" fill="#e04a3a" stroke="#4a2810" stroke-width="1.3"/><circle cx="27" cy="9.5" r="3.6" fill="#f2c94c" stroke="#4a2810" stroke-width="1.3"/><path d="M33 12 q2 -6 6 -5 q-1 4 -6 5Z" fill="#5aa040" stroke="#2c5a1c" stroke-width="1.2"/></svg>`;
 const GROUP_ICON: Record<string, string> = { Farming: 'sprout', Foraging: 'basket', Fishing: 'fish', Mining: 'pick', Other: 'coin' };
 
 export class DayEndScreen extends Screen {
@@ -57,8 +80,20 @@ export class DayEndScreen extends Screen {
   /** The farm at dusk, grabbed from the live renderer (evening, on the farm): the day-end backdrop. */
   private dusk: { cv: HTMLCanvasElement; day: number; hour: number } | null = null;
 
+  /** r5: each night's bin total (season-so-far strip + shipping milestones); saved with the farm. */
+  private history: { y: number; s: string; d: number; g: number }[] = [];
+  private lifetime = 0;
+
   constructor(game: Game, parent: HTMLElement) {
     super(game, parent, 'hv-dayend', {});
+    game.saves.register('dayendLedger', {
+      save: () => ({ history: this.history.slice(-120), lifetime: this.lifetime }),
+      load: (d) => {
+        const v = (d ?? {}) as { history?: DayEndScreen['history']; lifetime?: number };
+        this.history = Array.isArray(v.history) ? v.history : [];
+        this.lifetime = Number(v.lifetime) || 0;
+      },
+    });
     game.events.on('shipping:summary', ({ items }) => (this.lastItems = { day: game.calendar.day, items }));
     game.events.on('game:ready', () => (this.worldReady = true));
     // Once per in-game hour after 5pm on the farm (one extra frame render, ~every 40 s of play): keep the
@@ -74,8 +109,11 @@ export class DayEndScreen extends Screen {
       };
       window.setTimeout(take, 900);
     });
+    // r5: the dusk hours only (17–20: lamps lit, sky still holding light) — a midnight grab made the ledger float
+    // over a near-black field. A later hour is taken only when there's no frame of today yet.
     game.events.on('time:hour', ({ hour }) => {
       if (hour < 17 || game.world.current?.id !== 'farm' || game.hud.openPanelName) return;
+      if (hour > 20 && this.dusk && this.dusk.day === game.calendar.day) return;
       const cv = this.grab();
       if (cv) this.dusk = { cv, day: game.calendar.day, hour };
     });
@@ -94,15 +132,29 @@ export class DayEndScreen extends Screen {
       this.game.rc.render(0, this.game.time);
       if (hz !== undefined) rc.backdropHz = hz;
       const src = this.game.rc.renderer.domElement;
-      const cv = document.createElement('canvas');
-      cv.width = 640;
-      cv.height = 360;
+      // r4: progressive dual-filter blur (Kawase-style) instead of one big blur on a hard 4x downsample —
+      // halve twice with high-quality smoothing, dip to 320x180 and come back up, so the moonlit frame is
+      // soft bokeh rather than aliased mosaic blocks. (The film grain is a full-resolution CSS layer on top.)
+      const pass = (w: number, h: number, from: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, filter = 'none', read = false): HTMLCanvasElement => {
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const x = c.getContext('2d', read ? { willReadFrequently: true } : undefined)!;
+        x.imageSmoothingEnabled = true;
+        x.imageSmoothingQuality = 'high';
+        x.filter = filter;
+        x.drawImage(from, sx, sy, sw, sh, 0, 0, w, h);
+        return c;
+      };
+      const k = Math.min(src.width / 16, src.height / 9);
+      const ox = (src.width - k * 16) / 2 + k * 0.2;
+      const oy = (src.height - k * 9) / 2 + k * 0.12;
+      // r5: a lighter blur (~40 %): the farmhouse, its lit windows and the bin still read as shapes behind the card.
+      const half = pass(1280, 720, src, ox, oy, k * 15.6, k * 8.76);
+      const quarter = pass(640, 360, half, 0, 0, 1280, 720, 'blur(0.6px)');
+      const cv = pass(640, 360, quarter, 0, 0, 640, 360, 'blur(1.1px) saturate(1.05)', true);
       const g = cv.getContext('2d', { willReadFrequently: true });
       if (!g) return null;
-      const k = Math.min(src.width / 16, src.height / 9);
-      g.filter = 'blur(2.5px) saturate(0.9)';
-      g.drawImage(src, (src.width - k * 16) / 2, (src.height - k * 9) / 2, k * 16, k * 9, -8, -5, 656, 370);
-      g.filter = 'none';
       // Reject black frames (mid-fade, shader compile) and flat ones (the clear colour before the world loads).
       const px = g.getImageData(0, 0, 640, 360).data;
       let sum = 0;
@@ -153,8 +205,13 @@ export class DayEndScreen extends Screen {
     return null;
   }
 
-  private sample(): { s: Summary; items: Line[] } {
+  private sample(big = false): { s: Summary; items: Line[] } {
+    // `dayend:big` (r5): a harvest-festival bin of ~20 kinds — the ledger goes two-column and never hides a line.
+    const extra: [string, number][] = big
+      ? [['greenBean', 18], ['egg', 6], ['brownEgg', 4], ['milk', 3], ['wool', 2], ['truffle', 1], ['copperOre', 12], ['ironOre', 5], ['quartz', 2], ['amethyst', 1], ['coal', 6], ['stone', 30], ['morel', 3], ['chanterelle', 2], ['hazelnut', 9]]
+      : [];
     const want: [string, number][] = [
+      ...extra,
       ['parsnip', 14],
       ['cauliflower', 3],
       ['potato', 9],
@@ -165,9 +222,42 @@ export class DayEndScreen extends Screen {
       ['wood', 40],
       ['fiber', 12],
     ];
-    const items = want.filter(([id]) => itemDef(id)).map(([id, qty]) => ({ itemId: id, qty, value: (itemDef(id)?.sell ?? 0) * qty }));
+    // A staged evening's bin: a few quality pulls (silver strawberries, gold cauliflower) so the stars show.
+    const q: Record<string, number> = { strawberry: 1, cauliflower: 2, pondPerch: 1 };
+    const items = want
+      .filter(([id]) => itemDef(id))
+      .map(([id, qty]) => {
+        const ql = q[id] ?? 0;
+        const value = Math.floor((itemDef(id)?.sell ?? 0) * (ql === 1 ? 1.25 : ql === 2 ? 1.5 : ql === 3 ? 2 : 1)) * qty;
+        return ql ? { itemId: id, qty, value, quality: ql } : { itemId: id, qty, value };
+      });
     const total = items.reduce((a, b) => a + b.value, 0);
-    return { s: { passedOut: false, shipped: total, penalty: 0, day: this.game.calendar.day, sample: true }, items };
+    return { s: { passedOut: false, shipped: total, penalty: 0, day: this.sampleDay(), sample: true }, items };
+  }
+
+  /** The staged sample reads as a lived-in week (Spring 9 when staged on day 1), so the season strip has a story. */
+  private sampleDay(): number {
+    const d = this.game.calendar.day;
+    return d === 1 ? 9 : d;
+  }
+
+  /** Season-so-far bars (index 0 = day 1) and the lifetime figure for the milestone bar. */
+  private seasonSoFar(s: Summary, season: string, total: number): { days: (number | null)[]; life: number } {
+    const y = this.game.calendar.year;
+    const days: (number | null)[] = Array.from({ length: 28 }, () => null);
+    let life = this.lifetime;
+    if (s.sample) {
+      // Staged earlier days: a believable early-season curve (quiet clearing days, then the first harvests).
+      const fake = [0, 120, 85, 260, 0, 610, 940, 1480, 2210, 1960, 2600, 3100];
+      for (let d = 1; d < s.day; d++) days[d - 1] = fake[(d - 1) % fake.length]! + ((d * 37) % 90);
+      days[s.day - 1] = total;
+      life = days.reduce<number>((a, b) => a + (b ?? 0), 0) + 2400;
+    } else {
+      for (const h of this.history) if (h.y === y && h.s === season && h.d >= 1 && h.d <= 28) days[h.d - 1] = h.g;
+      for (let d = 1; d < s.day; d++) if (days[d - 1] === null) days[d - 1] = 0;
+      days[s.day - 1] = total;
+    }
+    return { days, life };
   }
 
   protected render(arg?: string): void {
@@ -182,8 +272,17 @@ export class DayEndScreen extends Screen {
     } else if (arg === 'quiet') {
       s = { passedOut: false, shipped: 0, penalty: 0, day: this.game.calendar.day, sample: true };
       items = [];
-    } else ({ s, items } = this.sample());
+    } else ({ s, items } = this.sample(arg === 'big'));
     const c = this.game.calendar;
+    const endedSeason0 = c.day === 1 && s.day === 28 ? (['winter', 'spring', 'summer', 'fall'][['spring', 'summer', 'fall', 'winter'].indexOf(c.season)] ?? c.season) : c.season;
+    if (!s.sample) {
+      const binTotal = s.shipped || items.reduce((a, b) => a + b.value, 0);
+      const y = c.year;
+      if (!this.history.some((h) => h.y === y && h.s === endedSeason0 && h.d === s.day)) {
+        this.history.push({ y, s: endedSeason0, d: s.day, g: binTotal });
+        this.lifetime += binTotal;
+      }
+    }
     const endedSeason = c.day === 1 && s.day === 28 ? (['winter', 'spring', 'summer', 'fall'][['spring', 'summer', 'fall', 'winter'].indexOf(c.season)] ?? c.season) : c.season;
 
     // Night backdrop: gradient sky, twinkling stars + a shooting star, the painted valley, fireflies in front.
@@ -258,26 +357,31 @@ export class DayEndScreen extends Screen {
       rows.push(`<div class="de-grp" style="--i:${k++}"><span>${ICONS[GROUP_ICON[g]!] ?? ''}${g}</span><b>${sub.toLocaleString()}g</b></div>`);
       for (const it of list.sort((a, b) => b.value - a.value)) {
         const d = itemDef(it.itemId);
-        rows.push(`<div class="de-row" style="--i:${k++}"><div class="u-slot mini">${itemIcon(it.itemId)}</div><span class="nm">${escapeHtml(d?.name ?? it.itemId)}</span><span class="q">×${it.qty}</span><b>${it.value.toLocaleString()}g</b></div>`);
+        rows.push(`<div class="de-row" style="--i:${k++}" data-id="${escapeHtml(it.itemId)}" data-q="${it.quality ?? 0}" data-g="${it.value}"><div class="u-slot mini">${itemIcon(it.itemId)}${qualityStar(it.quality ?? 0)}</div><span class="nm">${escapeHtml(d?.name ?? it.itemId)}</span><span class="q">×${it.qty}</span><b><span class="rv">${it.value.toLocaleString()}</span>g</b></div>`);
       }
     }
     // A real summary arrives after the calendar rolled over; the staged sample shows the day after today.
-    const tDay = s.sample ? (c.day % 28) + 1 : c.day;
-    const tSeason = s.sample && c.day === 28 ? (['summer', 'fall', 'winter', 'spring'][['spring', 'summer', 'fall', 'winter'].indexOf(c.season)] ?? c.season) : c.season;
+    const tDay = s.sample ? (s.day % 28) + 1 : c.day;
+    const tSeason = s.sample && s.day === 28 ? (['summer', 'fall', 'winter', 'spring'][['spring', 'summer', 'fall', 'winter'].indexOf(c.season)] ?? c.season) : c.season;
     const tomorrow = `${WEEKDAY[(tDay - 1) % 7]}, ${SEASON_NAME[tSeason]} ${tDay}`;
     const bdays = Object.values(NPCS)
       .filter((n) => {
         const b = (n as { birthday?: { season: string; day: number } }).birthday;
         return b && b.season === tSeason && b.day === tDay;
       })
-      .map((n) => n.name.split(' ')[0]!);
+      .map((n) => shortName(n.name));
     const w = c.weather;
     const forecast = w === 'sun' ? 'Sunny and mild' : w === 'rain' ? 'Rain all day — no watering needed' : w === 'storm' ? 'Thunderstorms. Stay near home' : w === 'snow' ? 'Snow on the fields' : 'A breezy day';
     // Pick of the day: the most valuable line in the bin, plus the day's tally.
-    const best = [...items].sort((a, b) => b.value - a.value)[0];
+    // Ties (two lines worth the same) go to the dearer item each, then the higher quality — and say why.
+    const unit = (l: Line): number => l.value / Math.max(1, l.qty);
+    const ranked = [...items].sort((a, b) => b.value - a.value || unit(b) - unit(a) || (b.quality ?? 0) - (a.quality ?? 0));
+    const best = ranked[0];
+    const tied = !!best && !!ranked[1] && ranked[1].value === best.value;
+    const why = !best ? '' : tied ? ' · best per item' : ranked[1] ? ' · top earner' : '';
     const count = items.reduce((a, b) => a + b.qty, 0);
     const star = best
-      ? `<div class="de-star"><div class="de-h">Pick of the day</div><div class="st"><div class="u-slot">${itemIcon(best.itemId)}</div><div class="tx"><b>${escapeHtml(itemDef(best.itemId)?.name ?? best.itemId)}</b><small>×${best.qty} · ${best.value.toLocaleString()}g</small></div><span class="medal">${ROSETTE}</span></div><div class="de-count"><span><b class="cn" data-v="0">0</b> items shipped</span><span><b class="kn" data-v="0">0</b> kinds</span></div></div>`
+      ? `<div class="de-star"><div class="de-h">Pick of the day</div><div class="st"><div class="u-slot">${itemIcon(best.itemId)}${qualityStar(best.quality ?? 0)}</div><div class="tx"><b>${escapeHtml(itemDef(best.itemId)?.name ?? best.itemId)}</b><small>×${best.qty} · ${best.value.toLocaleString()}g${why}</small></div><span class="medal">${ROSETTE}</span></div><div class="de-count"><span><b class="cn" data-v="0">0</b> items shipped</span><span><b class="kn" data-v="0">0</b> kinds</span></div></div>`
       : '';
     const title = s.passedOut ? 'You passed out…' : `Day ${s.day} complete`;
     const quiet = !items.length;
@@ -285,6 +389,23 @@ export class DayEndScreen extends Screen {
     const eMax = en?.max() ?? 270;
     const eNow = s.passedOut ? Math.round(eMax * 0.5) : eMax;
     const gold = (this.game.services.economy?.gold() ?? 0) + (s.sample ? total : 0);
+    // r5: season-so-far strip (28 day bars, today's in gold) + the next lifetime shipping milestone.
+    const sf = this.seasonSoFar(s, endedSeason, total);
+    const seasonSum = sf.days.reduce<number>((a, b) => a + (b ?? 0), 0);
+    const peak = Math.max(1, ...sf.days.map((v) => v ?? 0));
+    const bestDay = sf.days.reduce<number>((a, b) => Math.max(a, b ?? 0), 0);
+    const bars = sf.days
+      .map((v, i) => {
+        const today = i === s.day - 1;
+        if (v === null) return `<i class="fut"></i>`;
+        const h = v > 0 ? Math.max(0.09, v / peak) : 0.04;
+        return `<i class="${today ? 'now' : v === bestDay && v > 0 ? 'best' : ''}" style="--h:${h.toFixed(3)};--j:${i}"></i>`;
+      })
+      .join('');
+    const ms = MILESTONES.find(([g]) => g > sf.life) ?? MILESTONES[MILESTONES.length - 1]!;
+    const msPrev = [...MILESTONES].reverse().find(([g]) => g <= sf.life)?.[0] ?? 0;
+    const msP = Math.max(0, Math.min(1, (sf.life - msPrev) / Math.max(1, ms[0] - msPrev)));
+    const seasonCard = `<div class="de-season"><div class="de-h"><span>${SEASON_NAME[endedSeason]} so far</span><b>${seasonSum.toLocaleString()}g</b></div><div class="spark">${bars}</div><div class="sl"><span>Best day <b>${bestDay.toLocaleString()}g</b></span><span>Day ${s.day} of 28</span></div><div class="ms"><div class="mt"><span>Next: <b>${ms[1]}</b></span><em>${sf.life.toLocaleString()} / ${ms[0].toLocaleString()}g</em></div><div class="bar"><i style="--p:${msP.toFixed(3)}"></i></div></div></div>`;
     const tmrCard = `<div class="de-tmr"><div class="de-h">Tomorrow</div><div class="fc"><span class="ic">${ICONS[w] ?? ICONS.sun}</span><div><b>${tomorrow}</b><small>${forecast}</small></div></div>${bdays.length ? `<div class="fc"><span class="ic">${ICONS.heart}</span><div><b>${escapeHtml(bdays.join(' & '))}’s birthday</b><small>bring a gift!</small></div></div>` : ''}</div>`;
     const penCard = s.passedOut
       ? `<div class="de-pen"><b>−${s.penalty.toLocaleString()}g</b><small>A neighbour found you asleep in the field and carried you home. They kept a little for the trouble.</small></div>`
@@ -301,13 +422,51 @@ export class DayEndScreen extends Screen {
           const hungry = an.hungry
             ? `<small style="display:block;margin-top:5px;color:#b8321e;font-weight:800">${escapeHtml(an.hungryNames.slice(0, 3).join(', '))}${an.hungry > 3 ? ` +${an.hungry - 3}` : ''} went hungry — fill the trough</small>`
             : '';
-          const pet = an.pet ? `<small style="display:block;margin-top:3px;color:#8a6440;font-weight:700">${escapeHtml(an.pet.name)}’s bowl was ${an.pet.bowl ? 'full' : 'empty'}${an.pet.bowl ? ' ♥' : ''}</small>` : '';
+          const pet = an.pet ? `<small style="display:block;margin-top:3px;color:#8a6440;font-weight:700">${escapeHtml(an.pet.name)}’s bowl ${an.pet.bowl ? 'stayed full all day ♥' : 'ran dry'}</small>` : '';
           return `<div class="de-animals" style="margin-top:12px;padding:10px 12px;border-radius:14px;background:rgba(255,252,240,.72);box-shadow:inset 0 0 0 2px rgba(138,100,64,.2)">
             <div class="de-h" style="margin-bottom:4px">Animals</div>
-            <div style="display:flex;gap:14px;align-items:baseline;font-weight:800;color:#8a6440"><span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.fed}/${an.total}</b> fed</span><span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.produce.length}</b> produce</span>${gold ? `<span><b style="font-family:var(--font-head);font-size:21px;color:#b8860b">${gold}</b> gold-star</span>` : ''}<span><b style="font-family:var(--font-head);font-size:21px;color:var(--ink)">${an.petted}</b> petted</span></div>
+            <div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;row-gap:5px;font-weight:800;font-size:13px;color:#8a6440;white-space:nowrap"><span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.fed}/${an.total}</b> fed</span><span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.produce.length}</b> ${an.leftover ? 'new' : 'produce'}</span>${an.leftover ? `<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.leftover}</b> in nests</span>` : ''}${gold ? `<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:#b8860b">${gold}</b> gold-star</span>` : ''}<span class="de-chip" style="display:inline-flex;align-items:baseline;gap:4px;padding:2px 9px;border-radius:999px;background:rgba(138,100,64,.1);box-shadow:inset 0 0 0 1.5px rgba(138,100,64,.18)"><b style="font-family:var(--font-head);font-size:18px;color:var(--ink)">${an.petted}</b> petted</span></div>
             ${icons ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${icons}</div>` : ''}
+            ${gold ? (() => {
+              // (r16: the reason reads from the real inputs — "well loved" only when those animals were petted)
+              const who = [...new Set(an.produce.filter((p) => p.q >= 2 && p.from).map((p) => p.from!))].slice(0, 3);
+              const loved = who.length > 0 && who.every((n) => an.herd?.find((h) => h.name === n)?.petted);
+              return `<small style="display:block;margin-top:5px;color:#8a6a1a;font-weight:800">★ Gold-star from ${escapeHtml(who.join(' & ') || 'the herd')} — ${loved ? 'well fed and well loved' : 'well fed'}</small>`;
+            })() : ''}
             ${hungry}${pet}
+            ${(() => {
+              // (r11) Best of the day: the top-quality piece of produce and who made it (fills the card).
+              const b = [...an.produce].sort((x, y) => y.q - x.q)[0];
+              if (!b) return '';
+              return `<div style="display:flex;align-items:center;gap:10px;margin-top:10px;padding:8px 10px;border-radius:12px;background:linear-gradient(90deg,rgba(232,184,64,.18),rgba(232,184,64,.04));box-shadow:inset 0 0 0 1.5px rgba(184,134,11,.25)"><div class="u-slot mini" style="width:44px;height:44px;border-radius:10px;flex:none">${itemIcon(b.item)}${qualityStar(b.q)}</div><div style="display:flex;flex-direction:column;line-height:1.2"><small style="font-weight:800;font-size:10.5px;letter-spacing:.06em;color:#a07a2a">BEST OF THE DAY</small><b style="font:700 15px var(--font-head);color:var(--ink)">${b.q >= 3 ? 'Radiant' : b.q === 2 ? 'Gold-star' : b.q === 1 ? 'Silver-star' : 'Fresh'} ${escapeHtml(itemDef(b.item)?.name ?? b.item)}${b.from ? ` <span style="font-weight:600;color:#8a6440">from ${escapeHtml(b.from)}</span>` : ''}</b></div></div>`;
+            })()}
           </div>`;
+        })()
+      : '';
+    // (r9) The herd tonight: on a herd day the quiet panel's illustration gives way to a portrait chip
+    // per animal (3D portrait, name, hearts, the overnight change, a wheat / heart mark for fed / petted,
+    // a red tag for whoever missed out), the happiest one ribboned first.
+    const herd = an?.herd ?? [];
+    const herdBoard = herd.length
+      ? (() => {
+          const shown = herd.slice(0, 12);
+          const chip = (h: (typeof herd)[number], i: number): string => {
+            const miss = !h.fed ? 'hungry' : !h.petted ? 'no pat' : '';
+            const ring = h.best ? '#e0a82e' : miss ? '#d0644a' : 'rgba(138,100,64,.28)';
+            const full = Math.floor(h.hearts);
+            const hearts = Array.from({ length: 5 }, (_, k) => `<i style="display:inline-block;width:7px;height:7px;margin:0 .5px;border-radius:50% 50% 0 50%;transform:rotate(45deg);background:${k < full ? '#e8385a' : k < h.hearts ? 'linear-gradient(90deg,#e8385a 50%,#e6d2b0 50%)' : '#e6d2b0'}"></i>`).join('');
+            const art = h.portrait ? `<img src="${h.portrait}" alt="" style="width:58px;height:58px;object-fit:contain;filter:drop-shadow(0 3px 3px rgba(90,50,14,.3))"/>` : `<span style="font:700 24px var(--font-head);color:#8a6440">${escapeHtml(h.name.slice(0, 1))}</span>`;
+            return `<div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;width:62px;animation:uPop 420ms var(--ease-back) ${520 + i * 60}ms both">
+              <div style="position:relative;width:56px;height:56px;border-radius:50%;display:grid;place-items:center;overflow:visible;background:radial-gradient(circle at 50% 38%,#fffaf0,#f0dfbe);box-shadow:inset 0 0 0 2.5px ${ring},0 2px 4px rgba(90,50,14,.18)">${art}
+                ${h.best ? `<span style="position:absolute;top:-7px;left:50%;transform:translateX(-50%);padding:0 6px;border-radius:999px;background:#e0a82e;color:#fff;font:800 9px var(--font-body,inherit);letter-spacing:.04em;white-space:nowrap;box-shadow:0 1px 2px rgba(90,50,14,.3)">HAPPIEST</span>` : ''}
+                ${h.delta > 0 ? `<span style="position:absolute;right:-6px;bottom:-2px;padding:0 4px;border-radius:7px;background:#5a9a42;color:#fff;font:800 10px var(--font-body,inherit)">+${h.delta}</span>` : ''}
+              </div>
+              <b style="font:700 12.5px var(--font-head);color:var(--ink);max-width:62px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(h.name)}</b>
+              <span style="line-height:7px">${hearts}</span>
+              ${miss ? `<small style="font-weight:800;font-size:10px;color:#b8321e;line-height:1.1">${miss}</small>` : `<small style="font-weight:800;font-size:10px;color:#6a8a3a;line-height:1.1">fed · petted</small>`}
+            </div>`;
+          };
+          return `<div class="qv-herd" style="width:100%"><div class="de-h" style="text-align:center;margin-bottom:8px">The herd tonight</div><div style="display:flex;flex-wrap:wrap;justify-content:center;gap:12px 6px">${shown.map(chip).join('')}</div>${herd.length > shown.length ? `<small style="display:block;text-align:center;margin-top:4px;color:#a08060;font-weight:800">+${herd.length - shown.length} more</small>` : ''}</div>`;
         })()
       : '';
     // Tomorrow's chores (animals): fills the side column on a quiet day.
@@ -318,36 +477,40 @@ export class DayEndScreen extends Screen {
           ${chores
             .map(
               (c, i) =>
-                `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-weight:800;font-size:14px;color:#6a4424;${i ? 'border-top:1px dashed rgba(138,100,64,.25);' : ''}"><span style="flex:0 0 24px;height:24px;display:grid;place-items:center">${c.icon === 'heart' ? (ICONS.heart ?? '').replace('<svg ', '<svg style="width:20px;height:20px" ') : `<img src="${itemIconUrl(c.icon)}" alt="" style="width:24px;height:24px"/>`}</span><span style="flex:1;min-width:0">${escapeHtml(c.text)}</span><span style="flex:0 0 14px;height:14px;border-radius:4px;box-shadow:inset 0 0 0 2px rgba(122,74,34,.45)"></span></div>`,
+                `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-weight:800;font-size:14px;color:#6a4424;${i ? 'border-top:1px dashed rgba(138,100,64,.25);' : ''}"><span style="flex:0 0 24px;height:24px;display:grid;place-items:center">${c.icon === 'heart' || c.icon === 'door' ? (ICONS[c.icon] ?? '').replace('<svg ', '<svg style="width:20px;height:20px" ') : `<img src="${itemIconUrl(c.icon)}" alt="" style="width:24px;height:24px"/>`}</span><span style="flex:1;min-width:0">${escapeHtml(c.text)}</span><span style="flex:0 0 14px;height:14px;border-radius:4px;box-shadow:inset 0 0 0 2px rgba(122,74,34,.45)"></span></div>`,
             )
             .join('')}
         </div>`
       : '';
     const body = quiet
       ? `<div class="de-body quiet">
-          <div class="de-quiet"><div class="qv-art">${quietVignetteSvg()}</div><div class="qv-tx"><h3>${animalsCard ? 'A day with the animals' : 'A quiet day'}</h3><p>${animalsCard ? 'Nothing went in the shipping bin, but the coop and the barn kept you busy.' : 'Nothing went in the shipping bin — and that’s alright. The valley keeps its own pace.'}</p><small>Produce left in the bin by the porch is collected overnight.</small>${animalsCard}</div></div>
+          ${herdBoard
+            ? `<div class="de-quiet" style="align-content:center;gap:6px">${herdBoard}<div class="qv-tx" style="max-width:none;width:100%"><h3 style="font-size:24px;margin-top:4px">A day with the animals</h3>${animalsCard}</div></div>`
+            : `<div class="de-quiet"><div class="qv-art">${quietVignetteSvg(s.animals?.pet?.species)}</div><div class="qv-tx"><h3>${animalsCard ? 'A day with the animals' : 'A quiet day'}</h3><p>${animalsCard ? 'Nothing went in the shipping bin, but the coop and the barn kept you busy.' : 'Nothing went in the shipping bin — and that’s alright. The valley keeps its own pace.'}</p><small>Produce left in the bin by the porch is collected overnight.</small>${animalsCard}</div></div>`}
           <div class="de-side">
             ${penCard}
             <div class="de-rest"><div class="de-h">Rest</div><div class="bar"><i style="--e:${(eNow / eMax).toFixed(3)}"></i></div><div class="rl"><span>${ICONS.bolt ?? ''}Energy</span><b><span class="ev" data-v="0">0</span> / ${eMax}</b></div><small>${s.passedOut ? 'You slept where you fell — half your energy returns.' : 'A full night’s sleep. You wake refreshed.'}</small></div>
             ${tmrCard}
             <div class="de-purse"><span>Purse</span><b>${ICONS.coin}<span class="pv">${gold.toLocaleString()}</span>g</b></div>
             ${choresCard}
-            <div class="de-note"><small>From Grandmother’s almanac</small><p>${(ALMANAC[tSeason] ?? ALMANAC.spring!)[s.day % 3]}</p></div>
+            <div class="de-note"><small>From Grandmother’s almanac</small><p>${animalsCard && quiet ? ANIMAL_ALMANAC[s.day % ANIMAL_ALMANAC.length] : (ALMANAC[tSeason] ?? ALMANAC.spring!)[s.day % 3]}</p></div>
           </div>
         </div>`
       : `<div class="de-body">
         <div class="de-ledger">
           <div class="de-h">Shipped today</div>
-          <div class="de-rows fit${k > 9 ? ' dense' : ''}"${animalsCard ? ' style="height:250px"' : ''}>${rows.join('')}</div>
-          <div class="de-tot"><i class="de-stamp">Paid<small>${SEASON_NAME[endedSeason]} ${s.day}</small></i><span>Bin total</span><b>${total.toLocaleString()}g</b></div>
+          <div class="de-rows fit${items.length > 10 ? ' dense' : ''}${items.length > 13 ? ' cols' : ''}"${animalsCard ? ' style="max-height:250px;min-height:0"' : ''}>${rows.join('')}</div>
+          <button class="de-more" hidden tabindex="-1"></button>
+          <div class="de-tot"><i class="de-stamp">Paid<small>${SEASON_NAME[endedSeason]} ${s.day}</small></i><span class="de-bin">${BIN_SVG}</span><span>Bin total</span><b><span class="bt" data-v="0">0</span>g</b></div>
           ${animalsCard}
         </div>
         <div class="de-side">
           <div class="de-earn"><div class="de-h">Earnings</div><div class="amt">${ICONS.coin}<span class="v" data-v="0">0</span><small>g</small></div></div>
           ${penCard}
-          <div class="de-purse"><span>Purse</span><b>${ICONS.coin}<span class="pv" data-v="${Math.max(0, gold - total)}">${Math.max(0, gold - total).toLocaleString()}</span>g</b></div>
+          <div class="de-purse sum"><span>Purse</span><b><s>${Math.max(0, gold - total).toLocaleString()}g</s><i class="ar">→</i>${ICONS.coin}<span class="pv">${gold.toLocaleString()}</span>g</b></div>
           ${star}
           ${tmrCard}
+          ${seasonCard}
         </div>
       </div>`;
     card.innerHTML = `
@@ -359,53 +522,69 @@ export class DayEndScreen extends Screen {
     this.root.append(bg, sky, land, flies, card);
     card.querySelector('button')!.addEventListener('click', () => this.requestClose());
 
-    // Choreography: rows tick in, then the total counts up with coins.
+    // Choreography (r5): every ledger line ticks in on an 80 ms stagger with a coin tick; each item's icon hops
+    // into the shipping crate and the bin total counts up line by line. The EARNINGS odometer rolls only once
+    // the last line has landed, then the stamp thumps and the purse settles (old → new, never a half-rolled sum).
     const n = k;
-    const rowT = Math.min(110, 1400 / Math.max(1, n));
+    const rowT = n > 18 ? Math.max(45, 1500 / n) : 80;
     const box = (card.querySelector('.de-rows') as HTMLElement | null) ?? el('div');
-    const syncFade = (): void => {
-      box.classList.toggle('more', box.scrollHeight > box.clientHeight + 4);
-      box.classList.toggle('end', box.scrollTop + box.clientHeight >= box.scrollHeight - 4);
-      box.classList.toggle('top', box.scrollTop > 4);
-    };
-    box.addEventListener('scroll', syncFade, { passive: true });
-    requestAnimationFrame(syncFade);
+    const more = card.querySelector<HTMLButtonElement>('.de-more');
     const lines = [...card.querySelectorAll<HTMLElement>('.de-grp, .de-row')];
-    // The ledger starts ticking as the card lands (no blank left column while the right one fills).
+    // Whatever doesn't fit gets a visible "+N more" chip on its own line (and a real scrollbar), never a silent fade.
+    const syncMore = (): void => {
+      if (!more) return;
+      const bottom = box.scrollTop + box.clientHeight;
+      const hidden = lines.filter((l) => l.classList.contains('de-row') && l.offsetTop + l.offsetHeight * 0.6 > bottom).length;
+      more.hidden = hidden === 0;
+      more.innerHTML = `+${hidden} more <i>▾</i>`;
+      box.classList.toggle('more', hidden > 0);
+    };
+    box.addEventListener('scroll', syncMore, { passive: true });
+    more?.addEventListener('click', () => box.scrollBy({ top: box.clientHeight * 0.7, behavior: 'smooth' }));
+    requestAnimationFrame(syncMore);
+    const bin = card.querySelector<HTMLElement>('.de-bin');
+    const bt = card.querySelector<HTMLElement>('.de-tot .bt');
+    let running = 0;
     const t0 = 420;
+    let flown = 0;
     lines.forEach((r, i) => {
       r.style.animationDelay = `${t0 + i * rowT}ms`;
       this.timers.push(
         window.setTimeout(() => {
-          sfx(this.game, 'tick');
-          // Keep the newest ledger line in view while the list ticks in — scrolled to a whole line, so the
-          // top of the ledger never shows half a row.
-          if (r.offsetTop + r.offsetHeight <= box.scrollTop + box.clientHeight - 6) return;
-          const want = r.offsetTop + r.offsetHeight - box.clientHeight + 10;
-          const top = lines.find((l) => l.offsetTop >= want - 10);
-          if (top) box.scrollTop = top.offsetTop - 10;
+          if (!r.classList.contains('de-row')) return sfx(this.game, 'tick');
+          sfx(this.game, i % 2 ? 'tick' : 'coin');
+          const g = Number(r.dataset.g) || 0;
+          const rv = r.querySelector<HTMLElement>('.rv');
+          if (rv) (rv.dataset.v = '0'), rollTo(rv, g, 260);
+          running += g;
+          if (bt) rollTo(bt, running, 220);
+          // Up to 10 icons hop into the crate (a long list would turn into a swarm).
+          const icon = r.querySelector('.u-slot');
+          const ir = icon?.getBoundingClientRect();
+          if (bin && ir && ir.width && flown++ < 10 && r.offsetTop < box.scrollTop + box.clientHeight)
+            flyItemTo(r.dataset.id ?? '', { x: ir.left + ir.width / 2, y: ir.top + ir.height / 2 }, bin, Number(r.dataset.q) || 0, undefined, 30, { duration: 440, bounce: 1.3, z: 120 });
         }, t0 + i * rowT),
       );
     });
     // Rest: the energy number fills in step with its bar (same delay and length as the CSS fill).
     const ev = card.querySelector<HTMLElement>('.de-rest .ev');
     if (ev) this.timers.push(window.setTimeout(() => rollTo(ev, eNow, 1300, (v) => String(v)), 500));
-    // The card springs up at ~0.35 s; rows tick in as it lands.
-    const tEarn = t0 + 150 + n * rowT;
+    // The last line lands (+ its icon's hop into the crate), then the earnings roll.
+    const tEarn = t0 + Math.max(0, n - 1) * rowT + 480;
     (card.querySelector('.de-star') as HTMLElement | null)?.style.setProperty('--d', `${tEarn + 250}ms`);
+    card.style.setProperty('--tEarn', `${tEarn}ms`);
     this.timers.push(
       window.setTimeout(() => {
+        if (bt) rollTo(bt, total, 200);
         const v = card.querySelector('.de-earn .v') as HTMLElement | null;
-        if (v) rollTo(v, total, 1100);
+        if (v) rollTo(v, total, 900);
         const cn = card.querySelector('.de-count .cn') as HTMLElement | null;
         const kn = card.querySelector('.de-count .kn') as HTMLElement | null;
-        if (cn) rollTo(cn, count, 900);
+        if (cn) rollTo(cn, count, 800);
         if (kn) rollTo(kn, items.length, 600);
-        const pv = card.querySelector('.de-purse .pv') as HTMLElement | null;
-        if (pv && total > 0) this.timers.push(window.setTimeout(() => (rollTo(pv, gold, 900), replay(card.querySelector('.de-purse'), 'bump')), 1150));
-        // The ledger has ticked in: glide back to its first line (the bottom fade says there's more).
-        if (box.scrollTop > 0) this.timers.push(window.setTimeout(() => box.scrollTo({ top: 0, behavior: 'smooth' }), 900));
+        if (total > 0) this.timers.push(window.setTimeout(() => replay(card.querySelector('.de-purse'), 'bump'), 950));
         replay(card.querySelector('.de-earn'), 'go');
+        card.classList.add('paid');
         // The carter's rubber stamp thumps onto the ledger as the earnings roll.
         card.querySelector('.de-tot')?.classList.add('go');
         if (total > 0) {

@@ -71,8 +71,8 @@ export interface RainLayer {
 }
 
 /** Near layer: fast, crisp hairlines around the focus. Far layer: slow, faint veil behind it. */
-export const RAIN_NEAR: RainLayer = { count: 15000, speed: 19, length: 0.32, px: 1.4, alpha: 0.33, box: new THREE.Vector3(22, 12, 22), seed: 1234 };
-export const RAIN_FAR: RainLayer = { count: 9000, speed: 11, length: 0.2, px: 1.1, alpha: 0.2, box: new THREE.Vector3(34, 15, 34), seed: 4321 };
+export const RAIN_NEAR: RainLayer = { count: 15000, speed: 19, length: 0.46, px: 1.6, alpha: 0.5, box: new THREE.Vector3(22, 12, 22), seed: 1234 };
+export const RAIN_FAR: RainLayer = { count: 9000, speed: 11, length: 0.28, px: 1.2, alpha: 0.28, box: new THREE.Vector3(34, 15, 34), seed: 4321 };
 
 export class RainStreaks {
   readonly mesh: THREE.Mesh;
@@ -157,11 +157,18 @@ export class RainStreaks {
           // Storm gusts: denser sheets of rain sweep through downwind, thin gaps between them.
           vec2 gw = normalize(uWind + vec2(1e-4, 0.0));
           vec2 gq = vec2(dot(p.xz, gw), dot(p.xz, vec2(-gw.y, gw.x)));
-          float band = rnNoise(vec2(gq.x * 0.09 - uTime * 0.55, gq.y * 0.035)) * 0.7 + rnNoise(gq * 0.21 + uTime * 0.2) * 0.3;
-          vA *= mix(1.0, 0.35 + 2.4 * smoothstep(0.3, 0.75, band), uGust);
+          // (Only in gusts: at uGust 0 the mix is exactly 1, so the 8 hashes a vertex are skipped.)
+          if (uGust > 0.0) {
+            float band = rnNoise(vec2(gq.x * 0.09 - uTime * 0.55, gq.y * 0.035)) * 0.7 + rnNoise(gq * 0.21 + uTime * 0.2) * 0.3;
+            vA *= mix(1.0, 0.35 + 2.4 * smoothstep(0.3, 0.75, band), uGust);
+          }
           vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
+          // Inactive drops (past uCount x intensity) and the ones faded out in front of the lens would
+          // only rasterise fragments that all discard (the near ones as big quads): clip them away
+          // (pillar 14, perf r17; identical output).
+          if (vA <= 0.0) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
         }`,
       fragmentShader: /* glsl */ `
         #include <fog_pars_fragment>
@@ -376,6 +383,8 @@ export class SnowFlakes {
           vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
+          // Inactive / lens-faded flakes would only rasterise discarded fragments: clip them (perf r17).
+          if (vA <= 0.0) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
         }`,
       fragmentShader: /* glsl */ `
         #include <fog_pars_fragment>

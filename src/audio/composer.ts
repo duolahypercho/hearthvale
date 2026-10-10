@@ -19,6 +19,9 @@
  *               seed only varies accompaniment figuration and humanisation, never the tune.
  */
 import { Rand } from './dsp';
+
+/** Bass instruments that hold their notes (ties, not gaps, between them). */
+const SUSTAINED_BASS: ReadonlySet<string> = new Set(['softBass', 'cello', 'drone', 'pad', 'accordion']);
 import type { InstrumentName, NoteOpts } from './instruments';
 import { MODES, chordPcs, chordScale, nearestIn, parseChord, scaleStep, voiceChord, type Chord, type ModeName } from './theory';
 
@@ -26,9 +29,9 @@ export type Meter = '4/4' | '3/4' | '6/8';
 export type TrackName = 'melody' | 'double' | 'counter' | 'accomp' | 'accomp2' | 'bass' | 'pad' | 'perc';
 export type Section = 'intro' | 'A' | 'B' | 'C' | 'outro';
 export type When = 'always' | 'repeat' | 'B' | 'late';
-export type AccompPattern = 'arp8' | 'arpUp' | 'fingerpick' | 'strum' | 'waltz' | 'waltzArp' | 'block' | 'oompah' | 'ostinato332' | 'musicBox' | 'pizzOff' | 'epComp' | 'harpRoll';
+export type AccompPattern = 'arp8' | 'arpUp' | 'fingerpick' | 'strum' | 'waltz' | 'waltzArp' | 'block' | 'oompah' | 'ostinato332' | 'musicBox' | 'pizzOff' | 'epComp' | 'harpRoll' | 'chop';
 export type BassPattern = 'root' | 'rootFifth' | 'walk' | 'waltz' | 'jig' | 'tresillo' | 'pedal';
-export type PercPattern = 'shaker' | 'island' | 'jig' | 'town' | 'lofi' | 'light' | 'jazz' | 'sleigh';
+export type PercPattern = 'shaker' | 'island' | 'jig' | 'town' | 'lofi' | 'light' | 'jazz' | 'sleigh' | 'reel' | 'polka' | 'cave';
 
 export interface TrackMix {
   gain: number;
@@ -52,6 +55,21 @@ export interface Tune {
   C?: string[];
   /** Replaces the last bars of the final A (a stronger cadence to finish on). */
   Aend?: string[];
+  /**
+   * Second-time bars (round 20): when a strain is played twice in a row (A A, B B), the second
+   * playing takes these bars instead ('' = as written) — a fiddler's second-time ending, a walk-up
+   * into the next strain where the first time closed on the tonic. The hook bars stay as written,
+   * so the tune is still the tune; what changes is where it goes. Never applies to the final A (Aend).
+   */
+  again?: Partial<Record<'A' | 'B' | 'C', string[]>>;
+  /**
+   * Variation bars after the bridge (round 21): every A / B that comes back after the first C takes
+   * these bars ('' = as written) — the player has been somewhere and plays the tune changed by it
+   * (a written appoggiatura on a cadence, a run where the first statement held, a new turn into the
+   * next strain). The hook bars are left as written; second-time bars (`again`) still win where both
+   * are given, and the final A's `Aend` wins over both.
+   */
+  late?: Partial<Record<'A' | 'B', string[]>>;
   /** Anacrusis into every A, written into the end of the bar before it. */
   pickup?: string;
 }
@@ -90,8 +108,17 @@ export interface ThemeDef {
     bInst?: InstrumentName;
     /** The bridge (C) passes the tune to another voice. */
     cInst?: InstrumentName;
+    /** (Round 19) Octaves the B / C strain is played away from the written tune (bInst / cInst's own register). */
+    bOctave?: number;
+    cOctave?: number;
     octaveOnRepeat?: boolean;
-    double?: { inst: InstrumentName; interval: number; on: When };
+    /**
+     * A doubling voice on the tune. (Round 19) It colours the tune's OWN instrument: when B / C hand
+     * the strain to bInst / cInst the doubling sits out (a glockenspiel an octave over the nylon
+     * guitar's bridge, or over the clarinet's B, was the brightest thing in those strains —
+     * FORM-GLARE) unless `handoff` keeps it.
+     */
+    double?: { inst: InstrumentName; interval: number; on: When; handoff?: boolean };
     tune?: Tune;
   };
   counter?: { inst: InstrumentName; range: [number, number]; on: When; style?: 'guide' | 'moving' };
@@ -127,6 +154,11 @@ export interface ThemeDef {
   gain: number;
   /** Tone fixes on the theme's dry bus: a high-pass (Hz) and one peaking cut. */
   eq?: { hp?: number; cut?: { f: number; db: number; q?: number } };
+  /**
+   * Air exciter return on the score bus while this song plays (graph.exciter; default
+   * DEFAULT_AIR): already-bright songs (music box / bells) take less, so the sparkle never fizzes.
+   */
+  air?: number;
   /**
    * Per-song mastering EQ: high-shelf gain (dB) at 2.4 kHz on this theme's bus — lifts the attack
    * and overtones of near-pure mallet / music-box timbres without touching their instruments.
@@ -192,6 +224,10 @@ interface Bar {
   pos: number;
   /** Index of the section in th.form. */
   si: number;
+  /** Rubato shape applied by perform(): a phrase-end breath, the final cadence, the outro. */
+  rit: 'phrase' | 'final' | 'outro' | 'outroLast' | null;
+  /** 0..1 position inside the outro (it broadens as it goes). */
+  outroPos?: number;
 }
 interface MNote {
   step: number;
@@ -239,6 +275,9 @@ const SHAPES: Partial<Record<AccompPattern, number[][]>> = {
   ostinato332: [[0, 2, 1, 2, 3, 2, 1, 2], [0, 2, 3, 1, 2, 3, 0, 2], [0, 3, 1, 3, 2, 3, 1, 3]],
 };
 
+/** Comping register over an 8-bar phrase (semitones added to the voicing window): rise, settle home. */
+const COMP_LIFT = [0, 1, 3, 5, 4, 5, 2, 0];
+
 export class Composer {
   /** Day seed: accompaniment figuration + humanisation. */
   private rng: Rand;
@@ -250,6 +289,8 @@ export class Composer {
   private chordCache = new Map<string, Chord>();
   /** Last bass note and the melody note sounding against it (outer-voice counterpoint). */
   private bassPrev: { b: number; m: number | null } | null = null;
+  /** The comping rhythm variant of the last bars and how many bars in a row it has run. */
+  private compRun = { k: -1, n: 0 };
   /** The melody of the bar being arranged (the bass reads it to avoid doubling the tune). */
   private barMel: MNote[] | undefined;
 
@@ -289,16 +330,17 @@ export class Composer {
         const syms = entry.split(/\s+/).filter(Boolean);
         const spans: Span[] = syms.map((s, k) => ({ chord: this.chord(s), s0: Math.round((k * this.S) / syms.length), s1: Math.round(((k + 1) * this.S) / syms.length) }));
         const last = i === prog.length - 1;
-        // Rubato: phrase ends breathe, the final cadence and outro broaden.
-        let scale = 1;
-        if (sec !== 'intro' && sec !== 'outro' && i % 4 === 3) scale = 1.025;
-        if (si === lastA && last) scale = 1.05;
-        if (sec === 'outro') scale = last ? 1.25 : 1.1;
-        const dur = this.S * this.stepSec * scale;
+        // Rubato is a continuous tempo curve applied after composition (perform()): bars are laid out
+        // in score time here and tagged with the shape they get.
+        let rit: Bar['rit'] = null;
+        if (sec !== 'intro' && sec !== 'outro' && i % 4 === 3) rit = 'phrase';
+        if (si === lastA && last) rit = 'final';
+        if (sec === 'outro') rit = last ? 'outroLast' : 'outro';
+        const dur = this.S * this.stepSec;
         const brk = !!breaks && last && sec === 'A' && next === 'B';
         const preFinal = last && si === lastA - 1 && lastA > 1;
         const fill = !brk && (sec === 'A' || sec === 'B' || sec === 'C') && (i % 4 === 3 || preFinal);
-        bars.push({ section: sec, occ: o, i, len: prog.length, spans, t0: t, dur, brk, fill, preFinal, shift: 0, pos: i / Math.max(1, prog.length - 1), si });
+        bars.push({ section: sec, occ: o, i, len: prog.length, spans, t0: t, dur, brk, fill, preFinal, shift: 0, pos: i / Math.max(1, prog.length - 1), si, rit, outroPos: sec === 'outro' ? i / Math.max(1, prog.length - 1) : undefined });
         t += dur;
       });
     });
@@ -363,10 +405,13 @@ export class Composer {
         if (!notes) return;
         const n0 = ev.length;
         const secInst = b.section === 'B' && m.bInst ? m.bInst : b.section === 'C' && m.cInst ? m.cInst : m.inst;
-        const oct = m.octaveOnRepeat && b.section === 'A' && b.occ > 0 ? 12 : 0;
+        const repOct = m.octaveOnRepeat && b.section === 'A' && b.occ > 0 ? 12 : 0;
+        const secOct = b.section === 'C' && m.cOctave ? 12 * m.cOctave : b.section === 'B' && m.bOctave ? 12 * m.bOctave : 0;
         const crescendo = b.section === 'B' ? 0.94 + 0.1 * b.pos : b.section === 'C' ? 0.9 + 0.14 * b.pos : this.isFinalA(b) ? 1.05 : 1;
         notes.forEach((n, ni) => {
           const inst = n.pick ? m.inst : secInst;
+          // (A pickup at the end of a C bar belongs to the next A: its own instrument and register.)
+          const oct = n.pick ? repOct : repOct + secOct;
           const t = this.at(b, n.step) + this.jit(0.007);
           const hold = b.section === 'outro' ? 0.95 : m.staccato ? 0.55 : m.legato ? 0.97 : 0.86;
           const dur = (n.steps / this.S) * b.dur * hold;
@@ -397,7 +442,7 @@ export class Composer {
           }
           ev.push({ t, track: 'melody', inst, midi: n.midi + oct, dur: tied ? dur * 1.03 : dur, vel, o });
           last = n.midi + oct;
-          if (m.double && this.active(m.double.on, b)) {
+          if (m.double && this.active(m.double.on, b) && (inst === m.inst || m.double.handoff)) {
             ev.push({ t: t + 0.004, track: 'double', inst: m.double.inst, midi: n.midi + oct + m.double.interval, dur, vel: vel * 0.7, o: { art: o.art } });
           }
         });
@@ -421,11 +466,16 @@ export class Composer {
         const nextChord = b.spans[si + 1]?.chord ?? nextBar?.spans[0]!.chord ?? null;
         const lastSpan = si === b.spans.length - 1;
         if (th.accomp && (th.accomp.on === undefined || isIntro || isOutro || this.active(th.accomp.on, b))) {
-          accV = voiceChord(sp.chord, this.keyPc, th.accomp.voices, th.accomp.range[0], th.accomp.range[1], accV);
+          // The comping hand travels over the phrase: the voicing window rises a few semitones toward
+          // the phrase's middle and settles back for the cadence, so the chords climb through their
+          // inversions instead of sitting on one static three-note shape for eight bars.
+          const lift = COMP_LIFT[b.i % 8]!;
+          accV = voiceChord(sp.chord, this.keyPc, th.accomp.voices, th.accomp.range[0] + lift, th.accomp.range[1] + lift, accV);
           this.accomp(ev, 'accomp', th.accomp, b, sp, accV, lastBar, lastSpan ? fillKind : null, nextChord);
         }
         if (th.accomp2 && !isIntro && (th.accomp2.on === undefined || this.active(th.accomp2.on, b))) {
-          acc2V = voiceChord(sp.chord, this.keyPc, th.accomp2.voices, th.accomp2.range[0], th.accomp2.range[1], acc2V);
+          const lift2 = COMP_LIFT[(b.i + 4) % 8]!;
+          acc2V = voiceChord(sp.chord, this.keyPc, th.accomp2.voices, th.accomp2.range[0] + lift2, th.accomp2.range[1] + lift2, acc2V);
           this.accomp(ev, 'accomp2', th.accomp2, b, sp, acc2V, lastBar, lastSpan ? fillKind : null, nextChord);
         }
         // An 'always' pad sits out the first A (the tune enters alone) and thins to two voices in
@@ -441,7 +491,11 @@ export class Composer {
         }
         this.barMel = mel[bi] ?? undefined;
         if (th.bass && !(isIntro && b.i === 0 && th.prog.intro === undefined)) this.bass(ev, b, sp, nextChord, lastBar, lastSpan && (b.fill || b.brk) && !!nextBar);
-        if (th.counter && this.active(th.counter.on, b)) {
+        // (Round 19) The player who plays the counter-line is the one the strain is handed to: when B / C
+        // give the tune to the counter's own instrument (Market Morning's clarinet B, First Furrow's
+        // clarinet bridge) the counter rests instead of doubling the timbre a fifth below the tune.
+        const handed = b.section === 'B' ? th.melody?.bInst : b.section === 'C' ? th.melody?.cInst : undefined;
+        if (th.counter && this.active(th.counter.on, b) && handed !== th.counter.inst) {
           cntPrev = this.counter(ev, b, sp, nextChord, cntPrev, mel[bi] ?? undefined);
         }
       });
@@ -450,10 +504,99 @@ export class Composer {
     });
 
     this.shapeDynamics(ev, bars);
+    this.perform(ev, bars);
     ev.sort((a, b) => a.t - b.t);
+    this.clearTune(ev);
+    this.letRing(ev);
+    this.dampAtChanges(ev, bars);
     const lastBar = bars[bars.length - 1]!;
     const barInfo = bars.map((b) => ({ t: b.t0, chords: b.spans.map((sp) => sp.chord.symbol).join(' '), section: b.i === 0 ? b.section : '', i: b.i, shift: b.shift }));
     return { theme: th.id, seed: this.seed, events: ev, duration: lastBar.t0 + lastBar.dur, bars: bars.length, barInfo };
+  }
+
+  /**
+   * A plucked bass is never damped early (round 6): an upright / bass-string note rings on — and
+   * decays on its own — until the next bass note, 35 ms before it, at most 1.4 s past its written
+   * length. The waltz / jig / rootFifth patterns wrote 1/3-bar notes, so the 50-220 Hz band fell
+   * 13-30 dB in the beat before nearly every downbeat (fall, town-2, forest-2, title: BASS-HOLE).
+   * Stop-time hits (staccato) stay short: that silence is the arrangement.
+   */
+  /**
+   * The comping hands and the strings let go at each change of harmony (round 19). A harp / guitar /
+   * pad note was written to the end of its span (+2 %, + the humanised drift), so the old chord rang
+   * on under the new one: up to 18-19 notes sounding at once at the changes of Snowlight / the title /
+   * the Harvest Reel's C strain (FORM-CROWD), a 0.1-0.6 s smear of e.g. A + Bb over a C minor. A
+   * player damps the strings that are NOT in the next chord just before it lands (their own release
+   * still decays them — the harp's 0.5 s damper, the pad's swell); common tones ring through, and a
+   * span that repeats its chord is no change at all.
+   */
+  private dampAtChanges(ev: NoteEvent[], bars: Bar[]): void {
+    const changes: { t: number; pcs: Set<number> }[] = [];
+    let prevSym = '';
+    for (const b of bars) {
+      for (const sp of b.spans) {
+        const sym = `${sp.chord.symbol}/${b.shift}`;
+        if (sym !== prevSym) changes.push({ t: this.at(b, sp.s0), pcs: new Set(sp.chord.tones.map((x) => (((this.keyPc + sp.chord.root + x + b.shift) % 12) + 12) % 12)) });
+        prevSym = sym;
+      }
+    }
+    if (changes.length < 2) return;
+    let k = 0;
+    const sorted = ev.filter((e) => (e.track === 'accomp' || e.track === 'accomp2' || e.track === 'pad') && e.dur > 0.25).sort((a, b) => a.t - b.t);
+    for (const e of sorted) {
+      // The first change after the note's own onset (60 ms of slack: a chord struck on its change,
+      // humanised a little late, belongs to that change).
+      while (k < changes.length && changes[k]!.t <= e.t + 0.06) k++;
+      const c = changes[k];
+      if (!c) break;
+      if (e.t + e.dur <= c.t - 0.05) continue;
+      if (c.pcs.has(((e.midi % 12) + 12) % 12)) continue;
+      e.dur = Math.max(0.12, c.t - 0.05 - e.t);
+    }
+    // A string (or a pad voice) struck again stops its previous sound: an anticipated chord re-struck
+    // on the beat, a common tone re-struck by the next chord. Two strikes of one pitch on one track
+    // within 80 ms (a roll whose voicing doubled its top note) are one note.
+    const last = new Map<string, NoteEvent>();
+    const drop = new Set<NoteEvent>();
+    for (const e of sorted) {
+      const key = `${e.track}:${e.midi}`;
+      const p = last.get(key);
+      if (p && e.t < p.t + p.dur) {
+        if (e.t - p.t < 0.08) {
+          p.dur = Math.max(p.dur, e.t + e.dur - p.t);
+          p.vel = Math.max(p.vel, e.vel);
+          drop.add(e);
+          continue;
+        }
+        p.dur = Math.max(0.06, e.t - p.t - 0.01);
+      }
+      last.set(key, e);
+    }
+    if (drop.size) {
+      let w = 0;
+      for (let i = 0; i < ev.length; i++) if (!drop.has(ev[i]!)) ev[w++] = ev[i]!;
+      ev.length = w;
+    }
+  }
+
+  private letRing(ev: NoteEvent[]): void {
+    const cfg = this.th.bass;
+    if (!cfg || SUSTAINED_BASS.has(cfg.inst)) return;
+    const bass = ev.filter((e) => e.track === 'bass');
+    for (let i = 0; i < bass.length; i++) {
+      const e = bass[i]!;
+      if (e.o?.art === 'staccato') continue;
+      let j = i + 1;
+      while (j < bass.length && bass[j]!.t < e.t + 0.02) j++;
+      const nx = bass[j];
+      if (!nx) continue;
+      // (Round 8: the note is damped by the next pluck itself — a bassist stops the old string as the
+      // new one speaks — so it rings 10 ms into the next note instead of ending 35 ms + its damping
+      // before it: the last ~100 ms of every bar fell 10 dB, a notch at each downbeat. A repeated
+      // pitch on the same string still stops just before it is re-struck.)
+      const room = nx.t - e.t + (nx.midi === e.midi ? -0.012 : 0.01);
+      if (room > e.dur) e.dur = Math.min(room, e.dur + 1.6);
+    }
   }
 
   /**
@@ -487,6 +630,45 @@ export class Composer {
     }
   }
 
+  /**
+   * Arranger's pass: the comping never sits on top of the tune. Any accompaniment note that is
+   * still heard when a melody note starts and lies within a whole tone under it (or above it) is
+   * re-voiced an octave down, as long as that keeps it a minor third clear of the bass; if there is
+   * no room it is left out (the chord is still in the bass + other voices). Round 5: winter,
+   * beach and Starfall comping had crowded ~40 % of their tunes' notes.
+   */
+  private clearTune(ev: NoteEvent[]): void {
+    const heard = (e: NoteEvent): number => e.t + (DECAY_INST.has(e.inst) ? Math.min(e.dur, 0.35) : e.dur);
+    const mel = ev.filter((e) => e.track === 'melody');
+    if (!mel.length) return;
+    const bass = ev.filter((e) => e.track === 'bass');
+    const drop = new Set<NoteEvent>();
+    let mi = 0;
+    let bi = 0;
+    for (const c of ev) {
+      if (c.track !== 'accomp' && c.track !== 'accomp2') continue;
+      const end = heard(c);
+      while (mi < mel.length && mel[mi]!.t < c.t - 0.05) mi++;
+      let top = -1;
+      for (let k = mi; k < mel.length && mel[k]!.t < end - 0.02; k++) {
+        const m = mel[k]!;
+        if (c.midi >= m.midi - 2) top = top < 0 ? m.midi : Math.min(top, m.midi);
+      }
+      if (top < 0) continue;
+      while (bi < bass.length && heard(bass[bi]!) < c.t) bi++;
+      let bassTop = 0;
+      for (let k = bi; k < bass.length && bass[k]!.t < end; k++) if (heard(bass[k]!) > c.t) bassTop = Math.max(bassTop, bass[k]!.midi);
+      let to = c.midi - 12;
+      while (to >= top - 2) to -= 12;
+      if (to >= Math.max(bassTop + 3, 43)) c.midi = to;
+      else drop.add(c);
+    }
+    if (!drop.size) return;
+    let w = 0;
+    for (const e of ev) if (!drop.has(e)) ev[w++] = e;
+    ev.length = w;
+  }
+
   private transpose(ev: NoteEvent[], from: number, shift: number): void {
     if (!shift) return;
     for (let k = from; k < ev.length; k++) if (ev[k]!.track !== 'perc') ev[k]!.midi += shift;
@@ -496,8 +678,90 @@ export class Composer {
     return b.section === 'A' && b.occ === this.th.form.filter((s) => s === 'A').length - 1 && b.occ > 0;
   }
 
+  /** Per-note micro-timing (independent): kept small — the ensemble's feel comes from perform(). */
   private jit(sigma: number): number {
-    return this.rng.gauss(sigma);
+    return this.rng.gauss(sigma * 0.55);
+  }
+
+  /**
+   * The performance: score time → played time, the way an ensemble actually moves together.
+   *
+   *  - Tempo drift: a slow, mean-reverting random walk (±1.5 %), smoothly interpolated across each
+   *    bar — the band breathes, it doesn't sit on a click.
+   *  - Phrase breaths: across the last two beats of every 4th bar the tempo eases back along a
+   *    smooth curve (up to ~13 % at the barline, ≈ 2.5 % of the bar), then returns a tempo on the
+   *    downbeat. The final cadence broadens across its whole bar; the outro slows progressively
+   *    into a long last bar.
+   *  - Roles: on lyrical themes the bass sits a touch ahead and the tune lays back behind the beat;
+   *    on dance themes everyone stays tight.
+   *  - Correlated micro-timing: each track pushes and drags with an AR(1) process (σ ≈ 4 ms,
+   *    ρ = 0.75) instead of white jitter, so consecutive notes lean the same way like a player's
+   *    hands do.
+   */
+  private perform(ev: NoteEvent[], bars: Bar[]): void {
+    if (!bars.length) return;
+    const th = this.th;
+    const r = this.rng;
+    const S = this.S;
+    const smooth = (x: number): number => {
+      const c = Math.max(0, Math.min(1, x));
+      return c * c * (3 - 2 * c);
+    };
+    // Where the last-two-beats breath starts (step index): 4/4 → beat 3, 3/4 → beat 2, 6/8 → 2nd dotted beat.
+    const ritFrom = th.meter === '4/4' ? 4 : th.meter === '3/4' ? 2 : 3;
+    const drift: number[] = [0];
+    for (let i = 1; i <= bars.length; i++) drift.push(Math.max(-0.015, Math.min(0.015, drift[i - 1]! * 0.8 + r.gauss(0.007))));
+    // Knots: score time τ and played time T at every step of every bar.
+    const tau: number[] = [];
+    const T: number[] = [];
+    const t00 = bars[0]!.t0;
+    let acc = t00;
+    tau.push(t00);
+    T.push(t00);
+    bars.forEach((b, bi) => {
+      const dt = b.dur / S;
+      for (let j = 0; j < S; j++) {
+        const x = (j + 0.5) / S;
+        let f = 1 + drift[bi]! + (drift[bi + 1]! - drift[bi]!) * smooth(x);
+        if (b.rit === 'phrase' && j >= ritFrom) f += 0.13 * Math.pow((j + 0.5 - ritFrom) / (S - ritFrom), 2);
+        else if (b.rit === 'final') f += 0.15 * x * x;
+        else if (b.rit === 'outro') f += 0.06 + 0.08 * (b.outroPos ?? 0);
+        else if (b.rit === 'outroLast') f += 0.12 + 0.45 * x * x;
+        acc += dt * f;
+        tau.push(b.t0 + (j + 1) * dt);
+        T.push(acc);
+      }
+    });
+    const n = tau.length - 1;
+    const W = (t: number): number => {
+      if (t <= t00) return t;
+      const k = Math.min(n - 1, Math.floor(((t - t00) / (tau[n]! - t00)) * n));
+      const a = tau[k]!;
+      const b = tau[k + 1]!;
+      return T[k]! + ((t - a) / (b - a)) * (T[k + 1]! - T[k]!);
+    };
+    const lyrical = !!th.melody?.legato || th.bpm < 96;
+    const role: Partial<Record<TrackName, number>> = lyrical ? { melody: 0.012, double: 0.012, counter: 0.006, bass: -0.006, pad: 0.008 } : { melody: 0.003, double: 0.003, bass: -0.004 };
+    const ar: Partial<Record<TrackName, number>> = {};
+    const order = ev.map((_, i) => i).sort((a, b) => ev[a]!.t - ev[b]!.t);
+    for (const i of order) {
+      const e = ev[i]!;
+      const t1 = W(e.t);
+      const d1 = W(e.t + e.dur) - t1;
+      let off = role[e.track] ?? 0;
+      if (e.track !== 'perc') {
+        const o = Math.max(-0.015, Math.min(0.015, (ar[e.track] ?? 0) * 0.75 + r.gauss(0.0027)));
+        ar[e.track] = o;
+        off += o;
+      }
+      e.t = Math.max(0, t1 + off);
+      e.dur = d1;
+    }
+    for (const b of bars) {
+      const t0 = W(b.t0);
+      b.dur = W(b.t0 + b.dur) - t0;
+      b.t0 = t0;
+    }
   }
 
   // ───────────────────────────────────────────── melody
@@ -523,6 +787,29 @@ export class Composer {
     const nC = (th.prog.C ?? th.prog.B).length;
     const baseC = th.form.includes('C') ? (tune?.C ? this.parseSection(tune.C, nC) : tune?.B && !th.prog.C ? this.parseSection(tune.B, nC) : this.genCanonical(barsOf('C', 0), 'C', nextAfter('C'))) : [];
     const endA = tune?.Aend ? this.parseSection(tune.Aend, tune.Aend.length) : null;
+    // Second-time bars: which occurrences of a strain directly follow the same strain in the form.
+    const again = new Set<string>();
+    const againBars: Partial<Record<Section, (MNote[] | null)[]>> = {};
+    if (tune?.again) {
+      const seen: Record<string, number> = {};
+      th.form.forEach((s, k) => {
+        const o = (seen[s] = (seen[s] ?? -1) + 1);
+        if (k > 0 && th.form[k - 1] === s) again.add(`${s}:${o}`);
+      });
+      for (const s of ['A', 'B', 'C'] as const) {
+        const src = tune.again[s];
+        if (src) againBars[s] = src.map((x) => (x && x.trim() ? this.parseBar(x, true) : null));
+      }
+    }
+    // Variation bars after the bridge: which bars come after the form's first C.
+    const lateBars: Partial<Record<Section, (MNote[] | null)[]>> = {};
+    const firstC = th.form.indexOf('C');
+    if (tune?.late && firstC >= 0) {
+      for (const s of ['A', 'B'] as const) {
+        const src = tune.late[s];
+        if (src) lateBars[s] = src.map((x) => (x && x.trim() ? this.parseBar(x, true) : null));
+      }
+    }
     let prev: number | null = null;
     bars.forEach((b, bi) => {
       if (b.section === 'intro') return;
@@ -532,6 +819,8 @@ export class Composer {
       }
       const base = b.section === 'A' ? baseA : b.section === 'C' ? baseC : baseB;
       let src = base[b.i % base.length] ?? [];
+      if (firstC >= 0 && b.si > firstC) src = lateBars[b.section]?.[b.i] ?? src;
+      if (again.has(`${b.section}:${b.occ}`)) src = againBars[b.section]?.[b.i] ?? src;
       if (b.section === 'A' && b.occ === finalOcc && endA && b.i >= b.len - endA.length) src = endA[b.i - (b.len - endA.length)] ?? src;
       const notes = src.map((n) => ({ ...n }));
       // Restatements get ornaments (canonical, so the same every time).
@@ -779,7 +1068,21 @@ export class Composer {
       const t = this.at(b, this.S - 1);
       nv.forEach((p, k) => ev.push({ t: t + k * 0.01 + this.jit(0.003), track, inst, midi: p, dur: stepDur * 1.3, vel: cfg.vel * crescendo * (0.88 - k * 0.04) }));
     }
-    const variant = (n: number): number => (b.i % 4 === 0 ? 0 : r.int(0, n - 1));
+    // Rhythm variant per bar: the phrase opens on the plain figure, its last bar pushes (the busiest
+    // variant, leaning into the next phrase), the bars between pick freely — never the same variant
+    // three bars running.
+    const variant = (n: number): number => {
+      if (b.i % 4 === 0) return 0;
+      if (b.i % 4 === 3 && n > 2) return n - 1;
+      let k = r.int(0, n - 1);
+      if (this.compRun.k === k && this.compRun.n >= 2) k = (k + 1 + r.int(0, n - 2)) % n;
+      this.compRun = this.compRun.k === k ? { k, n: this.compRun.n + 1 } : { k, n: 1 };
+      return k;
+    };
+    // Ghost notes: a whisper of the top voice on an empty off-beat (the player's hand keeping time).
+    const ghost = (steps: number[], used: number[], p = 0.35): void => {
+      for (const st of steps) if (st < len && !used.includes(st) && r.chance(p)) push(s0 + st, v[v.length - 1]!, 0.6, 0.32, 0.008);
+    };
     switch (cfg.pattern) {
       case 'arp8':
       case 'arpUp':
@@ -818,45 +1121,93 @@ export class Composer {
         break;
       }
       case 'strum': {
-        // Island strum: D . D U . U D U (variant: D . D U D U . U)
+        // Island strum: D . D U . U D U / D . D U D U . U / a sparse D . . U . U D . / the push bar
+        // D U . U D U D U (busiest, into the next phrase).
         const pats: [number, boolean, number][][] = [
           [[0, false, 1], [2, false, 0.8], [3, true, 0.7], [5, true, 0.72], [6, false, 0.8], [7, true, 0.66]],
           [[0, false, 1], [2, false, 0.78], [3, true, 0.7], [4, false, 0.74], [5, true, 0.7], [7, true, 0.68]],
+          [[0, false, 1], [3, true, 0.68], [5, true, 0.7], [6, false, 0.78]],
+          [[0, false, 1], [1, true, 0.62], [3, true, 0.7], [4, false, 0.78], [5, true, 0.66], [6, false, 0.8], [7, true, 0.72]],
         ];
-        for (const [s, up, vv] of pats[variant(2)]!) if (s < len) strum(s0 + s, v, vv, up, up ? 0.01 : 0.016, up ? 1 : 2);
+        for (const [s, up, vv] of pats[variant(4)]!) if (s < len) strum(s0 + s, up ? v.slice(1) : v, vv, up, up ? 0.01 : 0.016, up ? 1 : 2);
         break;
       }
       case 'waltz': {
-        for (const s of [2, 4]) if (s < len) strum(s0 + s, v, s === 2 ? 0.85 : 0.72, false, 0.008, 1.6);
+        // Oom-pah-pah, with a ghosted "and" of 2, a low pickup on 1, or a hemiola-ish 2-and-3 push.
+        const va = variant(4);
+        const hits = va === 0 ? [2, 4] : va === 1 ? [2, 3, 4] : va === 2 ? [0, 2, 4] : [2, 3, 5];
+        // (Round 8: the "pah"s leave the low string to the bass — a full six-string chord on beats 2
+        // and 3 put the guitar's E3-G3 strings and box thump 13-15 dB over the bass's ringing tail in
+        // 50-220 Hz, so the low end went boom-boom-boom and then sagged before every downbeat.)
+        const pah = v[0]! < 57 && v.length > 2 ? v.slice(1) : v;
+        for (const s of hits) {
+          if (s >= len) continue;
+          if (s === 0) push(s0, v[0]!, 1.6, 0.6, 0.004);
+          else strum(s0 + s, s % 2 ? pah.slice(pah.length > 2 ? 1 : 0) : pah, s === 2 ? 0.85 : s % 2 ? 0.5 : 0.72, false, 0.008, s % 2 ? 0.9 : 1.6);
+        }
         break;
       }
       case 'block': {
-        v.forEach((p, k) => ev.push({ t: this.at(b, s0) + k * 0.018 + this.jit(0.004), track, inst, midi: p, dur: Math.min(len, cut - s0) * stepDur * 0.98, vel: cfg.vel * crescendo * (0.9 - k * 0.03) }));
+        // Held chords; some bars re-strike the upper voices on beat 3 (or push them on the "and" of 4).
+        const va = variant(3);
+        const held = va === 0 ? Math.min(len, cut - s0) : Math.min(len, cut - s0, va === 1 ? 4 : 7);
+        v.forEach((p, k) => ev.push({ t: this.at(b, s0) + k * 0.018 + this.jit(0.004), track, inst, midi: p, dur: held * stepDur * 0.98, vel: cfg.vel * crescendo * (0.9 - k * 0.03) }));
+        if (va === 1 && len >= 8) v.slice(1).forEach((p, k) => push(s0 + 4, p, 4, 0.7 - k * 0.03, 0.006));
         break;
       }
       case 'epComp': {
-        // Lazy comping: a chord on 1, then one of a few syncopated re-hits.
-        const va = variant(3);
+        // Lazy comping: a chord on 1, then one of a few syncopated re-hits (charleston, the "and"
+        // of 2, a late push into the next bar), with a ghosted shell now and then.
+        const va = variant(4);
         v.forEach((p, k) => ev.push({ t: this.at(b, s0) + k * 0.022, track, inst, midi: p, dur: len * stepDur * (va === 0 ? 0.62 : 0.4), vel: cfg.vel * crescendo * (0.85 - k * 0.04) }));
-        const re = va === 0 ? len - 3 : va === 1 ? 3 : 5;
-        if (len >= 6 && s0 + re < cut) v.slice(1).forEach((p, k) => ev.push({ t: this.at(b, s0 + re) + k * 0.018, track, inst, midi: p, dur: stepDur * 2.4, vel: cfg.vel * 0.55 }));
+        const re = va === 0 ? len - 3 : va === 1 ? 3 : va === 2 ? 5 : len - 1;
+        if (len >= 6 && s0 + re < cut) v.slice(1).forEach((p, k) => ev.push({ t: this.at(b, s0 + re) + k * 0.018, track, inst, midi: p, dur: stepDur * (va === 3 ? 1.4 : 2.4), vel: cfg.vel * (va === 3 ? 0.62 : 0.55) }));
+        if (len >= 8) ghost([2, 6], [0, re], 0.3);
         break;
       }
       case 'oompah': {
-        // 6/8 boom-chuck: chords on the last eighth of each dotted-quarter beat (variant: two per beat).
-        const hits = variant(2) === 0 ? [2, 5] : [1, 2, 4, 5];
-        for (const s of hits) if (s < len) strum(s0 + s, v, s === 2 || s === 5 ? 0.8 : 0.6, false, 0.006, 0.9);
+        // 6/8 boom-chuck: chords on the last eighth of each dotted-quarter beat; variants double the
+        // chucks, drop a low "boom" on 1, or lean on the second beat's pickup.
+        const va = variant(4);
+        const hits = va === 0 ? [2, 5] : va === 1 ? [1, 2, 4, 5] : va === 2 ? [0, 2, 5] : [2, 4, 5];
+        for (const s of hits) {
+          if (s >= len) continue;
+          if (s === 0) push(s0, v[0]!, 1, 0.7, 0.004);
+          else strum(s0 + s, s === 1 || s === 4 ? v.slice(1) : v, s === 2 || s === 5 ? 0.8 : 0.58, false, 0.006, 0.9);
+        }
+        if (len >= 6) ghost([1, 4], hits, 0.25);
+        break;
+      }
+      case 'chop': {
+        // Reel guitar (4/4): a full strum on 1 and 3, a short damped chop on 2 and 4; variants push the
+        // "and" of 4 into the next bar, ghost the "and" of 2, or double-chop beat 4.
+        const va = variant(4);
+        for (const st of [0, 2, 4, 6]) {
+          if (st >= len) continue;
+          const back = st === 2 || st === 6;
+          strum(s0 + st, back ? v.slice(1) : v, back ? 0.72 : st === 0 ? 0.95 : 0.85, back, back ? 0.008 : 0.014, back ? 0.55 : 1.6);
+        }
+        if (va === 1 && len >= 8) strum(s0 + 7, v.slice(1), 0.62, true, 0.008, 0.9);
+        if (va === 2 && len >= 4) strum(s0 + 3, v.slice(2), 0.4, true, 0.006, 0.45);
+        if (va === 3 && len >= 8) {
+          strum(s0 + 5, v.slice(1), 0.5, true, 0.006, 0.45);
+          strum(s0 + 7, v.slice(1), 0.66, true, 0.008, 0.9);
+        }
         break;
       }
       case 'pizzOff': {
-        // Off-beat pizzicato chords; the variant adds a low stab on 1 and a skip before beat 4.
-        const va = variant(3);
-        const hits = va === 0 ? [1, 3, 5, 7] : va === 1 ? [0, 3, 5, 6, 7] : [1, 2, 5, 7];
+        // Off-beat pizzicato chords in four rhythms (straight off-beats, a low stab on 1 with a skip
+        // before beat 4, a charleston, and the busy push bar); upper-structure and shell voicings
+        // alternate, and ghosted single plucks fill some of the gaps.
+        const va = variant(4);
+        const hits = va === 0 ? [1, 3, 5, 7] : va === 1 ? [0, 3, 5, 6, 7] : va === 2 ? [1, 3, 4, 7] : [1, 2, 3, 5, 6, 7];
+        const upper = b.i % 2 === 1;
         for (const s of hits) {
           if (s >= len) continue;
-          const notes = s === 0 ? v.slice(0, 2) : v.slice(0, 3);
+          const notes = s === 0 ? v.slice(0, 2) : upper && v.length > 3 ? v.slice(1, 4) : v.slice(0, 3);
           strum(s0 + s, notes, s === 0 ? 0.95 : s === 3 || s === 7 ? 0.85 : 0.72, false, 0.006, 0.8);
         }
+        if (len >= 8) ghost([2, 4, 6], hits, 0.3);
         break;
       }
     }
@@ -881,10 +1232,27 @@ export class Composer {
     const doRun = run && cfg.pattern !== 'pedal' && !!next;
     const runLen = b.brk ? 3 : 2;
     const cut = doRun ? S - runLen : S;
+    // Articulation is absolute, not proportional (round 12: a 0.92 trim opened a 150-250 ms hole in
+    // the low end before every downbeat of the slow songs). Sustained basses tie over by 30 ms; a
+    // repeated pitch re-articulates with a fixed 50 ms lift; plucked basses leave a 40 ms gap.
+    const sustained = SUSTAINED_BASS.has(cfg.inst);
     const push = (step: number, midi: number, steps: number, vel: number): void => {
       if (step >= cut) return;
       const m = cfg.pattern === 'pedal' ? midi : this.counterpoint(sp, step, midi, lo, hi);
-      ev.push({ t: this.at(b, step) + this.jit(0.004), track: 'bass', inst: cfg.inst, midi: m, dur: Math.min(steps, cut - step) * stepDur * 0.92, vel: vel * cfg.vel * (0.95 + r.gauss(0.03)) });
+      const t = this.at(b, step) + this.jit(0.004);
+      const full = Math.min(steps, cut - step) * stepDur;
+      if (sustained) {
+        // Re-articulating the same pitch: shorten the previous note to leave a breath, not a hole.
+        for (let k = ev.length - 1; k >= 0; k--) {
+          const pe = ev[k]!;
+          if (pe.track !== 'bass') continue;
+          if (pe.midi === m && pe.t + pe.dur > t - 0.05) pe.dur = Math.max(0.08, t - pe.t - 0.05);
+          break;
+        }
+      }
+      // (Quick passing / approach notes stay detached: tied over, a leading tone rubs the downbeat.)
+      const dur = sustained ? (steps >= 2 ? full + 0.03 : full - 0.02) : Math.max(full * 0.5, full - 0.04);
+      ev.push({ t, track: 'bass', inst: cfg.inst, midi: m, dur, vel: vel * cfg.vel * (0.95 + r.gauss(0.03)) });
     };
     const s0 = sp.s0;
     if (lastBar) {
@@ -902,6 +1270,8 @@ export class Composer {
     if (b.brk) {
       // Stop-time: root hit, silence, then the run.
       push(s0, down, 1, 1);
+      const hit = ev[ev.length - 1];
+      if (hit?.track === 'bass') hit.o = { ...hit.o, art: 'staccato' };
     } else {
       switch (cfg.pattern) {
         case 'root':
@@ -928,12 +1298,25 @@ export class Composer {
           break;
         }
         case 'waltz':
+          if (sustained) {
+            // (Round 6: a bowed / soft bass holds its waltz note through the bar — two beats of a
+            // sustained note then silence was a hole under every bar of rain-3 and the dawn cue.)
+            const first = down !== root ? down : b.i % 2 === 1 && r.chance(0.4) ? fifth : root;
+            const lift = len >= 6 && r.chance(0.3);
+            push(s0, first, lift ? 4 : len, 1);
+            if (lift) push(s0 + 4, fifth, len - 4, 0.6);
+            break;
+          }
           push(s0, down !== root ? down : b.i % 2 === 1 && r.chance(0.4) ? fifth : root, 2, 1);
-          if (len >= 6 && r.chance(0.3)) push(s0 + 4, fifth, 2, 0.6);
+          // (Round 6: in a slow waltz — a bar of 1.75 s or more — the pluck on beat 3 comes most bars:
+          // one pluck decayed ~20 dB across the bar, the low end sagging into every downbeat.)
+          if (len >= 6 && r.chance(b.dur >= 1.75 ? 0.65 : 0.3)) push(s0 + 4, fifth, 2, 0.6);
           break;
         case 'jig':
-          push(s0, down, 2, 1);
-          if (len >= 6) push(s0 + 3, r.chance(0.7) ? fifth : root, 2, 0.8);
+          // (Round 8: a bowed / soft bass holds each dotted quarter to the next — two eighths of a
+          // sustained note then an eighth of nothing was a 12 dB gap before every beat of the Tide jig.)
+          push(s0, down, sustained ? 3 : 2, 1);
+          if (len >= 6) push(s0 + 3, r.chance(0.7) ? fifth : root, sustained ? len - 3 : 2, 0.8);
           break;
         case 'tresillo':
           push(s0, down, 3, 1);
@@ -1196,6 +1579,54 @@ export class Composer {
           for (let s = groove; s < S; s += bigFill ? 1 : 0.5) hit(s, 'woodblock', 0.45 + 0.05 * k, pitches[k++ % pitches.length]);
         }
         break;
+      case 'cave': {
+        // Round 8 (the mines' songs): a slow heartbeat on a damped bodhrán — lub-dub on the downbeat,
+        // a softer stroke mid-bar — and now and then a pick ticking somewhere down the tunnel (a dry
+        // woodblock, low and far), a triangle glint at the head of each strain.
+        const mid = S === 6 ? 3 : 4;
+        g(0, 'bodhran', 0.8);
+        g(1, 'bodhran', 0.32);
+        g(mid, 'bodhran', 0.5);
+        if (r.chance(0.35)) g(S - 1, 'woodblock', 0.22 + r.next() * 0.1, 70 + r.int(0, 4));
+        if (b.i % 8 === 0) g(0, 'triangleDing', 0.35);
+        if (fill) {
+          for (let s = groove; s < S; s++) hit(s, 'bodhran', 0.35 + 0.12 * (s - groove));
+        }
+        break;
+      }
+      case 'reel':
+        // Reel bodhrán (4/4): the big stroke on 1, a lighter one on 3, the tipper's off-beat chatter,
+        // tambourine on the backbeats, triangle at the head of each 8-bar strain.
+        g(0, 'bodhran', 1);
+        g(4, 'bodhran', 0.82);
+        g(2, 'bodhran', 0.42);
+        g(6, 'bodhran', 0.48);
+        for (const st of [1, 3, 5, 7]) if (r.chance(0.55)) g(st, 'bodhran', 0.22 + r.next() * 0.1);
+        g(2, 'tambourine', 0.55);
+        g(6, 'tambourine', 0.6);
+        if (b.i % 8 === 0) g(0, 'triangleDing', 0.55);
+        if (fill) {
+          for (let s = groove; s < S; s += 0.5) hit(s, 'bodhran', 0.4 + 0.5 * ((s - groove) / (S - groove)));
+          hit(S - 1, 'tambourine', 0.85);
+        }
+        break;
+      case 'polka':
+        // Polka (two bars of 2/4 per 4/4 bar): a soft kick on the "oom", tambourine on the "pah",
+        // a woodblock tick before each downbeat, triangle at phrase heads.
+        g(0, 'softKick', 0.62);
+        g(4, 'softKick', 0.52);
+        g(2, 'tambourine', 0.55);
+        g(6, 'tambourine', 0.6);
+        g(3, 'woodblock', 0.3, 81);
+        g(7, 'woodblock', 0.36, 84);
+        if (b.i % 4 === 0) g(0, 'triangleDing', 0.42);
+        if (fill) {
+          const pitches = [79, 81, 84, 86, 88, 86, 84, 88];
+          let k = 0;
+          for (let s = groove; s < S; s += 0.5) hit(s, 'woodblock', 0.4 + 0.05 * k, pitches[k++ % pitches.length]);
+          hit(S - 1, 'tambourine', 0.75);
+        }
+        break;
       case 'sleigh':
         // Winter: a soft shake of sleigh bells on the beats, a triangle at phrase starts.
         for (let s = 0; s < S; s += 2) g(s, 'tambourine', s === 0 ? 0.5 : 0.32);
@@ -1432,6 +1863,7 @@ export class Composer {
       }
     }
     ev.sort((x, y) => x.t - y.t);
+    this.clearTune(ev);
     return { theme: th.id, seed: this.seed, events: ev, duration: t, bars: gi, barInfo };
   }
 }
@@ -1476,6 +1908,9 @@ function warnOnce(msg: string): void {
   warned.add(msg);
   console.warn(`[audio] ${msg}`);
 }
+
+/** Plucked / struck instruments: heard for ~0.35 s, whatever the written length. */
+const DECAY_INST = new Set<string>(['kalimba', 'harp', 'guitar', 'ukulele', 'marimba', 'pizz', 'celesta', 'musicBox', 'bell', 'glass', 'steelPan']);
 
 function hash(s: string): number {
   let h = 2166136261;

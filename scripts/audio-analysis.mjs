@@ -270,8 +270,12 @@ export const DAY_THEME = /^(theme|mix)-(spring|summer|fall|winter|town|beach|tit
 export function flags(a, kind, name = '') {
   const f = [];
   const top = a.bands.presence + a.bands.air;
-  if (DAY_THEME.test(name) && top < 0.09) f.push(`DULL(${(top * 100).toFixed(0)}%)`);
+  // (Round 5: the DULL fail line moved 9 → 10 %.)
+  if (DAY_THEME.test(name) && top < 0.1) f.push(`DULL(${(top * 100).toFixed(0)}%)`);
   else if (DAY_THEME.test(name) && top < 0.12) f.push(`mellow(${(top * 100).toFixed(0)}%)`);
+  // The other end: a day theme with under 6 % of its power in 60–250 Hz has no bottom (a boxy,
+  // laptop-voiced mix). Target 10–20 % (the warm acoustic-ensemble norm).
+  if (DAY_THEME.test(name) && a.bands.bass < 0.06) f.push(`THIN(${(a.bands.bass * 100).toFixed(0)}%)`);
   if (a.clippedSamples > 0) f.push(`CLIP(${a.clippedSamples})`);
   if (a.truePeakDb > -0.5) f.push('TRUEPEAK');
   if (kind !== 'sfx' && a.lufsIntegrated > -12) f.push('TOO-LOUD');
@@ -279,7 +283,9 @@ export function flags(a, kind, name = '') {
   if (kind === 'amb' && a.lufsIntegrated < -45) f.push('INAUDIBLE');
   if (kind !== 'sfx' && kind !== 'reel' && a.silencePct > 20) f.push(`SILENCE(${a.silencePct.toFixed(0)}%)`);
   // Birdsong and cicadas live at 2–5 kHz, so ambience beds get more headroom there than music.
-  if (a.bands.presence > (kind === 'amb' ? 0.5 : 0.25)) f.push('HARSH(2-5k)');
+  // (Round 12: ambience 0.5 → 0.7 — with the noise wash gone a morning chorus is mostly birdsong, which
+  // physically lives at 2-5 kHz; the wash used to hold the share down, not make it less harsh.)
+  if (a.bands.presence > (kind === 'amb' ? 0.7 : 0.25)) f.push('HARSH(2-5k)');
   if (a.bands.air > 0.18) f.push('HISSY(5k+)');
   if (a.centroidHz > 3500) f.push('BRIGHT');
   if (a.bands.sub > 0.35) f.push('BOOMY');
@@ -388,10 +394,10 @@ export function printGameplay(rows) {
   const steps = rows.filter((r) => /^step:/.test(r.name));
   const verbs = rows.filter((r) => r.verb);
   // Footsteps are foley, not verbs: they may sit under the score in loudness, but their onset must
-  // reach the score's own 1–4 kHz energy (median within 3 dB) or they vanish.
+  // reach the score's own 1–4 kHz energy (median within 2 dB) or they vanish.
   const stepBand = steps.map((r) => r.band).sort((a, b) => a - b)[steps.length >> 1];
-  if (steps.length && stepBand < -3) fails.push(`steps(1-4kHz median ${fmt(stepBand)} dB)`);
-  console.log(`  footsteps: median ${fmt(steps.map((r) => r.ratio).sort((a, b) => a - b)[steps.length >> 1])} dB over the bed, 1–4 kHz onset median ${fmt(stepBand)} dB (need ≥ -3); farming verbs (*): min ${fmt(Math.min(...verbs.map((r) => r.ratio)))} dB (need ≥ +4)${fails.length ? `  FAIL: ${fails.join(', ')}` : '  ok'}`);
+  if (steps.length && stepBand < -2) fails.push(`steps(1-4kHz median ${fmt(stepBand)} dB)`);
+  console.log(`  footsteps: median ${fmt(steps.map((r) => r.ratio).sort((a, b) => a - b)[steps.length >> 1])} dB over the bed, 1–4 kHz onset median ${fmt(stepBand)} dB (need ≥ -2); farming verbs (*): min ${fmt(Math.min(...verbs.map((r) => r.ratio)))} dB (need ≥ +4)${fails.length ? `  FAIL: ${fails.join(', ')}` : '  ok'}`);
   return fails;
 }
 
@@ -401,7 +407,14 @@ export function printGameplay(rows) {
  * integrated loudness (22.05 kHz renders: loudness is unaffected, rendering is twice as fast) and rewrite the MEASURED_LUFS table in src/audio/loudness.ts with the level
  * each theme has *without* its current trim (so the table converges in one or two passes).
  */
-export async function calibrate(themes, call, { root, seconds: secs = 60, seed = 1, sr = 22050, log = console.log }) {
+/**
+ * Loudness calibration. Players hear a song's opening, so each theme is measured over its first
+ * OPENING_SECONDS (integrated, gated) — not a minute in, where a quiet intro has long been averaged
+ * away. After writing the table the spread is checked: two themes whose openings (with their
+ * deliberate TARGET_OFFSETs removed) differ by more than 2 LU fail the calibration.
+ */
+export const OPENING_SECONDS = 30;
+export async function calibrate(themes, call, { root, seconds: secs = OPENING_SECONDS + 2, seed = 1, sr = 44100, log = console.log }) {
   const path = `${root}/src/audio/loudness.ts`;
   const src = readFileSync(path, 'utf8');
   const cur = {};
@@ -413,20 +426,420 @@ export async function calibrate(themes, call, { root, seconds: secs = 60, seed =
   for (const m of offBlock.matchAll(/'?([\w-]+)'?: (-?[\d.]+)/g)) offs[m[1]] = Number(m[2]);
   log(`calibrating ${themes.length} themes (${secs} s each) → ${target} LUFS`);
   const out = { ...cur };
-  for (const t of themes) {
-    const res = await call('renderTheme', [t, secs, sr, seed, false]);
+  // Tone (round 12): the current corrections, recomputed here the way loudness.ts toneTrim does.
+  const toneSrc = /@tone-begin[\s\S]*@tone-end/.exec(src)?.[0] ?? '';
+  const toneCur = {};
+  for (const m of toneSrc.matchAll(/'([^']+)': \[(-?[\d.]+), (-?[\d.]+)\]/g)) toneCur[m[1]] = [Number(m[2]), Number(m[3])];
+  const house = { day: { low: -7, high: -9 }, soft: { low: -6, high: -11 }, cave: { low: -6, high: -12 } };
+  const hblock = /TONE_HOUSE = \{(.*)\};/.exec(src)?.[1] ?? '';
+  for (const m of hblock.matchAll(/(\w+): \{ low: (-?[\d.]+), high: (-?[\d.]+) \}/g)) house[m[1]] = { low: +m[2], high: +m[3] };
+  const fam = (id) => (id.startsWith('mine') ? 'cave' : /^(night|rain|event-|inn)/.test(id) ? 'soft' : 'day');
+  const corr = (id) => {
+    const m = toneCur[id];
+    const f = fam(id);
+    if (!m || !f) return [0, 0];
+    const c = (x) => Math.round(Math.max(-5, Math.min(5, x)) * 10) / 10;
+    return [c(house[f].low - m[0]), c(house[f].high - m[1])];
+  };
+  const toneOut = { ...toneCur };
+  // (Round 20: `call` may be an array — one per browser session — and the themes are measured in
+  // parallel; each theme's two log lines are printed together after its render.)
+  const calls = Array.isArray(call) ? call : [call];
+  const queue = [...themes];
+  const measure = async (t, call) => {
+    const res = await call('renderTheme', [t, Math.max(secs, OPENING_SECONDS), sr, seed, false]);
     const bytes = Buffer.from(res.data, 'base64');
-    const a = analyze(new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4), res.sampleRate);
+    const all = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4);
+    const a = analyze(all.subarray(0, Math.min(all.length, Math.floor(OPENING_SECONDS * res.sampleRate) * 2)), res.sampleRate);
     const tgt = target + (offs[t] ?? 0);
     // Applied trim was (tgt − cur); the untrimmed level is what we measured minus it.
     const applied = cur[t] !== undefined ? tgt - cur[t] : 0;
     const clampDb = Math.max(-14, Math.min(14, applied));
     out[t] = Math.round((a.lufsIntegrated - clampDb) * 10) / 10;
+    const tr = bandRatios(all, res.sampleRate, OPENING_SECONDS);
+    const [cl, ch] = corr(t);
+    // (A shelf moves its band by roughly its gain: the uncorrected ratio is measured − correction.)
+    toneOut[t] = [Math.round((tr.low - cl * 0.85) * 10) / 10, Math.round((tr.high - ch * 0.85) * 10) / 10];
     log(`  ${t.padEnd(20)} measured ${fmt(a.lufsIntegrated)} LUFS (trim ${applied >= 0 ? '+' : ''}${fmt(applied)} dB) → untrimmed ${fmt(out[t])}, off target ${fmt(a.lufsIntegrated - tgt)} LU`);
-  }
+    log(`    tone re mid: low ${fmt(tr.low)} high ${fmt(tr.high)} dB (shelves ${fmt(cl)} / ${fmt(ch)}) → uncorrected [${toneOut[t].join(', ')}]`);
+  };
+  await Promise.all(calls.map(async (c) => {
+    while (queue.length) await measure(queue.shift(), c);
+  }));
   const body = Object.keys(out).sort().map((k) => `  '${k}': ${out[k]},`).join('\n');
   const next = src.replace(/\/\/ @generated-begin[\s\S]*\/\/ @generated-end/, `// @generated-begin (scripts/audio-render.mjs --calibrate)\nexport const MEASURED_LUFS: Record<string, number> = {\n${body}\n};\n// @generated-end`);
-  writeFileSync(path, next);
+  const toneBody = Object.keys(toneOut).sort().map((k) => `  '${k}': [${toneOut[k][0]}, ${toneOut[k][1]}],`).join('\n');
+  const next2 = next.replace(/\/\/ @tone-begin[\s\S]*\/\/ @tone-end/, `// @tone-begin (scripts/audio-render.mjs --calibrate)\nexport const MEASURED_TONE: Record<string, [number, number]> = {\n${toneBody}\n};\n// @tone-end`);
+  writeFileSync(path, next2);
   log(`wrote ${Object.keys(out).length} entries to src/audio/loudness.ts`);
+  // Clamped trims (±14 dB) are the only way a calibrated opening can miss its target.
+  const resid = themes.map((t) => {
+    const tgt = target + (offs[t] ?? 0);
+    const trim = Math.max(-14, Math.min(14, tgt - out[t]));
+    return [t, out[t] + trim - (offs[t] ?? 0)];
+  });
+  const lv = resid.map((r) => r[1]);
+  const spread = Math.max(...lv) - Math.min(...lv);
+  log(`opening-loudness spread after calibration: ${fmt(spread)} LU ${spread > 2 ? 'FAIL (> 2 LU)' : 'ok'}`);
+  if (spread > 2) throw new Error(`calibration spread ${spread.toFixed(1)} LU > 2 LU`);
 }
 
+/**
+ * Opening-loudness check over rendered themes (first OPENING_SECONDS each): the deliberate offsets
+ * are removed, then any two themes more than 2 LU apart fail (a player walking from one map to the
+ * next would hear the jump).
+ */
+export function openingSpread(rows, offsets = {}) {
+  const lv = rows.map((r) => [r.name, r.lufs - (offsets[r.name] ?? 0)]).sort((x, y) => x[1] - y[1]);
+  if (lv.length < 2) return { spread: 0, lo: lv[0], hi: lv[0], ok: true };
+  const spread = lv[lv.length - 1][1] - lv[0][1];
+  return { spread, lo: lv[0], hi: lv[lv.length - 1], ok: spread <= 2 };
+}
+
+
+// ─────────────────────────────────────────────────────────── round 12: bass holes, tonal balance
+
+/** RBJ band-pass (constant 0 dB peak) coefficients. */
+function bpCoeffs(sr, f, q) {
+  const w = (2 * Math.PI * f) / sr, al = Math.sin(w) / (2 * q), cs = Math.cos(w), a0 = 1 + al;
+  return { b0: al / a0, b1: 0, b2: -al / a0, a1: (-2 * cs) / a0, a2: (1 - al) / a0 };
+}
+
+/**
+ * BASS-HOLE: the 50–220 Hz envelope (20 ms RMS, L+R) around every downbeat. A hole is a drop of
+ * more than 10 dB in the 300 ms before a downbeat, measured against the level 300–600 ms before it
+ * (only where that reference is within 25 dB of the song's loud low end: rests are not holes).
+ * Returns the count, the deepest drop (dB) and the times.
+ */
+export function bassHoles(inter, sr, downbeats) {
+  const n = inter.length / 2;
+  const mono = new Float32Array(n);
+  for (let i = 0; i < n; i++) mono[i] = (inter[i * 2] + inter[i * 2 + 1]) * 0.5;
+  // 50–220 Hz: two cascaded band-passes centred at 105 Hz (Q 0.7) ≈ a -6 dB band of ~45-240 Hz.
+  const c = bpCoeffs(sr, 105, 0.7);
+  const y = biquad(biquad(mono, c), c);
+  const hop = Math.floor(sr * 0.02);
+  const env = [];
+  for (let s = 0; s + hop <= n; s += hop) {
+    let e = 0;
+    for (let i = s; i < s + hop; i++) e += y[i] * y[i];
+    env.push(db(e / hop + 1e-20));
+  }
+  const sorted = [...env].filter(Number.isFinite).sort((a, b) => a - b);
+  const loud = sorted[Math.floor(sorted.length * 0.9)] ?? -100;
+  const at = (t) => env[Math.max(0, Math.min(env.length - 1, Math.floor(t / 0.02)))] ?? -100;
+  const holes = [];
+  let worst = 0;
+  for (const t of downbeats) {
+    if (t < 0.7 || t > n / sr - 0.05) continue;
+    let ref = -Infinity;
+    for (let x = t - 0.6; x < t - 0.3; x += 0.02) ref = Math.max(ref, at(x));
+    if (ref < loud - 25) continue;
+    // (Round 6: the hole must last 60 ms — the floor of 3 consecutive 20 ms frames. A plucked note
+    // re-struck leaves a 20-40 ms damping notch, which is articulation, not a hole in the low end.)
+    let lo = Infinity;
+    for (let x = t - 0.3; x < t - 0.06; x += 0.02) lo = Math.min(lo, Math.max(at(x), at(x + 0.02), at(x + 0.04)));
+    const drop = ref - lo;
+    if (drop > 10) holes.push(Math.round(t * 100) / 100);
+    worst = Math.max(worst, drop);
+  }
+  return { count: holes.length, worstDb: Math.round(worst * 10) / 10, at: holes };
+}
+
+/**
+ * Tonal balance (round 12): power per band over the render (FFT, 4096, hop 4096) and the ratios the
+ * house curve is written in: low (60–200), lowmid (200–500), mid (0.5–2.5k), high (2.5–6k), each in
+ * dB relative to the mid band.
+ */
+export function bandRatios(inter, sr, seconds = Infinity) {
+  const N = 4096;
+  const n = Math.min(inter.length / 2, Math.floor(seconds * sr));
+  const bands = { low: [60, 200], lowmid: [200, 500], mid: [500, 2500], high: [2500, 6000] };
+  const e = { low: 0, lowmid: 0, mid: 0, high: 0 };
+  const win = new Float64Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1));
+  for (let s = 0; s + N <= n; s += N) {
+    const re = new Float64Array(N), im = new Float64Array(N);
+    for (let i = 0; i < N; i++) re[i] = (inter[(s + i) * 2] + inter[(s + i) * 2 + 1]) * 0.5 * win[i];
+    fft(re, im);
+    for (let k = 1; k < N / 2; k++) {
+      const f = (k * sr) / N;
+      const p = re[k] * re[k] + im[k] * im[k];
+      for (const [b, [lo, hi]] of Object.entries(bands)) if (f >= lo && f < hi) e[b] += p;
+    }
+  }
+  const r = (x) => Math.round(db(x / (e.mid || 1e-20)) * 10) / 10;
+  return { low: r(e.low), lowmid: r(e.lowmid), high: r(e.high) };
+}
+
+/**
+ * Ambience event density (round 12): foreground events — 50 ms frames that rise ≥ 6 dB above the
+ * running 3 s median of the A-weighted-ish (300 Hz–8 kHz) envelope, onsets merged within 0.35 s.
+ * A bed that only washes has none; a living night has a cricket burst, a frog, an owl, a rustle.
+ */
+export function eventDensity(inter, sr) {
+  const n = inter.length / 2;
+  const mono = new Float32Array(n);
+  for (let i = 0; i < n; i++) mono[i] = (inter[i * 2] + inter[i * 2 + 1]) * 0.5;
+  const hp = (() => { const w = (2 * Math.PI * 300) / sr, al = Math.sin(w) / (2 * 0.7), cs = Math.cos(w), a0 = 1 + al; return { b0: (1 + cs) / 2 / a0, b1: -(1 + cs) / a0, b2: (1 + cs) / 2 / a0, a1: (-2 * cs) / a0, a2: (1 - al) / a0 }; })();
+  const y = biquad(mono, hp);
+  const hop = Math.floor(sr * 0.05);
+  const env = [];
+  for (let s = 0; s + hop <= n; s += hop) {
+    let e = 0;
+    for (let i = s; i < s + hop; i++) e += y[i] * y[i];
+    env.push(db(e / hop + 1e-20));
+  }
+  const W = 60;
+  const events = [];
+  let last = -1;
+  for (let k = 0; k < env.length; k++) {
+    const win = env.slice(Math.max(0, k - W / 2), Math.min(env.length, k + W / 2)).sort((a, b) => a - b);
+    const med = win[Math.floor(win.length / 2)];
+    if (env[k] > med + 6 && env[k] > -70 && (last < 0 || (k - last) * 0.05 > 0.35)) {
+      events.push(Math.round(k * 5) / 100);
+      last = k;
+    } else if (env[k] > med + 6) last = k;
+  }
+  return { count: events.length, perMin: Math.round((events.length * 600) / Math.max(1, env.length * 0.05)) / 10, at: events.slice(0, 40) };
+}
+
+/**
+ * Rain texture (round 16, critic r6: "a continuous broadband noise carpet ... centroid ~3 kHz, 67 %
+ * above 2.5 kHz, the spectrogram densely uniform"). Measures what separates rainfall from hiss:
+ *   hfShare   power above 2.5 kHz / total (L and R spectra summed)
+ *   grainDb   the 10 ms envelope of the 700 Hz–6 kHz band: its spread (std, dB) around a 1 s running
+ *             median — steady noise sits ~1 dB, a field of separate drops 3 dB and up
+ *   dropsPerSec  10 ms frames that rise ≥ 6 dB over that median (onsets ≥ 30 ms apart): the drops
+ *             a listener can pick out
+ * Flags (kind 'rain'): RAIN-HISS (hfShare > 0.5 or centroid > 2600 Hz), RAIN-FLAT (grainDb < 3),
+ * RAIN-SPARSE (< 4 audible drops a second: a drizzle reads as a dripping tap), RAIN-BUSY (> 60).
+ */
+export function rainTexture(inter, sr) {
+  const n = inter.length / 2;
+  const mono = new Float32Array(n);
+  for (let i = 0; i < n; i++) mono[i] = (inter[i * 2] + inter[i * 2 + 1]) * 0.5;
+  const y = biquad(biquad(mono, bpCoeffs(sr, 2000, 0.45)), bpCoeffs(sr, 2000, 0.45));
+  const hop = Math.floor(sr * 0.01);
+  const env = [];
+  for (let s = 0; s + hop <= n; s += hop) {
+    let e = 0;
+    for (let i = s; i < s + hop; i++) e += y[i] * y[i];
+    env.push(db(e / hop + 1e-20));
+  }
+  const W = 100;
+  const dev = [];
+  let drops = 0;
+  let last = -10;
+  for (let k = 0; k < env.length; k++) {
+    if (k % 5 === 0 || k === 0) {
+      const win = env.slice(Math.max(0, k - W / 2), Math.min(env.length, k + W / 2)).sort((a, b) => a - b);
+      env.med = win[Math.floor(win.length / 2)];
+    }
+    const d = env[k] - env.med;
+    dev.push(d);
+    if (d >= 6 && env[k] > -80 && k - last >= 3) {
+      drops++;
+      last = k;
+    }
+  }
+  const mean = dev.reduce((a, b) => a + b, 0) / Math.max(1, dev.length);
+  const grainDb = Math.sqrt(dev.reduce((a, b) => a + (b - mean) * (b - mean), 0) / Math.max(1, dev.length));
+  // HF share from the full analysis spectrum (same as analyze(): L and R summed).
+  const N = 4096;
+  const re = new Float64Array(N), im = new Float64Array(N);
+  let hi = 0, tot = 0;
+  for (let s = 0; s + N <= n; s += N) {
+    for (let ch = 0; ch < 2; ch++) {
+      for (let i = 0; i < N; i++) {
+        re[i] = inter[(s + i) * 2 + ch] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1)));
+        im[i] = 0;
+      }
+      fft(re, im);
+      for (let k = 1; k < N / 2; k++) {
+        const p = re[k] * re[k] + im[k] * im[k];
+        tot += p;
+        if ((k * sr) / N >= 2500) hi += p;
+      }
+    }
+  }
+  return { hfShare: tot > 0 ? hi / tot : 0, grainDb, dropsPerSec: drops / Math.max(0.01, n / sr) };
+}
+
+export function rainFlags(t, a) {
+  const f = [];
+  if (t.hfShare > 0.5 || a.centroidHz > 2600) f.push(`RAIN-HISS(${(t.hfShare * 100).toFixed(0)}% >2.5k)`);
+  if (t.grainDb < 3) f.push(`RAIN-FLAT(${t.grainDb.toFixed(1)} dB)`);
+  if (t.dropsPerSec < 4) f.push(`RAIN-SPARSE(${t.dropsPerSec.toFixed(1)}/s)`);
+  if (t.dropsPerSec > 60) f.push(`RAIN-BUSY(${t.dropsPerSec.toFixed(0)}/s)`);
+  return f;
+}
+
+/**
+ * Ambience judgement shared by the batch render and standalone --analyze (round 16): event density
+ * and loudness range for every preset, plus the rain texture checks for wet presets. Mutates `a`
+ * (a.events, a.rain, a.eventsLine) and returns the extra flags.
+ */
+export function ambienceFlags(name, a, inter, sr) {
+  const extra = [];
+  // Round 12: an ambience is judged by its events and its movement, not by how loud its bed is.
+  const ev = eventDensity(inter, sr);
+  a.events = ev;
+  // (Weather presets — wind, storm, snow — are the weather: their gusts are the movement.)
+  if (ev.perMin < 8 && a.lra < 6 && !/wind|storm|snow|crowd|town|rain/.test(name)) extra.push(`AMB-STATIC(${ev.perMin} events/min)`);
+  if (a.lra < 4 && !/mine|festival|town/.test(name)) extra.push(`AMB-FLAT(LRA ${fmt(a.lra)})`);
+  a.eventsLine = `  events: ${ev.count} (${ev.perMin}/min) at ${ev.at.slice(0, 12).join(' ')}`;
+  if (/rain|storm/.test(name)) {
+    const t = rainTexture(inter, sr);
+    a.rain = t;
+    // (A storm's thunder owns its loudness; only the hiss / flatness rules apply to it.)
+    extra.push(...rainFlags(t, a).filter((f) => !/storm/.test(name) || /HISS|FLAT/.test(f)));
+    a.eventsLine += `\n  rain: ${(t.hfShare * 100).toFixed(0)} % above 2.5 kHz, grain ${t.grainDb.toFixed(2)} dB, ${t.dropsPerSec.toFixed(1)} audible drops/s`;
+  }
+  return extra;
+}
+
+/**
+ * Which threshold profile a WAV is judged with (standalone --analyze): an explicit --kind, else the
+ * kind the run's manifest.json recorded for that file, else its name (theme-/mix-/amb-/sfx-/transition-).
+ */
+export function inferKind(file, manifest) {
+  const base = file.split('/').pop().replace(/\.wav$/, '');
+  const m = manifest?.expected?.find?.((e) => e.name === base);
+  const map = { mix: 'theme', trans: 'reel', sfx: 'reel', gameplay: 'reel', full: 'theme' };
+  if (m) return { kind: map[m.kind] ?? m.kind, source: 'manifest' };
+  if (/^(theme|mix|full)-/.test(base)) return { kind: 'theme', source: 'file name' };
+  if (/^amb-/.test(base)) return { kind: 'amb', source: 'file name' };
+  if (/^(sfx|reel|transition|gameplay)/.test(base)) return { kind: 'reel', source: 'file name' };
+  return { kind: 'theme', source: 'default (no manifest entry, unknown name)' };
+}
+
+export const KIND_PROFILES = {
+  theme: 'music: HARSH > 25 % 2-5 kHz, HISSY > 18 % 5 kHz+, TOO-LOUD > -12, TOO-QUIET < -28 LUFS, SILENCE > 20 %, DULL/THIN on day themes',
+  amb: 'ambience: HARSH > 70 % 2-5 kHz (birdsong / insects), HISSY > 18 %, INAUDIBLE < -45 LUFS, SILENCE > 20 %, AMB-STATIC / AMB-FLAT; wet presets add RAIN-HISS / RAIN-FLAT / RAIN-SPARSE / RAIN-BUSY',
+  reel: 'SFX reel / transition: clip, true peak, HARSH > 25 %, HISSY > 18 %; no loudness or silence rules',
+  sfx: 'single SFX: clip, true peak, HARSH > 25 %, HISSY > 18 %; no loudness or silence rules',
+};
+
+/**
+ * Long-form check (round 17, critic r6: "the rendered verification covers only the opening 30 s of
+ * pieces lasting 67-176 s — symbolic checks cannot expose late-form orchestration build-up, voice
+ * saturation, repetition fatigue or bridge-to-reprise problems"). Judges a WHOLE song render (one
+ * pass of its form + the tail) section by section: `piece` is offline.pieceData for the same seed
+ * and length, `songEnd` the composed duration, `looping` true for seamless loops (title / festival),
+ * `stats` the render's voice statistics (peak / dropped / stolen).
+ *
+ * Per section (consecutive bars with one label, e.g. intro A B A C A): integrated loudness,
+ * centroid, the 2-5 kHz share, how many notes sound at once (symbolic, max over 50 ms steps) and
+ * which tracks play. Flags:
+ *   FORM-SWELL     a later section > 4.5 LU over the first full section (the orchestration piling up)
+ *   FORM-SAG       a full section > 7 LU under the loudest (a bridge that falls out of the mix)
+ *   FORM-GLARE     a section's centroid > 1.45x the first section's (and > 1.6 kHz), or > 25 % in 2-5 kHz
+ *   FORM-CROWD     > 14 notes sounding at once anywhere (voice saturation; mud before the limiter)
+ *   FORM-DROPPED   the polyphony budget dropped or stole voices during the song
+ *   FORM-SEAM      a section boundary with a near-silent stretch > 1.2 s (a bridge-to-reprise hole)
+ *   FORM-CUT       (non-looping) the music still above -42 dBFS in the last 300 ms of the tail
+ *   FORM-LOOP-GAP  (looping) more than 0.8 s under -45 dBFS around the loop seam
+ *   FORM-REPEAT    fewer than 35 % of the song's melody bars are distinct (repetition fatigue)
+ */
+export function formAnalysis(inter, sr, piece, songEnd, looping, stats) {
+  const n = inter.length / 2;
+  const dur = n / sr;
+  const bars = piece.bars.filter((b) => b.t < songEnd - 0.05);
+  const segs = [];
+  for (let k = 0; k < bars.length; k++) {
+    const b = bars[k];
+    // (Round 18: only a section's FIRST bar carries its label — the others belong to the section in
+    // progress; labelling them '?' split every strain into a 1-bar head and an unnamed body, and the
+    // "first section" every other one was compared with was that single bar.)
+    const lab = b.section || segs[segs.length - 1]?.label || '?';
+    const end = k + 1 < bars.length ? bars[k + 1].t : songEnd;
+    const last = segs[segs.length - 1];
+    if (last && !b.section) {
+      last.t1 = end;
+      last.bars++;
+    } else segs.push({ label: lab, t0: b.t, t1: end, bars: 1 });
+  }
+  const slice = (t0, t1) => inter.subarray(Math.max(0, Math.floor(t0 * sr)) * 2, Math.min(n, Math.floor(t1 * sr)) * 2);
+  const ev = piece.events;
+  for (const s of segs) {
+    const a = analyze(slice(s.t0, s.t1), sr);
+    s.lufs = a.lufsIntegrated;
+    s.centroidHz = a.centroidHz;
+    s.presence = a.bands.presence;
+    s.peakDb = a.peakDb;
+    let most = 0;
+    for (let x = s.t0; x < s.t1; x += 0.05) {
+      let c = 0;
+      for (const e of ev) if (e.t <= x && e.t + Math.max(0.12, e.dur) > x && e.track !== 'perc') c++;
+      most = Math.max(most, c);
+    }
+    s.maxNotes = most;
+    s.tracks = [...new Set(ev.filter((e) => e.t >= s.t0 && e.t < s.t1).map((e) => e.track))].sort();
+    s.seconds = s.t1 - s.t0;
+  }
+  const flagsOut = [];
+  const full = segs.filter((s) => s.seconds >= 6 && s.label !== 'intro' && s.label !== 'outro' && Number.isFinite(s.lufs));
+  const first = full[0];
+  if (first) {
+    for (const s of full.slice(1)) {
+      if (s.lufs - first.lufs > 4.5) flagsOut.push(`FORM-SWELL(${s.label}@${s.t0.toFixed(0)}s +${(s.lufs - first.lufs).toFixed(1)} LU)`);
+      // (Round 18: glare is bright AND brighter — a lullaby's B lifting from an 865 Hz A to 1.3 kHz is
+      // a lift, not a glare; the relative test only counts above a 1.6 kHz centroid.)
+      if (s.centroidHz > first.centroidHz * 1.45 && s.centroidHz > 1600) flagsOut.push(`FORM-GLARE(${s.label}@${s.t0.toFixed(0)}s ${s.centroidHz.toFixed(0)} Hz)`);
+    }
+    const top = Math.max(...full.map((s) => s.lufs));
+    for (const s of full) if (top - s.lufs > 7) flagsOut.push(`FORM-SAG(${s.label}@${s.t0.toFixed(0)}s -${(top - s.lufs).toFixed(1)} LU)`);
+  }
+  for (const s of full) if (s.presence > 0.25) flagsOut.push(`FORM-GLARE(${s.label}@${s.t0.toFixed(0)}s ${(s.presence * 100).toFixed(0)} % 2-5k)`);
+  const crowd = Math.max(0, ...segs.map((s) => s.maxNotes));
+  if (crowd > 14) flagsOut.push(`FORM-CROWD(${crowd} notes at once)`);
+  if (stats && (stats.dropped > 0 || stats.stolen > 0)) flagsOut.push(`FORM-DROPPED(${stats.dropped} dropped, ${stats.stolen} stolen)`);
+  // Level in 50 ms windows (dBFS RMS) for the seam / ending checks.
+  const W = Math.floor(sr * 0.05);
+  const lvAt = (t) => {
+    const s0 = Math.floor(t * sr);
+    let e = 0;
+    for (let i = s0; i < s0 + W && i < n; i++) e += inter[i * 2] ** 2 + inter[i * 2 + 1] ** 2;
+    return db(e / (2 * W) + 1e-20);
+  };
+  const quietRun = (t0, t1, thr) => {
+    let run = 0, best = 0;
+    for (let t = Math.max(0, t0); t < Math.min(dur - 0.05, t1); t += 0.05) {
+      if (lvAt(t) < thr) best = Math.max(best, (run += 0.05));
+      else run = 0;
+    }
+    return best;
+  };
+  const seams = [];
+  for (const s of segs.slice(1)) {
+    const q = quietRun(s.t0 - 1.5, s.t0 + 1, -48);
+    seams.push({ at: s.t0, label: s.label, quiet: Math.round(q * 100) / 100 });
+    if (q > 1.2) flagsOut.push(`FORM-SEAM(${s.label}@${s.t0.toFixed(0)}s ${q.toFixed(1)} s hole)`);
+  }
+  let ending;
+  if (looping) {
+    const q = quietRun(songEnd - 2, songEnd + 2, -45);
+    ending = { kind: 'loop', quietAroundSeam: Math.round(q * 100) / 100 };
+    if (q > 0.8) flagsOut.push(`FORM-LOOP-GAP(${q.toFixed(1)} s)`);
+  } else {
+    const tailDb = lvAt(Math.max(0, dur - 0.35));
+    const lastNoteDb = lvAt(Math.max(0, songEnd - 1));
+    ending = { kind: 'end', lastBarDb: Math.round(lastNoteDb * 10) / 10, tailDb: Math.round(tailDb * 10) / 10, tailSeconds: Math.round((dur - songEnd) * 10) / 10 };
+    if (tailDb > -42) flagsOut.push(`FORM-CUT(${tailDb.toFixed(0)} dBFS at the end of a ${(dur - songEnd).toFixed(1)} s tail)`);
+  }
+  // Repetition: distinct melody bars (pitches relative to the bar's first note + onsets in 1/16 of the bar).
+  const mel = ev.filter((e) => e.track === 'melody' && e.t < songEnd);
+  const keys = new Set();
+  let melBars = 0;
+  for (let k = 0; k < bars.length; k++) {
+    const t0 = bars[k].t, t1 = k + 1 < bars.length ? bars[k + 1].t : songEnd;
+    const ns = mel.filter((e) => e.t >= t0 - 0.01 && e.t < t1 - 0.01);
+    if (!ns.length) continue;
+    melBars++;
+    keys.add(ns.map((e) => `${e.midi}:${Math.round(((e.t - t0) / (t1 - t0)) * 16)}`).join(','));
+  }
+  const novelty = melBars ? keys.size / melBars : 1;
+  if (melBars >= 8 && novelty < 0.35) flagsOut.push(`FORM-REPEAT(${(novelty * 100).toFixed(0)} % distinct melody bars)`);
+  return { sections: segs, seams, ending, novelty, melodyBars: melBars, maxNotes: crowd, flags: flagsOut };
+}

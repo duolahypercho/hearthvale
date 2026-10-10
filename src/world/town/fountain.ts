@@ -134,3 +134,182 @@ export class FountainFX {
     if (this.rings.instanceColor) this.rings.instanceColor.needsUpdate = true;
   }
 }
+
+/** Ice sheet canvas: pale blue-white ice with a frosted rim lip, white cracks with blue shadow, snow dust. */
+function iceTexture(seed = 7): THREE.CanvasTexture {
+  const S = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  let s = seed;
+  const rnd = (): number => ((s = (s * 16807) % 2147483647) / 2147483647);
+  // (the icicles / frozen jets sample the top-left corner: glassy blue-white)
+  g.fillStyle = '#d4ebf7';
+  g.fillRect(0, 0, S, S);
+  const rad = g.createRadialGradient(S / 2, S / 2, S * 0.05, S / 2, S / 2, S / 2);
+  rad.addColorStop(0, '#6fa6cf');
+  rad.addColorStop(0.55, '#8dbde0');
+  rad.addColorStop(0.86, '#c4e0f2');
+  rad.addColorStop(0.97, '#f4f9fd');
+  rad.addColorStop(1, '#f8fbfe');
+  g.fillStyle = rad;
+  g.beginPath();
+  g.arc(S / 2, S / 2, S / 2, 0, Math.PI * 2);
+  g.fill();
+  // Cloudy freeze patches (trapped air) and a few bubbles.
+  for (let i = 0; i < 26; i++) {
+    const a = rnd() * Math.PI * 2;
+    const r = Math.sqrt(rnd()) * S * 0.42;
+    const x = S / 2 + Math.cos(a) * r;
+    const y = S / 2 + Math.sin(a) * r;
+    const gr = g.createRadialGradient(x, y, 0, x, y, 18 + rnd() * 40);
+    gr.addColorStop(0, `rgba(240,248,255,${0.18 + rnd() * 0.25})`);
+    gr.addColorStop(1, 'rgba(240,248,255,0)');
+    g.fillStyle = gr;
+    g.fillRect(x - 60, y - 60, 120, 120);
+  }
+  for (let i = 0; i < 40; i++) {
+    const a = rnd() * Math.PI * 2;
+    const r = Math.sqrt(rnd()) * S * 0.4;
+    g.strokeStyle = 'rgba(255,255,255,0.55)';
+    g.lineWidth = 1.2;
+    g.beginPath();
+    g.arc(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, 1.5 + rnd() * 3, 0, Math.PI * 2);
+    g.stroke();
+  }
+  // Cracks: branching lines from a few impact points, a blue shadow under a white edge.
+  const crack = (x: number, y: number, ang: number, len: number, w: number, depth: number): void => {
+    let px = x;
+    let py = y;
+    const pts: [number, number][] = [[px, py]];
+    const n = Math.max(3, Math.floor(len / 14));
+    for (let i = 0; i < n; i++) {
+      ang += (rnd() - 0.5) * 0.7;
+      px += Math.cos(ang) * (len / n);
+      py += Math.sin(ang) * (len / n);
+      if (Math.hypot(px - S / 2, py - S / 2) > S * 0.47) break;
+      pts.push([px, py]);
+      if (depth > 0 && rnd() < 0.18) crack(px, py, ang + (rnd() < 0.5 ? -1 : 1) * (0.5 + rnd() * 0.6), len * 0.45, w * 0.7, depth - 1);
+    }
+    for (const [col, lw, oy] of [['rgba(60,110,150,0.55)', w + 1.6, 1.4], ['rgba(255,255,255,0.95)', w, 0]] as const) {
+      g.strokeStyle = col;
+      g.lineWidth = lw;
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      g.beginPath();
+      g.moveTo(pts[0]![0], pts[0]![1] + oy);
+      for (const p of pts) g.lineTo(p[0], p[1] + oy);
+      g.stroke();
+    }
+  };
+  for (let k = 0; k < 3; k++) {
+    const a = rnd() * Math.PI * 2;
+    const r = S * (0.12 + rnd() * 0.18);
+    const x = S / 2 + Math.cos(a) * r;
+    const y = S / 2 + Math.sin(a) * r;
+    for (let j = 0; j < 4 + Math.floor(rnd() * 3); j++) crack(x, y, rnd() * Math.PI * 2, S * (0.12 + rnd() * 0.2), 2.2, 2);
+    // A star of short hairlines round the impact.
+    for (let j = 0; j < 7; j++) crack(x, y, (j / 7) * Math.PI * 2, S * 0.04, 1, 0);
+  }
+  // Snow dust blown onto the ice: soft drifts against the rim (thicker on one side) and a few skiffs.
+  for (let i = 0; i < 70; i++) {
+    const a = rnd() * Math.PI * 2;
+    const lee = 0.5 + 0.5 * Math.cos(a - 2.2);
+    const r = S * (0.4 + rnd() * 0.08);
+    const x = S / 2 + Math.cos(a) * r;
+    const y = S / 2 + Math.sin(a) * r;
+    const R = 10 + rnd() * 26 * (0.4 + lee);
+    const gr = g.createRadialGradient(x, y, 0, x, y, R);
+    gr.addColorStop(0, `rgba(255,255,255,${0.5 + 0.45 * lee})`);
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr;
+    g.fillRect(x - R, y - R, R * 2, R * 2);
+  }
+  for (let i = 0; i < 9; i++) {
+    const x = S * (0.25 + rnd() * 0.5);
+    const y = S * (0.25 + rnd() * 0.5);
+    g.save();
+    g.translate(x, y);
+    g.rotate(rnd() * Math.PI);
+    g.scale(1, 0.3);
+    const gr = g.createRadialGradient(0, 0, 0, 0, 0, 30 + rnd() * 30);
+    gr.addColorStop(0, 'rgba(255,255,255,0.55)');
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr;
+    g.fillRect(-70, -70, 140, 140);
+    g.restore();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+/** UVs of a geometry pinned to the texture's glassy corner (icicles, frozen jets). */
+function cornerUV(gm: THREE.BufferGeometry): THREE.BufferGeometry {
+  const uv = gm.attributes.uv as THREE.BufferAttribute | undefined;
+  if (uv) for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.012 + (i % 3) * 0.004, 0.012 + (i % 5) * 0.003);
+  return gm;
+}
+
+/**
+ * r12 (critic: "the fountain basin is still open liquid blue in a snowstorm"): the winter fountain —
+ * an ice sheet over the pool and the upper bowl (cracks, trapped air, snow blown against the rim), the
+ * four crown jets frozen mid-arc, the overflow streams caught as fat icicle columns half way down, and
+ * icicles fringing both lips. One mesh, one draw call, main pass only.
+ */
+export function buildFountainIce(base: THREE.Vector3): THREE.Mesh {
+  const parts: THREE.BufferGeometry[] = [];
+  const disc = (r: number, y: number): void => {
+    parts.push(new THREE.CircleGeometry(r, 48).rotateX(-Math.PI / 2).translate(0, y, 0));
+  };
+  disc(1.99, 0.385);
+  disc(0.88, 1.765);
+  let s = 11;
+  const rnd = (): number => ((s = (s * 16807) % 2147483647) / 2147483647);
+  // Frozen crown jets: thicker, lumpy glass arcs ending in a drip.
+  for (let i = 0; i < 4; i++) {
+    const ang = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const a = new THREE.Vector3(Math.cos(ang) * 0.06, 2.5, Math.sin(ang) * 0.06);
+    const b = new THREE.Vector3(Math.cos(ang) * 0.6, 1.8, Math.sin(ang) * 0.6);
+    parts.push(cornerUV(arc(a, b, 0.24, 0.04, 12)));
+    parts.push(cornerUV(new THREE.ConeGeometry(0.05, 0.16, 7).rotateX(Math.PI).translate(b.x, b.y - 0.02, b.z)));
+  }
+  // Overflow streams caught mid-fall: a tapering column from the bowl lip, an icicle tip below.
+  for (let i = 0; i < 6; i++) {
+    const ang = (i / 6) * Math.PI * 2 + 0.2;
+    const x = Math.cos(ang) * 1.02;
+    const z = Math.sin(ang) * 1.02;
+    const len = 0.5 + rnd() * 0.45;
+    parts.push(cornerUV(new THREE.CylinderGeometry(0.045, 0.06, len, 7).translate(x * 1.03, 1.78 - len / 2, z * 1.03)));
+    parts.push(cornerUV(new THREE.ConeGeometry(0.045, 0.22 + rnd() * 0.12, 7).rotateX(Math.PI).translate(x * 1.03, 1.78 - len - 0.1, z * 1.03)));
+  }
+  // Icicle fringes on the upper bowl's lip and the basin rim's outer edge.
+  for (let i = 0; i < 26; i++) {
+    const ang = (i / 26) * Math.PI * 2 + rnd() * 0.15;
+    const l = 0.08 + rnd() * 0.2;
+    parts.push(cornerUV(new THREE.ConeGeometry(0.016 + rnd() * 0.014, l, 5).rotateX(Math.PI).translate(Math.cos(ang) * 0.99, 1.78 - l / 2, Math.sin(ang) * 0.99)));
+  }
+  for (let i = 0; i < 34; i++) {
+    const ang = (i / 34) * Math.PI * 2 + rnd() * 0.12;
+    const l = 0.05 + rnd() * 0.12;
+    parts.push(cornerUV(new THREE.ConeGeometry(0.014 + rnd() * 0.01, l, 5).rotateX(Math.PI).translate(Math.cos(ang) * 2.24, 0.56 - l / 2, Math.sin(ang) * 2.24)));
+  }
+  // (CircleGeometry is indexed, the cones / tubes too; mergeGeometries needs one kind: drop indices)
+  const flat = parts.map((p) => {
+    const q = p.index ? p.toNonIndexed() : p;
+    for (const k of Object.keys(q.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') q.deleteAttribute(k);
+    return q;
+  });
+  const geo = mergeGeometries(flat)!;
+  for (const p of parts) p.dispose();
+  const mat = new THREE.MeshStandardMaterial({ map: iceTexture(), roughness: 0.16, metalness: 0, emissive: new THREE.Color(0x5d8fb4), emissiveIntensity: 0.1 });
+  mat.name = 'fountain-ice';
+  const m = new THREE.Mesh(geo, mat);
+  m.name = 'fountain-ice';
+  m.position.copy(base);
+  m.userData.perfTag = 'fountain';
+  m.castShadow = false;
+  m.receiveShadow = true;
+  return m;
+}

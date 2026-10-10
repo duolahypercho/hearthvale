@@ -21,8 +21,9 @@ const STOCK: [string, number, number][] = [
   ['lanternEel', 1, 2],
   ['cockle', 4, 0],
   ['wood', 86, 0],
-  ['stone', 64, 0],
-  ['fiber', 40, 0],
+  // Not enough for everything (r5): the workbench shows a mix — sprinkler / scarecrow / brass sprinkler short.
+  ['stone', 8, 0],
+  ['fiber', 14, 0],
   ['copperOre', 14, 0],
   ['ironOre', 6, 0],
   ['quartz', 2, 0],
@@ -33,6 +34,8 @@ const STOCK: [string, number, number][] = [
 export class DemoKit {
   private armed = false;
   private stocked = false;
+  /** `ui-forge`: top the purse up before the forge opens. */
+  private forge = false;
   /** `ui-hud`: toasts linger so a screenshot taken seconds after boot still shows the stack. */
   holdToasts = false;
 
@@ -72,6 +75,8 @@ export class DemoKit {
         }, 600);
         setTimeout(() => void (this.game.services as { sleep?: { goToBed?(): Promise<void> } }).sleep?.goToBed?.(), 1800);
       }
+      // `ui-forge`: Odessa's forge with a purse that covers a Copper upgrade (the kit's 14 copper ore covers the rest).
+      if (name === 'ui-forge') this.forge = true;
       // `ui-placement`: hold the first placeable on the toolbar so the in-world ghost + reach tint shows.
       if (name === 'ui-placement')
         setTimeout(() => {
@@ -84,6 +89,12 @@ export class DemoKit {
 
   /** Called by the router before a screen opens. */
   beforeOpen(name: string): void {
+    if (this.forge && name.startsWith('shop')) {
+      // Before the shop renders, so Odessa greets a purse that can pay (not a stale "short on coin").
+      this.forge = false;
+      const eco = this.game.services.economy;
+      if (eco && eco.gold() < 3200) eco.set(3200, 'demo');
+    }
     if (!this.armed || this.stocked) return;
     if (name !== 'inventory' && name !== 'shop' && name !== 'crafting') return;
     this.stock();

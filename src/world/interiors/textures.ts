@@ -18,7 +18,9 @@ export function floorPlanks(): TexPair {
   return cached('i:floor', () => {
     const S = 1536;
     const M = 4; // metres per texture
-    const rows = 20;
+    // r11: narrower boards (12.5 cm, were 20 cm: they read oversized beside the chibi furniture)
+    // (r14: 10 cm boards — 40 rows)
+    const rows = 40;
     const grain = new PeriodicNoise(24, 'fl-grain');
     const fine = new PeriodicNoise(96, 'fl-fine');
     const n = makeTileNoise(4, 4, 'fl');
@@ -30,7 +32,7 @@ export function floorPlanks(): TexPair {
       let u = rng.next();
       const start = u;
       while (u < start + 1 - 1e-6) {
-        let len = (1.2 + rng.next() * 1.2) / M;
+        let len = (0.9 + rng.next() * 1.0) / M;
         if (start + 1 - (u + len) < 1.0 / M) len = start + 1 - u; // last board closes the loop
         const knots: [number, number, number][] = [];
         const kn = rng.next() < 0.45 ? 1 + (rng.next() < 0.3 ? 1 : 0) : 0;
@@ -40,8 +42,9 @@ export function floorPlanks(): TexPair {
       }
       table.push(list);
     }
-    const light = hex(0xdba36a);
-    const dark = hex(0x9a5f34);
+    // Honey, not orange: ~20 % less saturated so the props + rugs carry the colour.
+    const light = hex(0xd2aa7e);
+    const dark = hex(0x8e6442);
     const ppm = S / M; // pixels per metre
     const { color, height } = pixels(S, (u, v) => {
       const pv = v * rows;
@@ -88,7 +91,7 @@ export function floorPlanks(): TexPair {
       // Nail heads: two per board end, 5 cm in
       const endM = Math.min(local, 1 - local) * lenM;
       for (const nv of [0.28, 0.72]) {
-        const d = Math.hypot((endM - 0.05) * 90, (rf - nv) * 0.2 * 90);
+        const d = Math.hypot((endM - 0.04) * 110, (rf - nv) * 0.125 * 110);
         if (d < 1) c = scale3(c, 0.45 + 0.35 * d);
       }
       return { c, h: gapV * gapU * (0.75 + 0.25 * bevel) + rings * 0.05 - knot * 0.05 };
@@ -315,8 +318,8 @@ export function roomAO(): TexPair {
 }
 
 /** Straw bedding over packed earth (coop / barn floor). 1 repeat = 2 m. */
-export function strawFloor(): TexPair {
-  return cached('i:straw', () => {
+export function strawFloor(calm = false): TexPair {
+  return cached(calm ? 'i:straw-calm' : 'i:straw', () => {
     const S = 512;
     const [c, ctx] = makeCanvas(S);
     const [h, hctx] = makeCanvas(S);
@@ -328,15 +331,65 @@ export function strawFloor(): TexPair {
     ctx.fillRect(0, 0, S, S);
     hctx.fillStyle = '#303030';
     hctx.fillRect(0, 0, S, S);
+    if (calm) {
+      // r21 (critic: "brown mush and blotches rather than straw over boards"): the floorboards first —
+      // 0.2 m planks in two tones with dark seams and staggered butt joints, peeking between the straw.
+      const PW = S / 10;
+      for (let b = 0; b < 10; b++) {
+        const y0 = b * PW;
+        // (r22: three plank tones + darker 3 px seams — with the straw gathered into drifts the boards
+        // now show, and two near tones read as one brown field)
+        ctx.fillStyle = ['#9a774c', '#83633d', '#8f6c44'][b % 3]!;
+        ctx.fillRect(0, y0, S, PW);
+        ctx.fillStyle = 'rgba(40,26,15,0.7)';
+        ctx.fillRect(0, y0, S, 3);
+        const jx = (rng.next() * S) | 0;
+        ctx.fillRect(jx, y0, 3, PW);
+        for (let g = 0; g < 6; g++) {
+          ctx.fillStyle = `rgba(${rng.next() < 0.5 ? '60,40,24' : '170,136,90'},0.14)`;
+          ctx.fillRect(0, y0 + 4 + rng.next() * (PW - 8), S, 1);
+        }
+      }
+      // Broad soft value patches (packed vs fluffed bedding), so the field isn't one tone.
+      for (let i = 0; i < 40; i++) {
+        const x = rng.next() * S;
+        const y = rng.next() * S;
+        const r = 30 + rng.next() * 70;
+        const lit = rng.next() < 0.5;
+        for (const [ox, oy] of [[0, 0], [S, 0], [-S, 0], [0, S], [0, -S]] as const) {
+          const gr = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+          gr.addColorStop(0, lit ? 'rgba(206,170,110,0.32)' : 'rgba(96,72,44,0.15)');
+          gr.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = gr;
+          ctx.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+        }
+      }
+    }
     ctx.lineCap = hctx.lineCap = 'round';
-    for (let i = 0; i < 16000; i++) {
-      const x = rng.next() * S;
-      const y = rng.next() * S;
+    // r22 (critic: the coop floor still "brown mush" — 10.5k strands spread evenly hid every board):
+    // the calm bedding gathers in scuffed drifts (clumps of strands round ~26 centres) with only a sparse
+    // scatter between them, so the two-tone planks and their seams read through the open floor.
+    const clumps: [number, number, number][] = [];
+    if (calm) for (let i = 0; i < 26; i++) clumps.push([rng.next() * S, rng.next() * S, 18 + rng.next() * 46]);
+    const N = calm ? 7600 : 16000;
+    for (let i = 0; i < N; i++) {
+      let x = rng.next() * S;
+      let y = rng.next() * S;
+      if (calm && rng.next() < 0.8) {
+        const cl = clumps[(rng.next() * clumps.length) | 0]!;
+        const a = rng.next() * Math.PI * 2;
+        const d = cl[2] * Math.sqrt(-2 * Math.log(Math.max(1e-4, rng.next()))) * 0.55;
+        x = (cl[0] + Math.cos(a) * d * 1.4 + S) % S;
+        y = (cl[1] + Math.sin(a) * d * 0.8 + S) % S;
+      }
       const len = 6 + rng.next() * 22;
       const ang = rng.next() * Math.PI;
       const t = rng.next();
-      const r = 175 + t * 70;
-      ctx.strokeStyle = `rgba(${r},${r * 0.82},${r * 0.45},${0.55 + t * 0.4})`;
+      // (r9: calm strands held inside the bedding's own value range — bright sprigs at the props'
+      // contrast made the coop floor read as noise)
+      // (r21: a wider value range + crisper strands — individual stalks over the boards)
+      const r = calm ? 140 + t * 62 : 175 + t * 70;
+      ctx.strokeStyle = calm ? `rgba(${r},${r * 0.8},${r * 0.5},${0.34 + t * 0.3})` : `rgba(${r},${r * 0.82},${r * 0.45},${0.55 + t * 0.4})`;
       ctx.lineWidth = 0.8 + rng.next() * 1.4;
       hctx.strokeStyle = `rgba(${120 + t * 130},${120 + t * 130},${120 + t * 130},1)`;
       hctx.lineWidth = ctx.lineWidth;
@@ -763,7 +816,9 @@ export function shaftGradient(): TexPair {
     const S = 128;
     const { color } = pixels(S, (u, v) => {
       const edge = smoothstep(0, 0.28, Math.min(u, 1 - u));
-      const fall = Math.pow(1 - v, 0.9) * smoothstep(0, 0.12, v);
+      // (r16: brightest just inside the window, thinning as it falls to the floor — the old ramp peaked
+      // at the floor end and the beams read as flat white fog columns standing on the boards)
+      const fall = (0.28 + 0.72 * Math.pow(v, 1.1)) * smoothstep(0, 0.3, v) * smoothstep(1, 0.9, v);
       const k = clamp(edge * fall) * 255;
       return { c: [k, k, k] as RGB };
     });

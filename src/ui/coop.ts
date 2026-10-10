@@ -14,30 +14,42 @@ import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { NetApi, PlayerView } from '../net/system';
 import { Screen, el, sfx, replay, escapeHtml, frame } from './kit';
-import { RemoteFarmer } from '../entities/remote-farmer';
+import { RemoteFarmer, farmerMaterial } from '../entities/remote-farmer';
+import { MeshBuilder, mat, roundedBox, bevelCylinder, lumpySphere } from '../world/geom';
+import { Rng } from '../core/rng';
 import { EMOTES, EMOTE_LABEL, emoteIconUrl, type EmoteId } from '../entities/remote-emotes';
-import { HAIR_STYLES, HAT_STYLES, PALETTE, PRESET_LOOKS, DEMO_HOST_LOOK, hex, randomLook, type FarmerLook, type HairStyle, type HatStyle } from '../entities/remote-look';
+import { farmerPortraitUrl } from './coop-portrait';
+import { HAIR_STYLES, HAT_STYLES, PALETTE, PRESET_LOOKS, DEMO_HOST_LOOK, hex, randomLook, extra, EYE_STYLES, BROW_STYLES, MOUTH_STYLES, OUTFIT_CUTS, ACCESSORIES, type FarmerLook, type HairStyle, type HatStyle, type EyeStyle, type BrowStyle, type MouthStyle, type OutfitCut, type Accessory } from '../entities/remote-look';
 import { resetCamera } from './pause';
+import { nameClash, farmerName } from './profile';
 import { ICONS, itemIconUrl } from './icons';
 import { LobbyRenderer, type TurntableView } from './coop-stage';
 
 const PEOPLE_ICON = `<svg viewBox="0 0 24 24" width="22" height="22"><circle cx="8.5" cy="8" r="3.4" fill="#f5c9a0" stroke="#5a3418" stroke-width="1.3"/><path d="M2.6 19.5 C3 14.6 5.6 13 8.5 13 C11.4 13 14 14.6 14.4 19.5Z" fill="#5f8a5c" stroke="#2f4a2c" stroke-width="1.3"/><circle cx="16.2" cy="9" r="3" fill="#e0a878" stroke="#5a3418" stroke-width="1.3"/><path d="M12.4 19.5 C12.8 15.4 14.4 14 16.2 14 C19 14 21 15.6 21.4 19.5Z" fill="#4b6c9e" stroke="#26375a" stroke-width="1.3"/></svg>`;
 const CROWN = `<svg viewBox="0 0 24 16" width="18" height="12"><path d="M2 14 L3.5 4 L8.5 9 L12 2 L15.5 9 L20.5 4 L22 14Z" fill="#f7cf4a" stroke="#8a5a0a" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
-const ZZZ = `<b class="zz">z<small>z</small></b>`;
+const ZZZ = `<b class="zz" aria-hidden="true">z<small>z</small></b>`;
+const SAY_ICON = `<svg viewBox="0 0 24 22" width="22" height="20"><path d="M4 2.5 H20 A2.5 2.5 0 0 1 22.5 5 V13 A2.5 2.5 0 0 1 20 15.5 H11 L6 20 V15.5 H4 A2.5 2.5 0 0 1 1.5 13 V5 A2.5 2.5 0 0 1 4 2.5Z" fill="#fffaf0" stroke="#6a3c1a" stroke-width="1.8" stroke-linejoin="round"/><circle cx="7.5" cy="9" r="1.4" fill="#6a3c1a"/><circle cx="12" cy="9" r="1.4" fill="#6a3c1a"/><circle cx="16.5" cy="9" r="1.4" fill="#6a3c1a"/></svg>`;
 
-const SWATCHES: { key: keyof FarmerLook; label: string; colors: readonly number[] }[] = [
-  { key: 'skin', label: 'Skin', colors: PALETTE.skin },
-  { key: 'hair', label: 'Hair', colors: PALETTE.hair },
-  { key: 'shirt', label: 'Shirt', colors: PALETTE.shirt },
-  { key: 'overalls', label: 'Overalls', colors: PALETTE.overalls },
-  { key: 'scarf', label: 'Kerchief', colors: PALETTE.scarf },
-  { key: 'hatColor', label: 'Hat colour', colors: PALETTE.hatColor },
-];
 const HAIR_LABEL: Record<HairStyle, string> = { tousled: 'Tousled', bob: 'Bob', bun: 'Bun', spiky: 'Spiky', long: 'Long', buzz: 'Buzz' };
 const HAT_LABEL: Record<HatStyle, string> = { straw: 'Straw', cap: 'Cap', beanie: 'Beanie', flower: 'Flower', none: 'None' };
+const EYE_LABEL: Record<EyeStyle, string> = { round: 'Round', bright: 'Sparkly', sleepy: 'Sleepy', joyful: 'Joyful' };
+const BROW_LABEL: Record<BrowStyle, string> = { soft: 'Soft', bold: 'Bold', arched: 'Arched' };
+const MOUTH_LABEL: Record<MouthStyle, string> = { smile: 'Smile', grin: 'Grin', cat: 'Cat', o: 'Ooh' };
+const CUT_LABEL: Record<OutfitCut, string> = { overalls: 'Overalls', pinafore: 'Pinafore', vest: 'Waistcoat', apron: 'Apron' };
+const ACC_LABEL: Record<Accessory, string> = { none: 'None', glasses: 'Glasses', flower: 'Daisy', scarf: 'Scarf' };
+type MakerTab = 'look' | 'face' | 'outfit';
+const MAKER_TABS: { id: MakerTab; label: string }[] = [
+  { id: 'look', label: 'Hair & hat' },
+  { id: 'face', label: 'Face' },
+  { id: 'outfit', label: 'Outfit' },
+];
 
 /** Little portrait disc for a farmer (kerchief ring, hair cap, skin face). */
-function avatar(look: FarmerLook, size = 34): string {
+export function avatar(look: FarmerLook, size = 34): string {
+  // (r7) The real 3D bust of this farmer (hair colour + style, hat, face) on the kerchief ring; the
+  // painted disc only where there's no WebGL.
+  const url = farmerPortraitUrl(look);
+  if (url) return `<span class="coop-av pic" style="--s:${size}px;--ring:${hex(look.scarf)}"><img src="${url}" alt="" draggable="false"/></span>`;
   return `<span class="coop-av" style="--s:${size}px;--skin:${hex(look.skin)};--hair:${hex(look.hair)};--ring:${hex(look.scarf)};--hat:${hex(look.hatColor)}"><i class="face"></i><i class="hair"></i>${look.hat !== 'none' ? '<i class="hat"></i>' : ''}</span>`;
 }
 
@@ -60,16 +72,57 @@ const STAGE_FRAG = /* glsl */ `
 varying vec2 vUv;
 void main() {
   vec2 p = vec2(vUv.x, 1.0 - vUv.y);
-  float r = length((p - vec2(0.5, 0.28)) / vec2(0.9, 0.8));
-  vec3 c = mix(vec3(1.0, 0.965, 0.863), vec3(0.953, 0.863, 0.651), smoothstep(0.0, 0.55, r));
-  c = mix(c, vec3(0.851, 0.706, 0.455), smoothstep(0.55, 1.0, r));
-  float g = length((p - vec2(0.5, 0.88)) / vec2(0.6, 0.22));
-  c = mix(c, vec3(0.235, 0.353, 0.118), 0.45 * (1.0 - smoothstep(0.0, 0.7, g)));
-  float e = min(min(p.x, 1.0 - p.x), min(p.y, 1.0 - p.y));
-  c *= 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.12, 1.0 - p.y));
-  c *= 1.0 - 0.1 * (1.0 - smoothstep(0.0, 0.03, e));
+  // Soft meadow-morning backdrop: a sage sky behind the hat (a cream straw hat used to vanish into
+  // the cream card), warm haze toward the horizon, then a deeper green floor the grass tile sits on.
+  vec3 sky = mix(vec3(0.70, 0.83, 0.80), vec3(0.98, 0.93, 0.80), smoothstep(0.05, 0.62, p.y));
+  float glow = 1.0 - smoothstep(0.0, 0.5, length((p - vec2(0.5, 0.45)) / vec2(0.7, 0.55)));
+  sky += vec3(0.06, 0.05, 0.02) * glow;
+  vec3 floorC = mix(vec3(0.55, 0.66, 0.38), vec3(0.36, 0.48, 0.24), smoothstep(0.7, 1.0, p.y));
+  vec3 c = mix(sky, floorC, smoothstep(0.66, 0.74, p.y));
+  // Vignette.
+  vec2 q = (p - 0.5) * vec2(1.0, 1.15);
+  c *= 1.0 - 0.38 * smoothstep(0.32, 0.78, length(q));
   gl_FragColor = vec4(c, 1.0);
 }`;
+
+/**
+ * The creator's set dressing (one merged mesh): a white picket fence curving round behind the tile,
+ * a sunflower either side and a clump of tufts — the portrait sits in a little garden instead of an
+ * empty sky window (r5), well behind the farmer so nothing crosses the silhouette.
+ */
+function previewBackdrop(): THREE.Mesh {
+  const m = farmerMaterial();
+  const b = new MeshBuilder();
+  const R = 2.3;
+  for (let i = -6; i <= 6; i++) {
+    const a = (i / 6) * 1.05 + Math.PI;
+    const x = Math.sin(a) * R;
+    const z = Math.cos(a) * R;
+    b.add(m, roundedBox(0.11, 0.74, 0.05, 0.02, 1), mat(x, 0.3, z, 0, a, 0), { tint: 0xf6efe0 });
+    b.add(m, new THREE.ConeGeometry(0.075, 0.1, 4), mat(x, 0.72, z, 0, a + Math.PI / 4, 0), { tint: 0xf6efe0 });
+    if (i < 6) {
+      const a2 = ((i + 0.5) / 6) * 1.05 + Math.PI;
+      const span = 2 * R * Math.sin(1.05 / 12) + 0.04;
+      for (const y of [0.18, 0.5]) b.add(m, roundedBox(span, 0.06, 0.035, 0.012, 1), mat(Math.sin(a2) * (R + 0.04), y, Math.cos(a2) * (R + 0.04), 0, a2 + Math.PI / 2, 0), { tint: 0xe8dcc4 });
+    }
+  }
+  for (const sx of [-1, 1]) {
+    const x = sx * 1.55;
+    const z = -1.35;
+    const h = sx < 0 ? 1.35 : 1.1;
+    b.add(m, bevelCylinder(0.03, 0.035, h, 0.01, 6), mat(x, -0.05, z), { tint: 0x5f8f38 });
+    for (const [lx, ly] of [[0.13, 0.45], [-0.12, 0.7]] as const) b.add(m, new THREE.SphereGeometry(0.11, 8, 5), mat(x + lx, ly, z, 0, 0, sx * 0.5, 1.2, 0.35, 0.7), { tint: 0x6aa244 });
+    b.add(m, bevelCylinder(0.25, 0.25, 0.05, 0.02, 14), mat(x, h - 0.05, z + 0.05, Math.PI / 2 - 0.25, 0, 0), { tint: 0xf3c43a });
+    b.add(m, bevelCylinder(0.12, 0.12, 0.07, 0.02, 12), mat(x, h - 0.05, z + 0.08, Math.PI / 2 - 0.25, 0, 0), { tint: 0x6a4020 });
+  }
+  for (let i = 0; i < 9; i++) {
+    const a = Math.PI + (i - 4) * 0.22;
+    b.add(m, lumpySphere(0.2 + (i % 3) * 0.05, 1, 0.3, new Rng(`bush${i}`)), mat(Math.sin(a) * 2.05, 0.08, Math.cos(a) * 2.05, 0, 0, 0, 1, 0.75, 1), { tint: i % 2 ? 0x76ad4a : 0x5f9a3c });
+  }
+  const mesh = new THREE.Mesh(b.geometries().get(m)!, m);
+  mesh.name = 'creator-backdrop';
+  return mesh;
+}
 
 /** Character-creator turntable: a scene the lobby renderer draws with the main WebGL context. */
 class FarmerPreview implements TurntableView {
@@ -79,9 +132,16 @@ class FarmerPreview implements TurntableView {
   width = 300;
   height = 262;
   private farmer: RemoteFarmer;
-  private spin = 0.35;
   private drag: number | null = null;
   private t = 0;
+  /** (r7) Idle sway ±25° around a three-quarter pose, plus whatever the player dragged in (decays back). */
+  private dragYaw = 0;
+  private holdYaw: number | null = null;
+  /** Per-tab framing: head close-up on Face, waist-up on Hair & hat, full body on Outfit (eased). */
+  private camPos = new THREE.Vector3(0, 1.5, 4.95);
+  private camAim = new THREE.Vector3(0, 1.08, 0);
+  private wantPos = new THREE.Vector3(0, 1.5, 4.95);
+  private wantAim = new THREE.Vector3(0, 1.08, 0);
 
   constructor(look: FarmerLook) {
     this.canvas = el('canvas', 'coop-preview');
@@ -89,6 +149,8 @@ class FarmerPreview implements TurntableView {
     this.canvas.width = Math.round(this.width * pr);
     this.canvas.height = Math.round(this.height * pr);
     this.farmer = new RemoteFarmer(look);
+    // A portrait, not a turntable of the back of a head: the farmer keeps glancing at you.
+    this.farmer.gaze = 0;
     this.scene.add(this.farmer.root);
     const bg = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ vertexShader: STAGE_VERT, fragmentShader: STAGE_FRAG, depthWrite: false }));
     bg.frustumCulled = false;
@@ -104,17 +166,50 @@ class FarmerPreview implements TurntableView {
     const rim = new THREE.DirectionalLight(0xb8d4ff, 1.8);
     rim.position.set(2.5, 2.8, -3.2);
     this.scene.add(hemi, key, fill, rim);
+    // A little grass tile to stand on: soil sides, a tufted top, a soft contact shadow under the boots.
+    const tile = new THREE.Group();
+    const soil = new THREE.Mesh(new THREE.CylinderGeometry(0.98, 0.9, 0.22, 40), new THREE.MeshStandardMaterial({ color: 0x8a5a34, roughness: 0.95 }));
+    soil.position.y = -0.12;
+    const turf = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 0.07, 40), new THREE.MeshStandardMaterial({ color: 0x7cb04c, roughness: 0.9 }));
+    turf.position.y = -0.02;
+    tile.add(soil, turf);
+    const tufts = new THREE.InstancedMesh(new THREE.ConeGeometry(0.035, 0.14, 4), new THREE.MeshStandardMaterial({ color: 0x8cc35a, roughness: 0.8 }), 70);
+    const m4 = new THREE.Matrix4();
+    for (let i = 0; i < 70; i++) {
+      const a = i * 2.39996;
+      const rr = 0.42 + ((i * 37) % 53) / 53 * 0.52;
+      m4.makeRotationZ((((i * 13) % 7) - 3) * 0.08).setPosition(Math.cos(a) * rr, 0.06, Math.sin(a) * rr);
+      tufts.setMatrixAt(i, m4);
+    }
+    tile.add(tufts);
+    const shadowTex = (() => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const g = c.getContext('2d')!;
+      const grd = g.createRadialGradient(32, 32, 2, 32, 32, 32);
+      grd.addColorStop(0, 'rgba(20,30,10,0.55)');
+      grd.addColorStop(1, 'rgba(20,30,10,0)');
+      g.fillStyle = grd;
+      g.fillRect(0, 0, 64, 64);
+      return new THREE.CanvasTexture(c);
+    })();
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.0), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.017;
+    tile.add(shadow);
+    this.scene.add(tile);
+    this.scene.add(previewBackdrop());
     // Framed like a portrait: boots to hat fill ~85 % of the stage height.
-    this.camera.position.set(0, 1.32, 5.1);
-    this.camera.lookAt(0, 1.06, 0);
+    // (r4: the hat crown kissed the top edge; pulled back + down so every hat has headroom.)
+    this.camera.position.set(0, 1.5, 4.95);
+    this.camera.lookAt(0, 1.08, 0);
     this.canvas.addEventListener('pointerdown', (e) => {
       this.drag = e.clientX;
       this.canvas.setPointerCapture(e.pointerId);
     });
     this.canvas.addEventListener('pointermove', (e) => {
       if (this.drag === null) return;
-      this.farmer.yaw += (e.clientX - this.drag) * 0.012;
-      this.farmer.targetYaw = this.farmer.yaw;
+      this.dragYaw += (e.clientX - this.drag) * 0.012;
       this.drag = e.clientX;
     });
     this.canvas.addEventListener('pointerup', () => (this.drag = null));
@@ -129,11 +224,39 @@ class FarmerPreview implements TurntableView {
     this.farmer.act('pull', null);
   }
 
-  /** Stop the spin at `yaw` (radians, 0 = facing the camera). */
+  /** "Try an emote": a wave + the emote's bubble popping over the turntable farmer (DOM, on the stage). */
+  tryEmote(id: EmoteId, bubble: HTMLElement): void {
+    this.farmer.wave(1.4);
+    bubble.innerHTML = `<img src="${emoteIconUrl(id)}" alt=""/><span>${EMOTE_LABEL[id]}</span>`;
+    replay(bubble, 'pop');
+  }
+
+  /** Stop the sway at `yaw` (radians, 0 = facing the camera). */
   hold(yaw: number): void {
-    this.spin = 0;
+    this.holdYaw = yaw;
     this.farmer.yaw = yaw;
     this.farmer.targetYaw = yaw;
+  }
+
+  /** Frame the tab's subject; `snap` skips the ease (first show / stills). */
+  frame(tab: MakerTab, snap = false): void {
+    if (tab === 'face') {
+      this.wantPos.set(0.05, 1.86, 2.75);
+      this.wantAim.set(0, 1.6, 0);
+    } else if (tab === 'look') {
+      // (r7c) head + hat whole with the shoulders in: the straw crown was cut by the stage's top edge
+      this.wantPos.set(0, 1.92, 3.85);
+      this.wantAim.set(0, 1.5, 0);
+    } else {
+      this.wantPos.set(0, 1.5, 4.95);
+      this.wantAim.set(0, 1.08, 0);
+    }
+    if (snap) {
+      this.camPos.copy(this.wantPos);
+      this.camAim.copy(this.wantAim);
+      this.camera.position.copy(this.camPos);
+      this.camera.lookAt(this.camAim);
+    }
   }
 
   tick(dt: number): void {
@@ -151,10 +274,16 @@ class FarmerPreview implements TurntableView {
     }
     dt = Math.min(0.05, dt);
     this.t += dt;
-    if (this.drag === null) {
-      this.farmer.yaw += dt * this.spin;
-      this.farmer.targetYaw = this.farmer.yaw;
-    }
+    // Idle: a slow ±25° sway around three-quarters (the face always reads), drag adds a turn that eases
+    // back once let go; a held still pose (demo) stays put.
+    if (this.drag === null) this.dragYaw *= Math.exp(-dt * 1.2);
+    const base = this.holdYaw ?? 0.32 + Math.sin(this.t * 0.55) * 0.44;
+    this.farmer.yaw = this.farmer.targetYaw = base + this.dragYaw;
+    const k = 1 - Math.exp(-dt * 6);
+    this.camPos.lerp(this.wantPos, k);
+    this.camAim.lerp(this.wantAim, k);
+    this.camera.position.copy(this.camPos);
+    this.camera.lookAt(this.camAim);
     this.farmer.update(dt, this.t);
   }
 }
@@ -197,7 +326,7 @@ class CoopScreen extends Screen {
     this.err = '';
     const p = this.net.profile();
     this.look = this.demo ? { ...DEMO_HOST_LOOK } : { ...p.look };
-    this.name = this.demo ? 'Marigold' : p.name;
+    this.name = this.demo ? 'Saffron' : p.name;
     this.root.querySelector('.coop-wrap')?.remove();
     const wrap = el('div', 'coop-wrap');
     const a = frame('Your Farmer', 'coop-maker');
@@ -227,6 +356,7 @@ class CoopScreen extends Screen {
 
   private renderMaker(body: HTMLElement): void {
     this.preview = new FarmerPreview(this.look);
+    this.preview.frame(this.makerTab, true);
     this.stage.setView(this.preview);
     const stage = el('div', 'coop-stage');
     stage.appendChild(this.preview.canvas);
@@ -238,6 +368,19 @@ class CoopScreen extends Screen {
       this.commitLook(body);
     });
     stage.appendChild(dice);
+    // Try an emote: cycles through the wheel's emotes on the turntable (bubble + a wave).
+    const bubble = el('div', 'coop-try-bubble');
+    stage.appendChild(bubble);
+    const tryBtn = el('button', 'u-btn small coop-try', `<img src="${emoteIconUrl('happy')}" alt=""/><span>Try an emote</span>`);
+    tryBtn.dataset.nav = '';
+    let ei = 0;
+    tryBtn.addEventListener('click', () => {
+      const id = EMOTES[ei++ % EMOTES.length]!;
+      sfx(this.game, 'toggle');
+      this.preview?.tryEmote(id, bubble);
+      tryBtn.querySelector('img')!.src = emoteIconUrl(EMOTES[ei % EMOTES.length]!);
+    });
+    stage.appendChild(tryBtn);
     body.appendChild(stage);
 
     const nameRow = el('label', 'coop-name-row', `<span>Name</span>`);
@@ -246,12 +389,26 @@ class CoopScreen extends Screen {
     input.maxLength = 20;
     input.value = this.name;
     input.spellcheck = false;
+    // r5: villager / shop names are taken (a farmer "Marigold" read as the shopkeeper in the roster + chat).
+    const warn = el('small', 'coop-clash');
+    const check = (): boolean => {
+      const who = nameClash(input.value);
+      warn.textContent = who ? `${who} already lives in Hearthvale — pick another name` : '';
+      nameRow.classList.toggle('clash', !!who);
+      return !who;
+    };
     input.addEventListener('input', () => {
       this.name = input.value;
+      check();
+      this.refreshMeCard();
     });
-    input.addEventListener('change', () => this.saveProfile());
+    input.addEventListener('change', () => {
+      if (!check()) return;
+      this.saveProfile();
+    });
     input.addEventListener('keydown', (e) => e.stopPropagation());
-    nameRow.appendChild(input);
+    nameRow.append(input, warn);
+    check();
     body.appendChild(nameRow);
 
     this.renderMakerOptions(body);
@@ -276,23 +433,122 @@ class CoopScreen extends Screen {
 
   private commitLook(body: HTMLElement): void {
     this.preview?.setLook(this.look);
+    this.refreshMeCard();
     // Refresh the selection states without rebuilding the preview.
     body.querySelectorAll('.coop-opts').forEach((n) => n.remove());
     this.renderMakerOptions(body);
     this.saveProfile();
   }
 
+  private makerTab: MakerTab = 'look';
+  /** Tallest tab's options height (px), so switching tabs never re-centres the panels. */
+  private optsMinH = 0;
+
+  /** Your own lobby card follows the creator live (avatar + name), without replaying the slot animations. */
+  private refreshMeCard(): void {
+    const s = this.root.querySelector<HTMLElement>('.coop-session .coop-slot.me');
+    if (!s) return;
+    const av = s.firstElementChild;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = avatar(this.look, 42);
+    if (av && tmp.firstElementChild) av.replaceWith(tmp.firstElementChild);
+    const b = s.querySelector('b');
+    if (b?.firstChild?.nodeType === Node.TEXT_NODE) b.firstChild.textContent = this.name.trim() || 'Farmer';
+  }
+
+  /** Measure every tab once and pin the options box to the tallest. */
+  private pinOptsHeight(body: HTMLElement, opts: HTMLElement): void {
+    if (this.optsMinH) {
+      opts.style.minHeight = `${this.optsMinH}px`;
+      return;
+    }
+    const cur = this.makerTab;
+    let h = 0;
+    for (const t of MAKER_TABS) {
+      this.makerTab = t.id;
+      const probe = this.buildMakerOptions(body);
+      probe.style.position = 'absolute';
+      probe.style.visibility = 'hidden';
+      probe.style.width = `${opts.offsetWidth}px`;
+      body.appendChild(probe);
+      this.balanceChips(probe);
+      h = Math.max(h, probe.offsetHeight);
+      probe.remove();
+    }
+    this.makerTab = cur;
+    if (h > 0) {
+      this.optsMinH = h;
+      opts.style.minHeight = `${h}px`;
+    }
+  }
+
   private renderMakerOptions(body: HTMLElement): void {
+    const opts = this.buildMakerOptions(body);
+    body.appendChild(opts);
+    this.balanceChips(opts);
+    this.pinOptsHeight(body, opts);
+    // A measure taken before the web fonts land wraps the chip rows differently (r5: the panels still
+    // jumped ~9 px between tabs): measure again once they're in, and never pin below what's on screen.
+    if (!this.fontsPinned) {
+      this.fontsPinned = true;
+      void document.fonts?.ready.then(() => {
+        this.optsMinH = 0;
+        const cur = body.querySelector<HTMLElement>('.coop-opts');
+        if (cur?.isConnected) this.pinOptsHeight(body, cur);
+      });
+    }
+    if (opts.offsetHeight > this.optsMinH && this.optsMinH > 0) {
+      this.optsMinH = opts.offsetHeight;
+      opts.style.minHeight = `${this.optsMinH}px`;
+    }
+  }
+  private fontsPinned = false;
+
+  /**
+   * (r8) A chip row that wraps becomes an even grid (equal-width chips, rows as full as they can be):
+   * the flex wrap left a lone orphan on the second line ('Apron', 'None').
+   */
+  private balanceChips(root: HTMLElement): void {
+    for (const row of root.querySelectorAll<HTMLElement>('.coop-chips')) {
+      row.classList.remove('grid');
+      const chips = [...row.children] as HTMLElement[];
+      if (chips.length < 3) continue;
+      const top = chips[0]!.offsetTop;
+      if (chips.every((c) => c.offsetTop === top)) continue;
+      const maxW = Math.max(...chips.map((c) => c.offsetWidth));
+      const fit = Math.max(1, Math.floor((row.clientWidth + 4) / (maxW + 4)));
+      const rows = Math.ceil(chips.length / fit);
+      row.style.setProperty('--cols', String(Math.ceil(chips.length / rows)));
+      row.classList.add('grid');
+    }
+  }
+
+  private buildMakerOptions(body: HTMLElement): HTMLElement {
     const opts = el('div', 'coop-opts');
-    for (const s of SWATCHES) {
-      const row = el('div', 'coop-row', `<span class="lbl">${s.label}</span>`);
+    const tabs = el('div', 'coop-tabs');
+    for (const t of MAKER_TABS) {
+      const b = el('button', `coop-tab${t.id === this.makerTab ? ' on' : ''}`, t.label);
+      b.dataset.nav = '';
+      b.addEventListener('click', () => {
+        if (this.makerTab === t.id) return;
+        this.makerTab = t.id;
+        this.preview?.frame(t.id);
+        sfx(this.game, 'click');
+        body.querySelectorAll('.coop-opts').forEach((n) => n.remove());
+        this.renderMakerOptions(body);
+      });
+      tabs.appendChild(b);
+    }
+    opts.appendChild(tabs);
+    const swatch = (key: keyof FarmerLook, label: string, colors: readonly number[]): void => {
+      const row = el('div', 'coop-row', `<span class="lbl">${label}</span>`);
       const sw = el('div', 'coop-sw');
-      for (const c of s.colors) {
-        const b = el('button', `coop-dot${this.look[s.key] === c ? ' on' : ''}`);
+      for (const c of colors) {
+        const b = el('button', `coop-dot${this.look[key] === c ? ' on' : ''}`);
         b.style.setProperty('--c', hex(c));
         b.dataset.nav = '';
         b.addEventListener('click', () => {
-          (this.look as unknown as Record<string, number>)[s.key] = c;
+          (this.look as unknown as Record<string, number>)[key] = c;
           sfx(this.game, 'click');
           this.commitLook(body);
         });
@@ -300,15 +556,34 @@ class CoopScreen extends Screen {
       }
       row.appendChild(sw);
       opts.appendChild(row);
-      if (s.key === 'hair') opts.appendChild(this.chipRow('Style', HAIR_STYLES, HAIR_LABEL, this.look.hairStyle, (v) => (this.look.hairStyle = v as HairStyle), body));
-      if (s.key === 'scarf') opts.appendChild(this.chipRow('Hat', HAT_STYLES, HAT_LABEL, this.look.hat, (v) => (this.look.hat = v as HatStyle), body));
+    };
+    const L = this.look;
+    if (this.makerTab === 'look') {
+      // (skin lives in the Face tab only)
+      swatch('hair', 'Hair', PALETTE.hair);
+      opts.appendChild(this.chipRow('Style', HAIR_STYLES, HAIR_LABEL, L.hairStyle, (v) => (L.hairStyle = v as HairStyle), body));
+      opts.appendChild(this.chipRow('Hat', HAT_STYLES, HAT_LABEL, L.hat, (v) => (L.hat = v as HatStyle), body));
+      swatch('hatColor', 'Hat colour', PALETTE.hatColor);
+    } else if (this.makerTab === 'face') {
+      opts.appendChild(this.chipRow('Eyes', EYE_STYLES, EYE_LABEL, extra(L, 'eyes'), (v) => (L.eyes = v), body));
+      opts.appendChild(this.chipRow('Brows', BROW_STYLES, BROW_LABEL, extra(L, 'brows'), (v) => (L.brows = v), body));
+      opts.appendChild(this.chipRow('Mouth', MOUTH_STYLES, MOUTH_LABEL, extra(L, 'mouth'), (v) => (L.mouth = v), body));
+      swatch('skin', 'Skin', PALETTE.skin);
+    } else {
+      opts.appendChild(this.chipRow('Cut', OUTFIT_CUTS, CUT_LABEL, extra(L, 'outfit'), (v) => (L.outfit = v), body));
+      swatch('overalls', CUT_LABEL[extra(L, 'outfit')], PALETTE.overalls);
+      swatch('shirt', 'Shirt', PALETTE.shirt);
+      swatch('scarf', extra(L, 'accessory') === 'scarf' ? 'Scarf' : 'Kerchief', PALETTE.scarf);
+      // (r7: the Outfit tab left its lower third empty) the finishing touch lives with the clothes
+      opts.appendChild(this.chipRow('Extra', ACCESSORIES, ACC_LABEL, extra(L, 'accessory'), (v) => (L.accessory = v), body));
     }
-    body.appendChild(opts);
+    return opts;
   }
 
   private saveProfile(): void {
     if (this.demo) return;
-    this.net.setProfile({ name: this.name, look: { ...this.look } });
+    // A clashing name never leaves the creator (the hint under the field says why); the look still saves.
+    this.net.setProfile({ name: nameClash(this.name) ? this.net.profile().name : this.name, look: { ...this.look } });
   }
 
   // ── session side ──
@@ -463,7 +738,7 @@ class CoopScreen extends Screen {
       }
       const s = el('div', `coop-slot${p.isMe ? ' me' : ''}${p.away ? ' away' : ''}`);
       s.style.animationDelay = `${i * 70}ms`;
-      s.innerHTML = `${avatar(p.look, 42)}<div><b>${escapeHtml(p.name)}${p.isHost ? ` ${CROWN}` : ''}</b><small>${p.isHost ? 'Host' : p.cabin >= 0 ? `Farmhand · cabin ${p.cabin + 1}` : 'Farmhand'}${p.isMe ? ' · you' : ''}${p.away ? ' · reconnecting…' : ''}</small></div><span class="side">${p.isMe && p.isHost ? '' : pingBars(p.ping)}</span>`;
+      s.innerHTML = `${avatar(p.look, 42)}<div><b>${escapeHtml(farmerName(p.name))}${p.isHost ? ` ${CROWN}` : ''}</b><small>${p.isHost ? 'Host' : p.cabin >= 0 ? `Cabin ${p.cabin + 1}` : 'Farmhand'}${p.isMe ? ' · you' : ''}${p.away ? ' · reconnecting…' : ''}</small></div><span class="side">${p.isMe && p.isHost ? '' : pingBars(p.ping)}</span>`;
       if (hosting && !p.isMe) s.querySelector('.side')!.appendChild(this.kickButton(p));
       slots.appendChild(s);
     }
@@ -488,6 +763,19 @@ class CoopScreen extends Screen {
     btns.append(start, leave);
     body.appendChild(btns);
     body.appendChild(el('div', 'coop-hint', `<b>T</b> chat · hold <b>G</b> emotes · the day ends when <b>everyone</b> is in bed`));
+    // (r7c) The cabin row: each farmhand's cabin on the farm, roofed in their colour (the lobby's lower
+    // third was an empty parchment band).
+    const owners = new Map<number, PlayerView>();
+    for (const p of players) if (!p.isHost && p.cabin >= 0) owners.set(p.cabin, p);
+    const cabins = [0, 1, 2]
+      .map((i) => {
+        const o = owners.get(i);
+        return o
+          ? `<div class="cab" style="--c:${hex(o.look.scarf)}"><i class="smoke"></i><i class="roof"></i><i class="wall"><i class="win"></i><i class="door"></i></i><b>${escapeHtml(farmerName(o.name))}</b><small>Cabin ${i + 1}</small></div>`
+          : `<div class="cab free"><i class="roof"></i><i class="wall"><i class="win"></i><i class="door"></i></i><b>Cabin ${i + 1}</b><small>built when a friend joins</small></div>`;
+      })
+      .join('');
+    body.appendChild(el('div', 'coop-cabins', `<div class="hd">Cabins on your farm</div><div class="row">${cabins}</div>`));
     body.appendChild(
       el(
         'ul',
@@ -566,7 +854,7 @@ function demoPlayers(name: string, look: FarmerLook): PlayerView[] {
     { ...base, id: 1, name, look, isHost: true, isMe: true, ping: 0, cabin: -1 },
     // Same farmhands (names + looks) as the coop-farm demo (net/demo.ts).
     { ...base, id: 2, name: 'Juniper', look: PRESET_LOOKS[0]!, isHost: false, isMe: false, ping: 34, cabin: 0 },
-    { ...base, id: 3, name: 'Pip', look: PRESET_LOOKS[1]!, isHost: false, isMe: false, ping: 71, cabin: 1 },
+    { ...base, id: 3, name: 'Fennel', look: PRESET_LOOKS[1]!, isHost: false, isMe: false, ping: 71, cabin: 1 },
   ];
 }
 
@@ -579,6 +867,8 @@ export class CoopUi {
   private chatBox: HTMLElement;
   private chatLog: HTMLElement;
   private chatInput: HTMLInputElement;
+  private chatRow: HTMLElement;
+  private chatCount: HTMLElement;
   private wheel: HTMLElement;
   private sleepEl: HTMLElement;
   /** "Juniper and Pip are in bed" — the gentle holdout nudge for the last farmer still up. */
@@ -602,10 +892,16 @@ export class CoopUi {
     this.roster = el('div', 'coop-roster hv-hidden');
     this.chatBox = el('div', 'coop-chat');
     this.chatLog = el('div', 'coop-log');
-    this.chatInput = el('input', 'coop-chat-in hv-hidden');
+    // Parchment "Say:" row: speech-bubble icon, the line, a character counter and the key hint.
+    this.chatRow = el('div', 'coop-chat-row hv-hidden', `<span class="ic" aria-hidden="true">${SAY_ICON}</span><span class="lb">Say:</span>`);
+    this.chatInput = el('input', 'coop-chat-in');
     this.chatInput.maxLength = 140;
-    this.chatInput.placeholder = 'Say something nice…  (Enter to send, Esc to cancel)';
-    this.chatBox.append(this.chatLog, this.chatInput);
+    this.chatInput.placeholder = 'Say something nice…';
+    this.chatInput.setAttribute('aria-label', 'Chat message');
+    this.chatCount = el('span', 'ct', '0/140');
+    const hint = el('div', 'hint', '<kbd>Enter</kbd> to send · <kbd>Esc</kbd> cancel');
+    this.chatRow.append(this.chatInput, this.chatCount, hint);
+    this.chatBox.append(this.chatLog, this.chatRow);
     this.wheel = el('div', 'coop-wheel hv-hidden');
     this.sleepEl = el('div', 'coop-sleep hv-hidden');
     this.nudge = el('div', 'coop-nudge');
@@ -615,6 +911,15 @@ export class CoopUi {
     game.events.on('net:roster', ({ players }) => this.renderRoster(players));
     game.events.on('net:status', () => this.renderRoster(net.players()));
     game.events.on('net:chat', (m) => this.addLine(m));
+    game.events.on('net:chatack', ({ seq }) => {
+      const n = this.chatLog.querySelector<HTMLElement>(`.ln.pending[data-seq="${seq}"]`);
+      if (!n) return;
+      n.classList.remove('pending');
+      n.querySelector('.snd')?.remove();
+      replay(n, 'acked');
+      const l = this.lines.find((x) => x.node === n);
+      if (l) l.t = 8;
+    });
     game.events.on('net:beds', (b) => this.renderSleep(b));
     // Staged stills for critics: coop-emote (wheel open, a wedge picked) / coop-chat (typing a line),
     // or any coop demo with &coopui=wheel|chat (&emote=<id> picks the wedge).
@@ -630,6 +935,7 @@ export class CoopUi {
         } else if (what === 'chat') {
           this.openChat();
           this.chatInput.value = q.get('say') ?? 'Meet at the shipping bin? Bringing the parsnips';
+          this.chatCount.textContent = `${this.chatInput.value.length}/140`;
         }
       }, 400);
     });
@@ -639,6 +945,11 @@ export class CoopUi {
       if (name === 'pause') this.injectPause();
       if (name.startsWith('dayend')) setTimeout(() => this.injectDayEnd(), 0);
       this.hud.classList.toggle('menu', name !== 'none' && name !== 'dialogue');
+    });
+    this.chatInput.addEventListener('input', () => {
+      const n = this.chatInput.value.length;
+      this.chatCount.textContent = `${n}/140`;
+      this.chatCount.classList.toggle('near', n > 120);
     });
     this.chatInput.addEventListener('keydown', (e) => {
       e.stopPropagation();
@@ -679,29 +990,49 @@ export class CoopUi {
 
   private onPointer = (e: PointerEvent): void => {
     if (!this.wheelOpen) return;
-    const dx = e.clientX - innerWidth / 2;
-    const dy = e.clientY - innerHeight / 2;
-    if (Math.hypot(dx, dy) < 40) return this.selectWedge(null);
+    const z = this.uiZoom();
+    const dx = e.clientX - this.wheelAt.x * z;
+    const dy = e.clientY - this.wheelAt.y * z;
+    if (Math.hypot(dx, dy) < 30 * z) return this.selectWedge(null);
     const a = (Math.atan2(dx, -dy) + Math.PI * 2 + Math.PI / 8) % (Math.PI * 2);
     this.selectWedge(EMOTES[Math.floor(a / (Math.PI / 4))] ?? null);
   };
+
+  /** The wheel's centre (CSS px, before --uiz): the local farmer's chest on screen. */
+  private wheelAt = { x: 0, y: 0 };
+  private zoomCache = 1;
+  private uiZoom(): number {
+    return this.zoomCache;
+  }
+
+  private placeWheel(): void {
+    const p = this.game.player.position;
+    const v = new THREE.Vector3(p.x, p.y + 1.1, p.z).project(this.game.rc.camera);
+    const z = this.uiZoom();
+    // Keep the whole ring on screen.
+    const R = 130;
+    // Beside the farmer, not on it (r5: the hub and its label sat right over your own face): the ring
+    // opens to whichever side has room, its inner edge just clear of the farmer, a little above the waist.
+    const fx = ((v.x + 1) / 2) * (innerWidth / z);
+    const fy = ((1 - v.y) / 2) * (innerHeight / z);
+    const side = fx + R * 2 + 40 > innerWidth / z ? -1 : 1;
+    this.wheel.classList.toggle('left', side < 0);
+    const x = Math.min(innerWidth / z - R, Math.max(R, fx + side * (R + 64)));
+    const y = Math.min(innerHeight / z - R - 90, Math.max(R, fy - 40));
+    this.wheelAt = { x, y };
+    this.wheel.style.left = `${Math.round(x)}px`;
+    this.wheel.style.top = `${Math.round(y)}px`;
+  }
 
   private buildWheel(): void {
     this.wheel.innerHTML = `<div class="ring"></div><div class="mid">Emote</div>`;
     EMOTES.forEach((id, i) => {
       const a = (i / EMOTES.length) * Math.PI * 2;
-      const b = el('button', 'wedge', `<img src="${emoteIconUrl(id)}" alt=""/><small>${EMOTE_LABEL[id]}</small><kbd>${i + 1}</kbd>`);
-      const sx = Math.sin(a);
-      const cy = -Math.cos(a);
-      b.style.left = `calc(50% + ${sx * 118}px)`;
-      b.style.top = `calc(50% + ${cy * 118}px)`;
-      // Key badge on the inner rim, label outside the ring: they never meet a neighbour's.
-      const kbd = b.querySelector('kbd')!;
-      kbd.style.left = `${36 - sx * 40 - 9}px`;
-      kbd.style.top = `${36 - cy * 40 - 9}px`;
-      const lab = b.querySelector('small')!;
-      lab.style.left = `${36 + sx * 64}px`;
-      lab.style.top = `${36 + cy * 58}px`;
+      const b = el('button', 'wedge', `<img src="${emoteIconUrl(id)}" alt=""/><kbd>${i + 1}</kbd>`);
+      b.setAttribute('aria-label', `${EMOTE_LABEL[id]} (${i + 1})`);
+      b.style.left = `${Math.sin(a) * 90}px`;
+      b.style.top = `${-Math.cos(a) * 90}px`;
+      b.style.animationDelay = `${i * 18}ms`;
       b.dataset.emote = id;
       b.addEventListener('pointerenter', () => this.selectWedge(id));
       b.addEventListener('click', () => {
@@ -724,6 +1055,8 @@ export class CoopUi {
     this.wheelSel = null;
     this.selectWedge(null);
     this.wheel.classList.remove('hv-hidden');
+    this.zoomCache = Number(getComputedStyle(this.wheel).zoom) || 1;
+    this.placeWheel();
     replay(this.wheel, 'in');
   }
 
@@ -733,30 +1066,61 @@ export class CoopUi {
     if (send && this.wheelSel) this.net.emote(this.wheelSel);
   }
 
+  /** Farmhand watching the host's heart event: a parchment chip at the top of the screen. */
+  spectating(host: string | null): void {
+    if (!host) {
+      this.watchChip?.remove();
+      this.watchChip = null;
+      return;
+    }
+    if (!this.watchChip) {
+      this.watchChip = el('div', 'coop-watch');
+      this.hud.appendChild(this.watchChip);
+    }
+    this.watchChip.innerHTML = `<span class="eye" aria-hidden="true">${PEOPLE_ICON}</span><span>Watching <b></b>’s scene</span>`;
+    this.watchChip.querySelector('b')!.textContent = host;
+    replay(this.watchChip, 'in');
+  }
+  private watchChip: HTMLElement | null = null;
+
   openChat(): void {
-    this.chatInput.classList.remove('hv-hidden');
+    this.chatRow.classList.remove('hv-hidden');
+    replay(this.chatRow, 'in');
     this.chatBox.classList.add('typing');
+    this.chatCount.textContent = `${this.chatInput.value.length}/140`;
     this.game.input.enabled = false;
+    this.net.typing(true);
     setTimeout(() => this.chatInput.focus(), 0);
   }
 
   private closeChat(): void {
     this.chatInput.blur();
-    this.chatInput.classList.add('hv-hidden');
+    this.chatRow.classList.add('hv-hidden');
     this.chatBox.classList.remove('typing');
+    this.net.typing(false);
     if (!this.game.hud.openPanelName) this.game.input.enabled = true;
   }
 
-  private addLine(m: { id: number; name: string; text: string; color: string; system?: boolean }): void {
-    const n = el('div', `ln${m.system ? ' sys' : ''}`);
+  /** Empty the chat log (a demo still re-staged on the same page). */
+  clearLog(): void {
+    for (const l of this.lines) l.node.remove();
+    this.lines = [];
+  }
+
+  private addLine(m: { id: number; name: string; text: string; color: string; system?: boolean; seq?: number; pending?: boolean }): void {
+    const n = el('div', `ln${m.system ? ' sys' : ''}${m.pending ? ' pending' : ''}`);
+    if (m.pending && m.seq) n.dataset.seq = String(m.seq);
     if (m.system) n.innerHTML = m.text;
     else {
-      n.innerHTML = `<b style="color:${m.color}"></b><span></span>`;
-      n.querySelector('b')!.textContent = m.name;
+      // r5: a farmer's line leads with their player-colour dot (villagers never speak in this log).
+      n.innerHTML = `<i class="pdot" style="--c:${m.color}"></i><b style="color:${m.color}"></b><span></span>`;
+      n.querySelector('b')!.textContent = farmerName(m.name);
       n.querySelector('span')!.textContent = m.text;
     }
+    if (m.pending) n.insertAdjacentHTML('beforeend', '<i class="snd" aria-label="sending">sending…</i>');
     this.chatLog.appendChild(n);
-    this.lines.push({ node: n, t: 12 });
+    // An unconfirmed line stays up (no fade) until the host's ack lands.
+    this.lines.push({ node: n, t: m.pending ? 1e9 : 8 });
     while (this.lines.length > 7) this.lines.shift()!.node.remove();
   }
 
@@ -773,7 +1137,7 @@ export class CoopUi {
     const rows = players
       .map(
         (p) =>
-          `<div class="pl${p.away ? ' away' : ''}${p.isMe ? ' me' : ''}">${avatar(p.look, 26)}<b>${escapeHtml(p.name)}</b>${p.isHost ? CROWN : ''}${p.ready ? ZZZ : ''}<span class="where">${p.map && p.map !== 'farm' ? escapeHtml(p.map) : ''}</span>${p.isMe && p.isHost ? '' : pingBars(p.ping)}</div>`,
+          `<div class="pl${p.away ? ' away' : ''}${p.isMe ? ' me' : ''}" style="--c:${hex(p.look.scarf)}">${avatar(p.look, 26)}<i class="pdot"></i><b>${escapeHtml(farmerName(p.name))}</b>${p.isHost ? CROWN : ''}${p.ready ? ZZZ : ''}<span class="where">${p.map && p.map !== 'farm' ? escapeHtml(p.map) : ''}</span>${p.isMe && p.isHost ? '' : pingBars(p.ping)}</div>`,
       )
       .join('');
     this.roster.innerHTML = `<div class="hd">${PEOPLE_ICON}<span>Co-op${code ? ` · <b>${escapeHtml(code)}</b>` : ''}</span>${warn}</div>${rows}<div class="ft"><b>T</b> chat · <b>G</b> emote</div>`;
@@ -787,7 +1151,7 @@ export class CoopUi {
     const ready = new Set(b.ready);
     const waiting = players.filter((p) => !ready.has(p.id)).length;
     this.sleepEl.innerHTML = `<div class="stars"></div><div class="card"><div class="moon"></div><h3>Sweet dreams…</h3><p>${waiting ? `Waiting for <b>${waiting}</b> ${waiting === 1 ? 'farmer' : 'farmers'} to turn in` : 'Everyone is in bed — goodnight!'}</p><div class="beds">${players
-      .map((p) => `<div class="bed${ready.has(p.id) ? ' in' : ''}">${avatar(p.look, 30)}<small>${escapeHtml(p.name)}</small>${ready.has(p.id) ? ZZZ : '<em>awake</em>'}</div>`)
+      .map((p) => `<div class="bed${ready.has(p.id) ? ' in' : ''}">${avatar(p.look, 30)}<small>${escapeHtml(farmerName(p.name))}</small>${ready.has(p.id) ? ZZZ : '<em>awake</em>'}</div>`)
       .join('')}</div></div>`;
     const row = el('div', 'coop-sleep-btns');
     const c = el('button', 'u-btn small', '<span>Get up</span>');
@@ -823,10 +1187,10 @@ export class CoopUi {
       this.nudge.classList.remove('on');
       return;
     }
-    const names = abed.map((p) => escapeHtml(p.name));
+    const names = abed.map((p) => escapeHtml(farmerName(p.name)));
     const who = names.length === 1 ? `<b>${names[0]}</b> is` : `<b>${names.slice(0, -1).join('</b>, <b>')}</b> and <b>${names[names.length - 1]}</b> are`;
     const n = abed.length;
-    this.nudge.innerHTML = `<div class="moon"></div><div class="heads">${abed.map((p) => `<span>${avatar(p.look, 30)}${ZZZ}</span>`).join('')}</div><div class="tx"><p>${who} in bed</p><small>${n === 1 ? 'A farmer is' : `${n} farmers are`} waiting for you to turn in — the day ends when everyone sleeps</small></div>`;
+    this.nudge.innerHTML = `<div class="moon"></div><div class="heads">${abed.map((p) => `<span>${avatar(p.look, 30)}${ZZZ}</span>`).join('')}</div><div class="tx"><p>${who} in bed</p> <small>${n === 1 ? 'A farmer is' : `${n} farmers are`} waiting for you to turn in — the day ends when everyone sleeps</small></div>`;
     this.nudge.classList.remove('on');
     void this.nudge.offsetWidth;
     this.nudge.classList.add('on');
@@ -845,16 +1209,26 @@ export class CoopUi {
       [hoe, 'tilled'],
       [ICONS.sprout ?? '', 'sown'],
     ];
-    // The busiest farmer of the day gets a little ribbon.
-    const total = (n: number[]): number => n.reduce((a, b) => a + b, 0);
-    const best = rows.reduce((a, b) => (total(b.n) > total(a.n) ? b : a));
+    // The busiest farmer of the day gets a little ribbon — only for a real day's work (≥ 12 jobs) and a
+    // clear lead (r6: '★ Busiest' went to a 1/1/1 day).
+    const total = (n: number[]): number => n.slice(0, 4).reduce((a, b) => a + b, 0);
+    const ranked = [...rows].sort((a, b) => total(b.n) - total(a.n));
+    const top = ranked[0]!;
+    const best = total(top.n) >= 12 && total(top.n) >= total(ranked[1]?.n ?? [0]) + 3 ? top : null;
+    const gold = (r: (typeof rows)[number]): string => {
+      const g = r.n[4] ?? 0;
+      return g > 0 ? `<small class="ct-ship">${ICONS.coin ?? ''}<b>${g.toLocaleString()}g</b> shipped</small>` : `<small class="ct-ship z">nothing shipped</small>`;
+    };
     const box = el('div', 'coop-today');
-    box.innerHTML = `<div class="de-h">Farm today</div><div class="ct-row">${rows
+    // Header + a one-line legend for the four tallies, and the ribbon says what it's for.
+    const legend = kinds.map(([ic, w]) => `<i>${ic}${w[0]!.toUpperCase()}${w.slice(1)}</i>`).join('<b>·</b>');
+    box.innerHTML = `<div class="ct-hd"><div class="de-h">Farm today</div><div class="ct-key">${legend}</div></div><div class="ct-row">${rows
       .map(
         (r) =>
-          `<div class="ct-f${r.isMe ? ' me' : ''}${r === best && total(r.n) > 0 ? ' best' : ''}" style="--c:${hex(r.look.scarf)}">${avatar(r.look, 34)}<div class="ct-tx"><b>${escapeHtml(r.name)}${r.isMe ? ' <em>you</em>' : ''}</b><span>${r.n
+          `<div class="ct-f${r.isMe ? ' me' : ''}${r === best ? ' best' : ''}" style="--c:${hex(r.look.scarf)}"${r === best ? ' title="Busiest farmer today (most jobs done)"' : ''}>${r === best ? '<em class="ct-best">★ Busiest</em>' : ''}${avatar(r.look, 52)}<div class="ct-tx"><b>${escapeHtml(farmerName(r.name))}${r.isMe ? ' <em>you</em>' : ''}</b><span>${r.n
+            .slice(0, 4)
             .map((v, i) => `<i class="${v > 0 ? '' : 'z'}" title="${kinds[i]![1]}">${kinds[i]![0]}${v}</i>`)
-            .join('')}</span></div></div>`,
+            .join('')}</span>${gold(r)}</div></div>`,
       )
       .join('')}</div>`;
     card.insertBefore(box, foot);
@@ -870,7 +1244,7 @@ export class CoopUi {
       body.innerHTML = `<p>Invite up to three friends to farm with you.</p>`;
     } else {
       body.innerHTML = `<div class="code">Code <b>${escapeHtml(this.net.code() ?? '')}</b></div>${players
-        .map((p) => `<div class="pl" data-id="${p.id}">${avatar(p.look, 28)}<b>${escapeHtml(p.name)}</b>${p.isHost ? CROWN : ''}${p.ready ? ZZZ : ''}${p.away ? '<em>away</em>' : ''}${p.isMe && p.isHost ? '' : pingBars(p.ping)}</div>`)
+        .map((p) => `<div class="pl" data-id="${p.id}">${avatar(p.look, 28)}<b>${escapeHtml(farmerName(p.name))}</b>${p.isHost ? CROWN : ''}${p.ready ? ZZZ : ''}${p.away ? '<em>away</em>' : ''}${p.isMe && p.isHost ? '' : pingBars(p.ping)}</div>`)
         .join('')}`;
       if (role === 'host') {
         for (const row of body.querySelectorAll<HTMLElement>('.pl')) {
@@ -891,6 +1265,23 @@ export class CoopUi {
         }
       }
     }
+    // r5: the farm gate — the farmers' own avatars (the roster's busts, not stick figures) along a fence rail,
+    // with the open seats waiting as dashed outlines.
+    const myLook = players.find((p) => p.isMe)?.look ?? this.net.profile().look;
+    const seated = role === 'solo' ? [{ look: myLook, name: 'You', me: true }] : players.slice(0, 4).map((p) => ({ look: p.look, name: p.isMe ? 'You' : farmerName(p.name), me: p.isMe }));
+    const seats = Array.from({ length: 4 }, (_, i) => seated[i] ?? null);
+    const vig = el(
+      'div',
+      'coop-vig',
+      `<div class="row">${seats
+        .map((x, i) =>
+          x
+            ? `<div class="seat on${x.me ? ' me' : ''}" style="--c:${hex(x.look.scarf)}">${avatar(x.look, 58)}<small>${escapeHtml(x.name)}</small></div>`
+            : `<div class="seat open"><i>+</i><small>Seat ${i + 1}</small></div>`,
+        )
+        .join('')}</div><div class="rail"></div>`,
+    );
+    body.appendChild(vig);
     const b = el('button', 'u-btn small green', `<span>${role === 'solo' ? 'Open farm to co-op' : 'Farmers & invite'}</span>`);
     b.dataset.nav = '';
     b.addEventListener('click', () => this.game.events.emit('ui:open', { name: 'coop' }));
@@ -899,11 +1290,17 @@ export class CoopUi {
   }
 
   update(dt: number): void {
+    // The roster plate + chat step out under any open panel, incl. the day-end card (the hud opens
+    // that one straight from `sleep:summary`, with no `ui:open` event).
+    const open = this.game.hud.openPanelName;
+    const menu = !!open && open !== 'dialogue';
+    if (menu !== this.hud.classList.contains('menu')) this.hud.classList.toggle('menu', menu);
     for (const l of this.lines) {
       l.t -= dt;
       l.node.classList.toggle('old', l.t < 0 && !this.chatBox.classList.contains('typing'));
     }
     if (this.wheelOpen && !this.canPlay() && this.game.hud.openPanelName) this.closeWheel(false);
+    if (this.wheelOpen) this.placeWheel();
     // Reveal "Sleep anyway" once the host has waited 10 s.
     const since = this.net.bedSince();
     if (!this.forceShown && since && performance.now() - since > 10_000) {

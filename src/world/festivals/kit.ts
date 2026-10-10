@@ -716,31 +716,151 @@ export function buildBlossomPole(rng: Rng, H = 5.2): { group: THREE.Group; crown
   return { group: b.build({ name: 'blossom-pole' }), crown: new THREE.Vector3(0, top - 0.3, 0) };
 }
 
+const LEAF_TONES = [0x3f7f30, 0x4f9038, 0x5fa042, 0x36702a, 0x6aa84a];
+
+/** A five-petal bloom of cupped petal cards (+ a gold eye) facing `n`. */
+function cardBloom(b: MeshBuilder, rng: Rng, p: THREE.Vector3, n: THREE.Vector3, color: number, s = 1): void {
+  const nn = n.clone().normalize();
+  const t = Math.abs(nn.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  const u = new THREE.Vector3().crossVectors(nn, t).normalize();
+  const v = new THREE.Vector3().crossVectors(nn, u).normalize();
+  const geo = petalCard(0.075 * s, 0.1 * s, 0.5);
+  const a0 = rng.next() * Math.PI * 2;
+  const d = new THREE.Vector3();
+  for (let k = 0; k < 5; k++) {
+    const a = a0 + (k / 5) * Math.PI * 2;
+    d.copy(u).multiplyScalar(Math.cos(a)).addScaledVector(v, Math.sin(a));
+    b.add('boxFlower', geo.clone(), cardAt(p, d, nn, 0.45), { tint: color });
+  }
+  const eye = new THREE.OctahedronGeometry(0.028 * s, 0);
+  b.add('boxFlower', eye, mat(p.x + nn.x * 0.02, p.y + nn.y * 0.02, p.z + nn.z * 0.02), { tint: 0xf2c040 });
+}
+
+/**
+ * A woven flower garland along `curve`: a dark evergreen rope core wrapped in overlapping leaf cards
+ * (spiralling, tips trailing), studded with five-petal blooms in clusters and a few trailing ivy
+ * strands — a continuous rope, not a string of green beads.
+ */
+function wovenGarland(b: MeshBuilder, rng: Rng, curve: THREE.Curve<THREE.Vector3>, r: number, colors: readonly number[], o: { drops?: number; bloom?: number } = {}): void {
+  const len = curve.getLength();
+  const segs = Math.max(8, Math.round(len * 6));
+  b.add('boxFlower', taperTube(curve, segs, r * 0.8, r * 0.8, 7), new THREE.Matrix4(), { tint: 0x2f5a24 });
+  const frames = curve.computeFrenetFrames(segs * 4, false);
+  const leaf = petalCard(0.14, 0.22, 0.35);
+  const P = new THREE.Vector3();
+  const T = new THREE.Vector3();
+  const N = new THREE.Vector3();
+  const nLeaves = Math.round(len * 58);
+  for (let i = 0; i < nLeaves; i++) {
+    const u = (i + rng.next() * 0.5) / nLeaves;
+    const fi = Math.min(frames.normals.length - 1, Math.round(u * segs * 4));
+    curve.getPointAt(u, P);
+    curve.getTangentAt(u, T);
+    const a = i * 2.39996 + rng.next() * 0.4;
+    N.copy(frames.normals[fi]!).multiplyScalar(Math.cos(a)).addScaledVector(frames.binormals[fi]!, Math.sin(a)).normalize();
+    // Tips trail along the rope + droop a little (gravity).
+    const tip = T.clone().multiplyScalar(0.8).addScaledVector(N, 0.25).add(new THREE.Vector3(0, -0.35, 0)).normalize();
+    b.add('boxFlower', leaf.clone(), cardAt(P.clone().addScaledVector(N, r * 0.75), tip, N, 0.35, (rng.next() - 0.5) * 0.6), { tint: LEAF_TONES[Math.floor(rng.next() * LEAF_TONES.length)]! });
+  }
+  // Bloom clusters (3–5 flowers) every ~0.4 m, on the outward / camera-facing side.
+  const nCl = Math.round(len / 0.4 * (o.bloom ?? 1));
+  for (let c = 0; c < nCl; c++) {
+    const u = (c + 0.5 + (rng.next() - 0.5) * 0.4) / nCl;
+    const fi = Math.min(frames.normals.length - 1, Math.round(u * segs * 4));
+    curve.getPointAt(u, P);
+    const col = colors[c % colors.length]!;
+    const k = 3 + Math.floor(rng.next() * 3);
+    for (let j = 0; j < k; j++) {
+      const a = (rng.next() - 0.5) * 2.6 + (j % 2 ? Math.PI : 0) * 0.35;
+      N.copy(frames.normals[fi]!).multiplyScalar(Math.cos(a)).addScaledVector(frames.binormals[fi]!, Math.sin(a)).normalize();
+      N.y = Math.max(N.y, -0.2);
+      N.z += 0.35;
+      N.normalize();
+      cardBloom(b, rng, P.clone().addScaledVector(N, r * 1.15 + 0.02), N, j === 0 ? col : colors[(c + j) % colors.length]!, 1.1 + rng.next() * 0.6);
+    }
+  }
+  // Trailing ivy strands.
+  const drops = o.drops ?? Math.round(len / 1.2);
+  for (let d = 0; d < drops; d++) {
+    const u = (d + 0.5) / drops;
+    curve.getPointAt(u, P);
+    const L = 0.3 + rng.next() * 0.45;
+    for (let s = 0; s < 6; s++) {
+      const y = P.y - r - (s / 6) * L;
+      const q = new THREE.Vector3(P.x + Math.sin(s * 1.9) * 0.04, y, P.z + 0.06);
+      b.add('boxFlower', leaf.clone().scale(0.7, 0.7, 0.7), cardAt(q, new THREE.Vector3(Math.sin(s * 2.3) * 0.6, -1, 0.1), new THREE.Vector3(0, 0, 1), 0.2), { tint: LEAF_TONES[(d + s) % LEAF_TONES.length]! });
+    }
+  }
+}
+
 /** Flower arch (arbor) spanning `span` metres, posts at ±span/2 on X. */
 export function buildFlowerArch(rng: Rng, span: number, colors: readonly number[] = [0xf7a8c0, 0xffffff, 0xfde2a0, 0xd4b8f0]): THREE.Group {
   const b = new MeshBuilder();
-  const H = 3.4;
+  const H = 3.2;
+  const rise = span * 0.3;
   for (const sx of [-1, 1]) {
-    b.add('woodPaint', roundedBox(0.16, H, 0.16, 0.04), mat(sx * span / 2, H / 2, 0), { tint: 0xf4efe6, aoWorld: groundAO(0.5) });
-    b.add('stone', bevelCylinder(0.22, 0.26, 0.2, 0.04, 8), mat(sx * span / 2, 0, 0), { tint: 0xd0c8ba });
-    // Vines up the posts.
-    for (let i = 0; i < 9; i++) bloomMound(b, rng, sx * span / 2 + Math.sin(i * 1.7) * 0.1, 0.3 + i * 0.34, Math.cos(i * 1.7) * 0.1, 0.16, colors, 0.5);
+    const x = (sx * span) / 2;
+    // Turned white posts on stone feet, a lattice panel between twin uprights.
+    for (const dz of [-0.22, 0.22]) {
+      b.add('woodPaint', roundedBox(0.12, H, 0.12, 0.035), mat(x, H / 2, dz), { tint: 0xf4efe6, aoWorld: groundAO(0.5) });
+      b.add('stone', bevelCylinder(0.13, 0.16, 0.16, 0.03, 8), mat(x, 0.02, dz), { tint: 0xd0c8ba });
+    }
+    for (let k = 0; k < 7; k++) {
+      const y = 0.35 + k * 0.4;
+      b.add('woodPaint', roundedBox(0.04, 0.04, 0.44, 0.01), mat(x, y, 0), { tint: 0xece4d8 });
+    }
+    // Climbing vine spiralling up each side (woven, blooming).
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12;
+      pts.push(new THREE.Vector3(x + Math.sin(t * 9) * 0.12, 0.15 + t * (H - 0.1), Math.cos(t * 9) * 0.28));
+    }
+    wovenGarland(b, rng, new THREE.CatmullRomCurve3(pts), 0.08, colors, { drops: 0, bloom: 0.8 });
   }
-  // Semi-circular arch of blooms.
-  const n = Math.round(span * 7);
-  for (let i = 0; i <= n; i++) {
-    const a = (i / n) * Math.PI;
-    const x = Math.cos(a) * span / 2;
-    const y = H + Math.sin(a) * span * 0.28;
-    bloomMound(b, rng, x, y, 0, 0.26, colors, 0.7);
+  // The arch: a woven garland over a white bent-wood hoop.
+  const hoop: THREE.Vector3[] = [];
+  for (let i = 0; i <= 16; i++) {
+    const a = (i / 16) * Math.PI;
+    hoop.push(new THREE.Vector3((Math.cos(a) * span) / 2, H + Math.sin(a) * rise, 0));
   }
+  const hc = new THREE.CatmullRomCurve3(hoop);
+  b.add('woodPaint', taperTube(hc, 40, 0.06, 0.06, 6), new THREE.Matrix4(), { tint: 0xf4efe6 });
+  wovenGarland(b, rng, hc, 0.2, colors, { drops: 7, bloom: 1.6 });
+  // A painted keystone sign of blossom at the crown.
+  bloomMound(b, rng, 0, H + rise + 0.05, 0.12, 0.3, colors, 1.4);
   // Hanging ribbons.
   for (let i = 1; i < 6; i++) {
     const x = -span / 2 + (i / 6) * span;
-    const y = H + Math.sin((i / 6) * Math.PI) * span * 0.28 - 0.3;
-    b.add('cloth', roundedBox(0.06, 0.9, 0.01, 0.005, 1), mat(x, y - 0.45, 0.06, 0, 0, (rng.next() - 0.5) * 0.2), { tint: FESTIVAL_COLORS[i % FESTIVAL_COLORS.length]! });
+    const y = H + Math.sin((i / 6) * Math.PI) * rise - 0.3;
+    b.add('cloth', roundedBox(0.06, 0.9, 0.01, 0.005, 1), mat(x, y - 0.45, 0.12, 0, 0, (rng.next() - 0.5) * 0.2), { tint: FESTIVAL_COLORS[i % FESTIVAL_COLORS.length]! });
   }
   return b.build({ name: 'flower-arch' });
+}
+
+/**
+ * Flowering box hedge for the parade kerb: a clipped, slightly irregular leafy pillow clad in
+ * overlapping leaf cards (not a chain of green balls), crowned with clusters of blooms, on a low
+ * stone kerb.
+ */
+export function buildBloomHedge(rng: Rng, length: number, colors: readonly number[] = [0xf7a8c0, 0xffffff, 0xfde2a0, 0xd4b8f0]): THREE.Group {
+  const b = new MeshBuilder();
+  b.add('stone', boxUV(roundedBox(length + 0.2, 0.18, 0.95, 0.05), 1.2), mat(0, 0.09, 0), { tint: 0xd6cdbd, aoWorld: groundAO(0.2) });
+  const c = new THREE.Vector3(0, 0.62, 0);
+  const rad = new THREE.Vector3(length / 2, 0.46, 0.4);
+  shingleEllipsoid(b, rng, c, rad, { w: 0.24, h: 0.3, cup: 0.4 }, (th) => LEAF_TONES[Math.floor(rng.next() * 3) + (th > 1.4 ? 2 : 0)]!, () => true, Math.PI * 0.62);
+  // Blooms on the top + the front face.
+  const n = Math.round(length * 9);
+  const p = new THREE.Vector3();
+  const nn = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    const th = 0.15 + rng.next() * 1.1;
+    const ph = rng.next() < 0.75 ? 0.2 + rng.next() * (Math.PI - 0.4) : -(0.2 + rng.next() * (Math.PI - 0.4));
+    const st = Math.sin(th);
+    p.set(rad.x * st * Math.cos(ph), rad.y * Math.cos(th), rad.z * st * Math.sin(ph)).add(c);
+    nn.set((st * Math.cos(ph)) / rad.x, Math.cos(th) / rad.y, (st * Math.sin(ph)) / rad.z).normalize();
+    cardBloom(b, rng, p.addScaledVector(nn, 0.06), nn, colors[i % colors.length]!, 1.2 + rng.next() * 0.5);
+  }
+  return b.build({ name: 'bloom-hedge' });
 }
 
 /** Octagonal bandstand: stone plinth, white posts, fretwork rail, domed roof + finial. */
@@ -1103,7 +1223,8 @@ export function buildWishArch(rng: Rng, span = 4.6): { group: THREE.Group; lamps
     b.add('bark', g, mat((p.x + q.x) / 2, (p.y + q.y) / 2, 0, 0, 0, Math.atan2(d.y, d.x)), { tint: drift });
   }
   const lamps: THREE.Vector3[] = [];
-  const tints = [0xffa850, 0xff8a60, 0xffc870, 0xff7a70];
+  // Deep amber / coral paper (not pale gold): lit, it stays a warm gradient instead of clipping white.
+  const tints = [0xd88a48, 0xd87050, 0xdea058, 0xd46658];
   for (let i = 0; i < 7; i++) {
     const t = (i + 0.5) / 7;
     const p = beam(t);
@@ -1129,19 +1250,53 @@ export function buildWishArch(rng: Rng, span = 4.6): { group: THREE.Group; lamps
 }
 
 export function buildSandcastle(rng: Rng): THREE.Group {
+  // (r8) Packed wet sand (grainy 'rock' shading, warm tint — the plain one read as a grey lump at
+  // night), crenellated towers, a dark door arch + slit windows, drip-castle tops, a moat, a proper
+  // pennant on the keep, and a bucket + spade left beside it.
   const b = new MeshBuilder();
-  const sand = 0xe6cc98;
-  b.add('white', bevelCylinder(0.55, 0.65, 0.3, 0.08, 12), mat(0, 0, 0), { tint: sand });
+  const sand = 0xd8b47a;
+  const wet = 0xb8945e;
+  const S = 'rock' as const;
+  b.add(S, bevelCylinder(0.62, 0.72, 0.3, 0.08, 14), mat(0, 0, 0), { tint: wet, aoWorld: groundAO(0.2) });
+  // Moat ring.
+  b.add('glass', new THREE.RingGeometry(0.76, 0.95, 24).rotateX(-Math.PI / 2), mat(0, 0.02, 0), { tint: 0x2a4a5a });
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + 0.4;
-    b.add('white', bevelCylinder(0.14, 0.16, 0.4, 0.03, 8), mat(Math.cos(a) * 0.42, 0.25, Math.sin(a) * 0.42), { tint: sand });
-    b.add('white', new THREE.ConeGeometry(0.14, 0.18, 8), mat(Math.cos(a) * 0.42, 0.74, Math.sin(a) * 0.42), { tint: 0xe0c28a });
+    const x = Math.cos(a) * 0.46;
+    const z = Math.sin(a) * 0.46;
+    const h = 0.42 + rng.next() * 0.1;
+    b.add(S, bevelCylinder(0.15, 0.17, h, 0.03, 10), mat(x, 0.25, z), { tint: sand });
+    // Crenellations round the tower top.
+    for (let k = 0; k < 6; k++) {
+      const c = (k / 6) * Math.PI * 2;
+      b.add(S, roundedBox(0.06, 0.07, 0.06, 0.01, 1), mat(x + Math.cos(c) * 0.13, 0.25 + h + 0.035, z + Math.sin(c) * 0.13, 0, -c, 0), { tint: sand });
+    }
+    b.add('woodDark', roundedBox(0.03, 0.08, 0.01, 0.005, 1), mat(x + Math.cos(a) * 0.165, 0.5, z + Math.sin(a) * 0.165, 0, -a + Math.PI / 2, 0), { tint: 0x3a2a1e });
   }
-  b.add('white', bevelCylinder(0.22, 0.26, 0.65, 0.04, 10), mat(0, 0.25, 0), { tint: sand });
-  b.add('white', new THREE.ConeGeometry(0.22, 0.3, 10), mat(0, 1.05, 0), { tint: 0xe0c28a });
-  b.add('cloth', new THREE.ConeGeometry(0.06, 0.16, 3), mat(0.05, 1.3, 0, 0, 0, Math.PI / 2), { tint: 0xe8574a });
-  b.add('white', bevelCylinder(0.006, 0.006, 0.2, 0.002, 3), mat(0, 1.2, 0), { tint: 0x8a6a4a });
-  for (let i = 0; i < 6; i++) b.add('white', new THREE.SphereGeometry(0.04, 6, 4), mat((rng.next() - 0.5) * 1.4, 0.03, 0.5 + rng.next() * 0.3), { tint: [0xf8e8e0, 0xf6c8b8, 0xe8d8c8][i % 3]! });
+  // Curtain walls between the towers.
+  for (let i = 0; i < 4; i++) {
+    const a = ((i + 0.5) / 4) * Math.PI * 2 + 0.4;
+    b.add(S, roundedBox(0.5, 0.26, 0.1, 0.02, 1), mat(Math.cos(a) * 0.38, 0.28, Math.sin(a) * 0.38, 0, -a + Math.PI / 2, 0), { tint: sand });
+  }
+  // The keep: drip-castle top, door arch facing the lens.
+  b.add(S, bevelCylinder(0.24, 0.28, 0.7, 0.04, 12), mat(0, 0.25, 0), { tint: sand });
+  for (let k = 0; k < 5; k++) b.add(S, new THREE.SphereGeometry(0.09 - k * 0.012, 8, 6), mat(Math.sin(k * 2.1) * 0.03, 0.98 + k * 0.08, Math.cos(k * 2.1) * 0.03), { tint: k % 2 ? sand : wet });
+  b.add('woodDark', new THREE.CircleGeometry(0.09, 10, 0, Math.PI), mat(0, 0.32, 0.282), { tint: 0x2a1e16 });
+  b.add('woodDark', new THREE.PlaneGeometry(0.18, 0.1), mat(0, 0.27, 0.282), { tint: 0x2a1e16 });
+  // Pennant on a driftwood stick.
+  b.add('woodGrain', bevelCylinder(0.01, 0.012, 0.5, 0.003, 5), mat(0, 1.22, 0), { tint: 0x8a6a4a });
+  const fl = new THREE.Shape();
+  fl.moveTo(0, 0);
+  fl.lineTo(0.26, -0.06);
+  fl.lineTo(0, -0.15);
+  fl.closePath();
+  b.add('cloth', new THREE.ShapeGeometry(fl), mat(0.01, 1.46, 0, 0, -0.5, 0), { tint: 0xd8402e });
+  // Shells + bucket + spade.
+  for (let i = 0; i < 6; i++) b.add('white', new THREE.SphereGeometry(0.04, 6, 4), mat((rng.next() - 0.5) * 1.4, 0.03, 0.55 + rng.next() * 0.3), { tint: [0xf8e8e0, 0xf6c8b8, 0xe8d8c8][i % 3]! });
+  b.add('white', new THREE.CylinderGeometry(0.14, 0.11, 0.22, 12, 1, true), mat(0.9, 0.11, 0.45), { tint: 0x3a8ac8 });
+  b.add('white', new THREE.TorusGeometry(0.14, 0.012, 4, 12, Math.PI), mat(0.9, 0.22, 0.45, 0, 0.3, 0), { tint: 0xe8e0d0 });
+  b.add('white', roundedBox(0.1, 0.02, 0.16, 0.01, 1), mat(0.7, 0.03, 0.75, 0, 0.7, 0), { tint: 0xe8b830 });
+  b.add('woodGrain', bevelCylinder(0.012, 0.012, 0.3, 0.003, 5), mat(0.62, 0.05, 0.62, Math.PI / 2 - 0.1, 0.7, 0), { tint: 0xc89858 });
   return b.build({ name: 'sandcastle' });
 }
 
@@ -1149,14 +1304,16 @@ export function buildSandcastle(rng: Rng): THREE.Group {
 
 /** Ribbed giant pumpkin (contest entry). */
 export function pumpkinGeometry(r: number, ribs = 12, squash = 0.72): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(r, 28, 16);
+  const g = new THREE.SphereGeometry(r, 40, 20);
   const pos = g.attributes.position as THREE.BufferAttribute;
   for (let k = 0; k < pos.count; k++) {
     const x = pos.getX(k);
     const z = pos.getZ(k);
     const y = pos.getY(k);
     const a = Math.atan2(z, x);
-    const rib = 1 - 0.07 * Math.pow(0.5 - 0.5 * Math.cos(a * ribs), 0.6);
+    // Deep, slightly irregular ribs (each lobe its own fullness) — a grown giant, not a ball.
+    const lobe = 1 + 0.035 * Math.sin(Math.floor(((a + Math.PI) / (Math.PI * 2)) * ribs) * 2.7);
+    const rib = (1 - 0.1 * Math.pow(0.5 - 0.5 * Math.cos(a * ribs), 0.55)) * lobe;
     const flat = 1 - 0.25 * Math.pow(Math.abs(y / r), 6);
     pos.setXYZ(k, x * rib * flat, y * squash - (y > 0 ? Math.pow(1 - Math.hypot(x, z) / r, 4) * r * 0.2 : 0), z * rib * flat);
   }
@@ -1168,16 +1325,62 @@ export function buildGiantPumpkin(rng: Rng, r: number, tint: number, plinth = tr
   const b = new MeshBuilder();
   let base = 0;
   if (plinth) {
-    b.add('wood', boxUV(roundedBox(r * 2.4, 0.3, r * 2.4, 0.05), 1.2), mat(0, 0.15, 0), { tint: 0xc8a070, aoWorld: groundAO(0.2) });
-    b.add('thatch', roundedBox(r * 2.2, 0.08, r * 2.2, 0.04), mat(0, 0.32, 0), { tint: 0xe8c878 });
-    base = 0.36;
+    // (r8) A draped show plinth, not a bare hay square: a timber stand under a deep green baize
+    // cloth that falls over the sides, a bunting skirt of pennants round the hem, a straw mat on top.
+    const S = r * 2.4;
+    b.add('wood', boxUV(roundedBox(S, 0.3, S, 0.05), 1.2), mat(0, 0.15, 0), { tint: 0x9a7650, aoWorld: groundAO(0.2) });
+    b.add('cloth', roundedBox(S + 0.08, 0.04, S + 0.08, 0.02, 1), mat(0, 0.31, 0), { tint: 0x2f5a3e });
+    const pen = [0xd8473a, 0xf2b928, 0xf6ecd8, 0x3f6fd0];
+    for (let side = 0; side < 4; side++) {
+      const ry = (side * Math.PI) / 2;
+      const cs = Math.cos(ry);
+      const sn = Math.sin(ry);
+      const off = S / 2 + 0.045;
+      b.add('cloth', roundedBox(S + 0.08, 0.2, 0.025, 0.01, 1), mat(sn * off, 0.2, cs * off, 0, ry, 0), { tint: 0x2a5236 });
+      const n = Math.max(3, Math.round(S / 0.22));
+      for (let k = 0; k < n; k++) {
+        const u = -S / 2 + (k + 0.5) * (S / n);
+        const tri = new THREE.ConeGeometry(0.075, 0.14, 3);
+        tri.rotateX(Math.PI);
+        tri.scale(1, 1, 0.15);
+        b.add('cloth', tri, mat(sn * (off + 0.015) + cs * u, 0.14, cs * (off + 0.015) - sn * u, 0, ry, 0), { tint: pen[(k + side) % pen.length]! });
+      }
+    }
+    b.add('thatch', roundedBox(S * 0.82, 0.05, S * 0.82, 0.03), mat(0, 0.345, 0), { tint: 0xe8c878 });
+    base = 0.37;
   }
   // `body` false: just the straw pallet (another crop — or your entry — goes on top).
   if (!body) return { group: b.build({ name: 'produce-pallet' }), top: base };
   const g = pumpkinGeometry(r, 12, 0.74);
-  b.add('white', g, mat(0, base + r * 0.72, 0), { tint, aoWorld: (p) => 0.55 + 0.45 * THREE.MathUtils.smoothstep(p.y, base, base + r * 0.7) });
-  const stem = new THREE.CylinderGeometry(r * 0.07, r * 0.12, r * 0.35, 7);
-  b.add('woodDark', stem, mat(0.02, base + r * 1.5, 0, 0.25, 0, 0.2), { tint: 0x6a7a3a });
+  // Layered skin: dark rib grooves, lighter sun-ripened ridges, a mottled bloom across the lobes and
+  // a pale ground spot where it sat in the field (surface breakup that survives a close camera).
+  const cy = base + r * 0.72;
+  b.add('white', g, mat(0, cy, 0), {
+    tint,
+    aoWorld: (p) => {
+      const a = Math.atan2(p.z, p.x);
+      const groove = Math.pow(0.5 - 0.5 * Math.cos(a * 12), 0.55);
+      const mottle = 0.94 + 0.06 * Math.sin(p.x * 9.1 + p.y * 5.3) * Math.sin(p.z * 7.7 - p.y * 3.1);
+      const ridge = 1.06 - 0.3 * groove;
+      const low = 0.55 + 0.45 * THREE.MathUtils.smoothstep(p.y, base, base + r * 0.7);
+      return ridge * mottle * low;
+    },
+  });
+  // A thick, twisted, ridged stem with a dried tip.
+  const stem = new THREE.CylinderGeometry(r * 0.075, r * 0.13, r * 0.38, 8, 4);
+  {
+    const sp = stem.attributes.position as THREE.BufferAttribute;
+    for (let k = 0; k < sp.count; k++) {
+      const x = sp.getX(k);
+      const y = sp.getY(k);
+      const z = sp.getZ(k);
+      const tw = (y / (r * 0.38)) * 0.9;
+      const ridge = 1 + 0.12 * Math.cos(Math.atan2(z, x) * 4);
+      sp.setXYZ(k, (x * Math.cos(tw) - z * Math.sin(tw)) * ridge, y, (x * Math.sin(tw) + z * Math.cos(tw)) * ridge);
+    }
+    stem.computeVertexNormals();
+  }
+  b.add('woodDark', stem, mat(0.02, base + r * 1.5, 0, 0.25, 0, 0.2), { tint: 0x6a7a3a, aoWorld: (p) => (p.y > base + r * 1.62 ? 0.75 : 1) });
   // Curly vine + two leaves.
   for (let i = 0; i < 8; i++) {
     const t = i / 7;
@@ -1492,8 +1695,37 @@ export function buildCornField(rng: Rng, spots: [number, number, number, number,
   return mesh;
 }
 
+/** Corn-maze lookout: a rough timber platform (~1.6 m) on four posts, rails, a ladder, a pennant. */
+export function buildLookout(rng: Rng): THREE.Group {
+  const b = new MeshBuilder();
+  const H = 1.6;
+  const W = 1.3;
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      b.add('woodGrain', bevelCylinder(0.07, 0.08, H + 0.9, 0.015, 6), mat(sx * W * 0.45, 0, sz * W * 0.45, (rng.next() - 0.5) * 0.04, 0, (rng.next() - 0.5) * 0.04), { tint: 0x8a6a48, aoWorld: groundAO(0.4) });
+    }
+  }
+  // Cross braces.
+  for (const sz of [-1, 1]) b.add('woodGrain', roundedBox(W * 1.05, 0.07, 0.05, 0.015, 1), mat(0, H * 0.5, sz * W * 0.45, 0, 0, 0.9), { tint: 0x7a5a3c });
+  // Deck + rails.
+  for (let i = 0; i < 5; i++) b.add('woodGrain', roundedBox(W + 0.1, 0.06, W / 5 - 0.02, 0.012, 1), mat(0, H, -W / 2 + (i + 0.5) * (W / 5), 0, (rng.next() - 0.5) * 0.03, 0), { tint: [0xa8845a, 0x9a7650, 0xb08c62][i % 3]! });
+  for (const [x, z, ry] of [[0, -W * 0.45, 0], [W * 0.45, 0, Math.PI / 2], [-W * 0.45, 0, Math.PI / 2]] as const) b.add('woodGrain', roundedBox(W * 0.95, 0.05, 0.05, 0.012, 1), mat(x, H + 0.55, z, 0, ry, 0), { tint: 0x8a6a48 });
+  // Ladder on the south face.
+  for (const sx of [-1, 1]) b.add('woodGrain', roundedBox(0.05, H + 0.2, 0.05, 0.01, 1), mat(sx * 0.2, H / 2 - 0.05, W * 0.55, 0.12, 0, 0), { tint: 0x8a6a48 });
+  for (let k = 0; k < 5; k++) b.add('woodGrain', roundedBox(0.42, 0.04, 0.04, 0.008, 1), mat(0, 0.25 + k * 0.3, W * 0.55 + 0.03 - k * 0.035, 0, 0, 0), { tint: 0x9a7650 });
+  // Pennant on a pole from the north-east corner.
+  b.add('woodGrain', bevelCylinder(0.025, 0.03, 1.3, 0.006, 5), mat(W * 0.45, H + 0.9, -W * 0.45), { tint: 0x7a5a3c });
+  const fl = new THREE.Shape();
+  fl.moveTo(0, 0);
+  fl.lineTo(0.5, -0.1);
+  fl.lineTo(0, -0.26);
+  fl.closePath();
+  b.add('cloth', new THREE.ShapeGeometry(fl), mat(W * 0.45 + 0.02, H + 2.15, -W * 0.45, 0, -0.4, 0), { tint: 0xd8573e });
+  return b.build({ name: 'maze-lookout' });
+}
+
 /** Start / finish gate for the sack race: two posts + a hanging banner ribbon. */
-export function buildRaceGate(rng: Rng, span: number, text: string, bg = '#2f6a8a'): THREE.Group {
+export function buildRaceGate(rng: Rng, span: number, text: string, bg = '#2f6a8a', endSign = false): THREE.Group {
   const b = new MeshBuilder();
   const H = 2.6;
   for (const sx of [-1, 1]) {
@@ -1511,7 +1743,18 @@ export function buildRaceGate(rng: Rng, span: number, text: string, bg = '#2f6a8
     tri.rotateX(Math.PI);
     b.add('cloth', tri, mat(p.x, p.y - 0.12, 0, 0, 0, 0, 1, 1, 0.12), { tint: FESTIVAL_COLORS[(i + rng.int(0, 5)) % FESTIVAL_COLORS.length]! });
   }
-  return b.build({ name: 'race-gate' });
+  // Race gates: an end board on the near (-x) post, square to a camera looking along the gate (the
+  // banner reads edge-on from the side of a race lane).
+  if (endSign) b.add('woodGrain', roundedBox(0.06, 0.62, 1.5, 0.02), mat(-span / 2 - 0.1, H + 0.12, 0), { tint: 0x7a5232 });
+  const g = b.build({ name: 'race-gate' });
+  if (!endSign) return g;
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.36, 0.5), bannerMaterial(text, bg, '#fff4d8', 640, 236));
+  sign.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(4 * 3).fill(1), 3));
+  sign.position.set(-span / 2 - 0.135, H + 0.12, 0);
+  sign.rotation.y = -Math.PI / 2;
+  sign.userData.noAO = true;
+  g.add(sign);
+  return g;
 }
 
 /** Apple-bobbing tub: barrel half, water, floating apples. */
@@ -1654,38 +1897,35 @@ export function buildStarTree(rng: Rng, H = 11): { group: THREE.Group; lights: T
       pts.push(new THREE.Vector3(Math.cos(a) * r, yy - dip, Math.sin(a) * r));
     }
     const curve = new THREE.CatmullRomCurve3(pts);
-    b.add(M.bauble, new THREE.TubeGeometry(curve, 220, 0.016, 4, false), undefined, { tint: 0xe8eef8 });
+    // (r8) A warm garland, not a string of ice-blue glass: a fat gold-tinsel rope with warm fairy
+    // bulbs along it — the critic read the old comet tails as thorns.
+    b.add(M.bauble, new THREE.TubeGeometry(curve, 220, 0.045, 6, false), undefined, { tint: phase > 3 ? 0xb8302a : 0xd8a440 });
     const L = curve.getLength();
-    const nb = Math.floor(L / 0.19);
+    const nb = Math.floor(L / 0.26);
     for (let i = 0; i < nb; i++) {
       const u = i / nb;
       const q = curve.getPointAt(u);
-      const rad = THREE.MathUtils.lerp(0.105, 0.03, Math.pow(u, 0.7));
-      const tint = new THREE.Color(0xfff2c8).lerp(new THREE.Color(0x9ad8ff), THREE.MathUtils.smoothstep(u, 0.1, 0.75)).getHex();
-      b.add(M.bauble, new THREE.IcosahedronGeometry(rad, 1), mat(q.x, q.y, q.z), { tint });
-      if (i % 3 === 0 && u < 0.8) lights.push(q.clone().multiplyScalar(1.03).setY(q.y));
+      const rad = 0.055;
+      b.add(M.bauble, new THREE.IcosahedronGeometry(rad, 1), mat(q.x, q.y + 0.03, q.z), { tint: i % 4 === 0 ? 0xffc890 : 0xfff0c8 });
+      if (i % 3 === 0 && u < 0.85) lights.push(q.clone().multiplyScalar(1.03).setY(q.y));
     }
   };
   for (let k = 0; k < 5; k++) comet((k / 5) * Math.PI * 2 + 0.3, 0.95 + (k % 2) * 0.2, H - 1.9, base + 1.0 + (k % 3) * 0.9);
-  // Falling-star glass ornaments at the bough tips: a glass star-head with a tapering comet tail
-  // flaring up and back (ice, pearl, gold, lilac, teal) — no generic round baubles.
-  const colors = [0xbfe8ff, 0xf2d27a, 0xd8c8ff, 0xfff4e0, 0x7ad0e8, 0xf2d27a, 0xbfe8ff];
-  const up = new THREE.Vector3(0, 1, 0);
+  // Round glass baubles hanging just under the bough tips (deep red, gold, cobalt, pearl, plum, a
+  // little gilt cap each). (r8: the comet-tailed glass ornaments read as icicles / thorns.)
+  const colors = [0xc8302a, 0xf2c84a, 0x2f62b8, 0xf4ece0, 0x8a3a8a, 0xd8a030, 0xb8302a];
   for (const [ti, tr] of tierList.entries()) {
     const k = Math.round(3 + tr.R * 2.6);
     for (let i = 0; i < k; i++) {
       const a = (i / k) * Math.PI * 2 + ti * 0.9 + rng.next() * 0.3;
       const r = tr.R * (0.9 + rng.next() * 0.08);
       const p = new THREE.Vector3(Math.cos(a) * r, tr.y + tr.th * 0.08 - rng.next() * 0.1, Math.sin(a) * r);
-      const c = colors[(i + ti) % colors.length]!;
-      const rad = 0.11 + rng.next() * 0.04 + (ti < 3 ? 0.03 : 0);
-      b.add(M.bauble, new THREE.IcosahedronGeometry(rad, 2), mat(p.x, p.y, p.z), { tint: c });
-      // The tail: a slim glass cone streaming up-and-out behind the head.
-      const tail = new THREE.ConeGeometry(rad * 0.72, rad * 3.4, 8, 1, false);
-      tail.translate(0, rad * 1.7, 0);
-      const dir = new THREE.Vector3(Math.cos(a) * 0.55, 1, Math.sin(a) * 0.55).normalize();
-      const q = new THREE.Quaternion().setFromUnitVectors(up, dir);
-      b.add(M.bauble, tail, new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)), { tint: new THREE.Color(c).lerp(new THREE.Color(0xffffff), 0.35).getHex() });
+      const c = colors[(i * 3 + ti) % colors.length]!;
+      const rad = 0.15 + rng.next() * 0.05 + (ti < 3 ? 0.04 : 0);
+      p.y -= rad * 0.9;
+      b.add(M.bauble, new THREE.SphereGeometry(rad, 14, 10), mat(p.x, p.y, p.z), { tint: c });
+      b.add(M.bauble, new THREE.CylinderGeometry(rad * 0.28, rad * 0.32, rad * 0.32, 8), mat(p.x, p.y + rad * 1.02, p.z), { tint: 0xe8c060 });
+      b.add(M.bauble, new THREE.TorusGeometry(rad * 0.16, rad * 0.05, 4, 8), mat(p.x, p.y + rad * 1.28, p.z), { tint: 0xe8c060 });
       baubles.push({ p, c });
     }
   }
@@ -2123,4 +2363,217 @@ export function buildBanquetTable(rng: Rng, len = 4.2, season: 'spring' | 'fall'
     dishes[order[k]!]!(x, (k % 2 ? 0.14 : -0.14) + (rng.next() - 0.5) * 0.05);
   }
   return b.build({ name: `banquet-${season}` });
+}
+
+/**
+ * Tide night's wish table: a driftwood trestle where villagers write a wish on a paper slip and
+ * fold it into a toro lantern before carrying it down to the water. Bleached planks on X trestles,
+ * flat-packed lanterns, two lit toro lanterns (paper over a dark frame), a candle tray, a stack of
+ * wish slips with an ink pot + brush, a basket of more lanterns, and a line of written wishes strung
+ * between two bamboo canes behind it (each slip a different paper colour) — a thing to *do*.
+ * Returns the lit lanterns' glow anchors (prop space) for halo sprites.
+ */
+export function buildWishTable(rng: Rng): { group: THREE.Group; glows: THREE.Vector3[] } {
+  const b = new MeshBuilder();
+  const W = 1.9;
+  const D = 0.72;
+  const H = 0.74;
+  const drift = (k: number): number => [0xbcae98, 0xc8bba4, 0xa89c88, 0xb4a690][k % 4]!;
+  // Top: three bleached planks with gaps + a little warp.
+  for (let i = 0; i < 3; i++) {
+    const z = -D / 2 + (i + 0.5) * (D / 3);
+    b.add('woodGrain', roundedBox(W + (rng.next() - 0.5) * 0.08, 0.05, D / 3 - 0.025, 0.015), mat((rng.next() - 0.5) * 0.04, H, z, (rng.next() - 0.5) * 0.02, (rng.next() - 0.5) * 0.02, 0), { tint: drift(i) });
+  }
+  // X trestles (two crossed driftwood limbs each end) + a stretcher.
+  for (const sx of [-1, 1]) {
+    for (const s of [-1, 1]) {
+      const leg = bevelCylinder(0.035, 0.045, H * 1.12, 0.01, 6);
+      b.add('woodGrain', leg, mat(sx * (W / 2 - 0.22), H * 0.5, 0, s * 0.42, 0, 0), { tint: drift(2 + (s > 0 ? 1 : 0)), aoWorld: groundAO(0.25) });
+    }
+  }
+  b.add('woodGrain', bevelCylinder(0.03, 0.03, W - 0.4, 0.01, 6), mat(0, H * 0.42, 0, 0, 0, Math.PI / 2), { tint: drift(1) });
+  // A linen runner down the middle (the work surface reads pale in the lantern light).
+  b.add('cloth', roundedBox(W - 0.3, 0.012, D * 0.62, 0.004, 1), mat(0, H + 0.03, 0), { tint: 0xf2e8d6 });
+  for (const sx of [-1, 1]) b.add('cloth', roundedBox(0.012, 0.16, D * 0.62, 0.004, 1), mat(sx * (W / 2 - 0.15), H - 0.05, 0), { tint: 0xe8dcc6 });
+  // Flat-packed paper lanterns waiting to be folded (a loose fan of white / rose / pale gold sheets).
+  for (let i = 0; i < 5; i++) {
+    b.add('white', roundedBox(0.28, 0.012, 0.28, 0.004, 1), mat(-0.62 + i * 0.02, H + 0.035 + i * 0.013, -0.08 + (i % 2) * 0.03, 0, 0.25 * i - 0.4, 0), { tint: [0xf6eedc, 0xf6d6dc, 0xf6e6b8][i % 3]! });
+  }
+  // Two finished toro lanterns, lit: a paper box in a dark frame on a raft tray.
+  const glows: THREE.Vector3[] = [];
+  for (const [x, z, ry, tint] of [[0.18, -0.12, 0.3, 0xd89a58], [0.56, 0.1, -0.2, 0xd88a6a]] as const) {
+    const y = H + 0.03;
+    b.add('woodDark', roundedBox(0.3, 0.04, 0.3, 0.01, 1), mat(x, y + 0.02, z, 0, ry, 0), { tint: 0x4a2a16 });
+    b.add('paperLantern', roundedBox(0.24, 0.28, 0.24, 0.02, 1), mat(x, y + 0.19, z, 0, ry, 0), { tint });
+    for (const [px, pz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+      const c = Math.cos(ry);
+      const s = Math.sin(ry);
+      const lx = px * 0.125;
+      const lz = pz * 0.125;
+      b.add('woodDark', roundedBox(0.025, 0.31, 0.025, 0.006, 1), mat(x + lx * c + lz * s, y + 0.19, z - lx * s + lz * c, 0, ry, 0), { tint: 0x3a2214 });
+    }
+    b.add('woodDark', new THREE.ConeGeometry(0.2, 0.07, 4, 1).rotateY(Math.PI / 4), mat(x, y + 0.37, z, 0, ry, 0), { tint: 0x3a2214 });
+    glows.push(new THREE.Vector3(x, y + 0.2, z));
+  }
+  // Candle tray: stubby candles on a tin plate.
+  b.add('metal', new THREE.CylinderGeometry(0.17, 0.17, 0.015, 14), mat(-0.15, H + 0.035, 0.2), { tint: 0x8a7a68 });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const h = 0.05 + rng.next() * 0.04;
+    b.add('white', new THREE.CylinderGeometry(0.022, 0.024, h, 7), mat(-0.15 + Math.cos(a) * 0.1, H + 0.04 + h / 2, 0.2 + Math.sin(a) * 0.08), { tint: 0xf6ecd4 });
+  }
+  // Wish slips, ink pot + brush.
+  for (let i = 0; i < 6; i++) b.add('white', roundedBox(0.1, 0.006, 0.17, 0.002, 1), mat(-0.4 + (rng.next() - 0.5) * 0.05, H + 0.033 + i * 0.006, 0.2 + (rng.next() - 0.5) * 0.04, 0, (rng.next() - 0.5) * 0.5, 0), { tint: 0xfbf4e4 });
+  b.add('white', new THREE.CylinderGeometry(0.035, 0.04, 0.05, 10), mat(-0.24, H + 0.055, 0.27), { tint: 0x23262e });
+  b.add('woodGrain', bevelCylinder(0.007, 0.006, 0.2, 0.002, 5), mat(-0.27, H + 0.06, 0.2, 0, 0.3, 1.45), { tint: 0xc8a060 });
+  // A basket of folded lanterns at the trestle foot.
+  b.add('thatch', new THREE.CylinderGeometry(0.24, 0.19, 0.26, 12, 1, true), mat(-W / 2 - 0.05, 0.13, 0.32), { tint: 0xc89858, aoWorld: groundAO(0.2) });
+  b.add('thatch', new THREE.TorusGeometry(0.235, 0.025, 4, 14), mat(-W / 2 - 0.05, 0.26, 0.32, Math.PI / 2, 0, 0), { tint: 0xa87a44 });
+  for (let i = 0; i < 4; i++) {
+    const a = i * 1.7;
+    b.add('paperLantern', roundedBox(0.15, 0.17, 0.15, 0.015, 1), mat(-W / 2 - 0.05 + Math.cos(a) * 0.09, 0.3 + (i % 2) * 0.03, 0.32 + Math.sin(a) * 0.08, 0.2 * (i - 1.5), a, 0.15), { tint: [0xb8806a, 0xc89a5a, 0xb07888, 0xc8a070][i]! });
+  }
+  // The wish line: two bamboo canes behind the table and a sagging string of written slips.
+  // (Strung well above head height: the slips never cross a face.)
+  const pA = new THREE.Vector3(-W / 2 + 0.05, 2.5, -D / 2 - 0.25);
+  const pB = new THREE.Vector3(W / 2 - 0.05, 2.4, -D / 2 - 0.25);
+  for (const p of [pA, pB]) {
+    b.add('woodGrain', bevelCylinder(0.025, 0.03, p.y + 0.15, 0.008, 6), mat(p.x, (p.y + 0.15) / 2 - 0.1, p.z), { tint: 0xb8a060, aoWorld: groundAO(0.2) });
+    for (let k = 1; k < 4; k++) b.add('woodGrain', new THREE.TorusGeometry(0.03, 0.006, 3, 8), mat(p.x, k * 0.5, p.z, Math.PI / 2, 0, 0), { tint: 0x8a7040 });
+  }
+  // (r8) The canes read as bare black debug sticks at night: each now carries a lit paper lantern
+  // at its tip, the cord is a real twine catenary, the slips are bigger and two more little lanterns
+  // hang along the line (all glow anchors).
+  const tmp = new THREE.Vector3();
+  const N = 9;
+  const cord: THREE.Vector3[] = [];
+  for (let i = 0; i <= 24; i++) cord.push(catenary(pA, pB, 0.22, i / 24, new THREE.Vector3()).clone());
+  b.add('white', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(cord), 24, 0.012, 4, false), undefined, { tint: 0xd8c8a0 });
+  const slip = [0xfbf4e4, 0xf6d6dc, 0xf6e6b8, 0xd8ecf0, 0xe8dcf4];
+  for (let i = 0; i < N; i++) {
+    catenary(pA, pB, 0.22, (i + 0.5) / N, tmp);
+    if (i === 2 || i === 6) {
+      b.add('paperLantern', roundedBox(0.16, 0.2, 0.16, 0.03, 1), mat(tmp.x, tmp.y - 0.16, tmp.z), { tint: 0xf0a860 });
+      glows.push(new THREE.Vector3(tmp.x, tmp.y - 0.16, tmp.z));
+      continue;
+    }
+    const h = 0.22 + rng.next() * 0.08;
+    b.add('white', roundedBox(0.11, h, 0.006, 0.003, 1), mat(tmp.x, tmp.y - h / 2 - 0.01, tmp.z, 0, (rng.next() - 0.5) * 0.6, (rng.next() - 0.5) * 0.15), { tint: slip[i % slip.length]! });
+  }
+  for (const p of [pA, pB]) {
+    b.add('paperLantern', roundedBox(0.24, 0.3, 0.24, 0.05, 2), mat(p.x, p.y + 0.3, p.z), { tint: 0xf2b060 });
+    b.add('woodGrain', new THREE.CylinderGeometry(0.1, 0.1, 0.03, 8), mat(p.x, p.y + 0.46, p.z), { tint: 0x3a2a1e });
+    b.add('woodGrain', new THREE.CylinderGeometry(0.09, 0.09, 0.03, 8), mat(p.x, p.y + 0.14, p.z), { tint: 0x3a2a1e });
+    glows.push(new THREE.Vector3(p.x, p.y + 0.3, p.z));
+  }
+  return { group: b.build({ name: 'wish-table' }), glows };
+}
+
+/**
+ * A beach snack cart (grilled corn + sweet skewers): a painted box cart on two spoked wheels with a
+ * striped canopy on thin poles, a charcoal grill glowing on top (corn cobs + skewers on the bars),
+ * a slate menu board, two paper lanterns from the canopy corners. Returns the grill (for smoke) and
+ * the lanterns' glow anchors.
+ */
+export function buildSnackCart(rng: Rng, stripes: [number, number] = [0xd8573e, 0xf6efe2]): { group: THREE.Group; grill: THREE.Vector3; glows: THREE.Vector3[] } {
+  const b = new MeshBuilder();
+  const W = 1.5;
+  const D = 0.8;
+  // Body: teal painted planks with a cream trim band.
+  b.add('woodPaint', roundedBox(W, 0.62, D, 0.04), mat(0, 0.62, 0), { tint: 0x2f7a7a, aoWorld: groundAO(0.4) });
+  b.add('woodPaint', roundedBox(W + 0.04, 0.08, D + 0.04, 0.02), mat(0, 0.36, 0), { tint: 0xf2e6c8 });
+  for (let i = 0; i < 5; i++) b.add('woodPaint', roundedBox(0.012, 0.5, 0.01, 0.004, 1), mat(-W / 2 + 0.15 + i * 0.3, 0.66, D / 2 + 0.005), { tint: 0x245e5e });
+  b.add('woodGrain', roundedBox(W + 0.12, 0.05, D + 0.12, 0.02), mat(0, 0.95, 0), { tint: 0xc8a07a });
+  // Wheels + axle + handles.
+  for (const sz of [-1, 1]) {
+    const z = sz * (D / 2 + 0.04);
+    b.add('woodGrain', new THREE.TorusGeometry(0.28, 0.035, 5, 16), mat(0.15, 0.3, z), { tint: 0x6a4a2e });
+    for (let k = 0; k < 6; k++) b.add('woodGrain', roundedBox(0.025, 0.52, 0.02, 0.006, 1), mat(0.15, 0.3, z, 0, 0, (k / 6) * Math.PI), { tint: 0x7a5434 });
+    b.add('woodGrain', new THREE.SphereGeometry(0.05, 8, 6), mat(0.15, 0.3, z), { tint: 0x4a3420 });
+    b.add('woodGrain', bevelCylinder(0.02, 0.02, 0.7, 0.005, 6), mat(-W / 2 - 0.3, 0.72, sz * 0.25, 0, 0, Math.PI / 2 - 0.2), { tint: 0x8a6440 });
+  }
+  // Grill: an iron trough with glowing coals, bars, corn cobs + skewers.
+  b.add('metal', roundedBox(0.75, 0.16, 0.42, 0.03), mat(-0.25, 1.06, 0), { tint: 0x2e2a28 });
+  for (let i = 0; i < 9; i++) b.add('lampGlow', lumpySphere(0.045, 0, 0.3, rng, 2), mat(-0.55 + i * 0.075, 1.13, -0.1 + (i % 3) * 0.1), { tint: [0xff6a2a, 0xffa040, 0xd84a1a][i % 3]! });
+  for (let i = 0; i < 6; i++) b.add('metal', bevelCylinder(0.006, 0.006, 0.42, 0.002, 4), mat(-0.55 + i * 0.12, 1.16, 0, Math.PI / 2, 0, 0), { tint: 0x5a5450 });
+  for (let i = 0; i < 3; i++) {
+    const cob = lumpySphere(0.05, 1, 0.12, rng, 4);
+    cob.scale(1, 1, 2.6);
+    b.add('white', cob, mat(-0.48 + i * 0.16, 1.2, 0.02, 0, 0.1 * (i - 1), 0), { tint: [0xf2c43a, 0xe8b030, 0xd89a28][i]! });
+  }
+  for (let i = 0; i < 3; i++) {
+    b.add('woodGrain', bevelCylinder(0.005, 0.005, 0.38, 0.002, 4), mat(0.0 + i * 0.05, 1.21, 0, Math.PI / 2, 0.2, 0), { tint: 0xd8c098 });
+    for (let k = 0; k < 3; k++) b.add('white', lumpySphere(0.03, 0, 0.25, rng, 2), mat(0.0 + i * 0.05, 1.21, -0.1 + k * 0.08), { tint: [0xe86a7a, 0xf2a85a, 0x8ac06a][(i + k) % 3]! });
+  }
+  // Paper cups + a jar of sweets on the counter.
+  for (let i = 0; i < 4; i++) b.add('white', new THREE.CylinderGeometry(0.04, 0.03, 0.09, 8), mat(0.32 + (i % 2) * 0.1, 1.02, -0.12 + Math.floor(i / 2) * 0.12), { tint: [0xf6ecd8, 0xf6d6dc][i % 2]! });
+  b.add('glass', new THREE.CylinderGeometry(0.07, 0.07, 0.18, 10), mat(0.58, 1.06, 0.12), { tint: 0xd8e8f0 });
+  // Canopy: four thin poles + a striped pitched cloth top with a scalloped valance.
+  const ch = 2.15;
+  for (const [px, pz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) b.add('woodGrain', bevelCylinder(0.022, 0.022, ch - 0.95, 0.005, 6), mat(px * (W / 2 - 0.03), 0.95 + (ch - 0.95) / 2, pz * (D / 2 - 0.03)), { tint: 0xe8dcc8 });
+  const n = 7;
+  for (let i = 0; i < n; i++) {
+    const x = -W / 2 - 0.1 + (i + 0.5) * ((W + 0.2) / n);
+    for (const s of [-1, 1]) b.add('cloth', roundedBox((W + 0.2) / n + 0.004, 0.025, D * 0.62, 0.01, 1), mat(x, ch + 0.1, s * D * 0.28, s * 0.32, 0, 0), { tint: stripes[i % 2]! });
+    for (const s of [-1, 1]) b.add('cloth', new THREE.SphereGeometry((W + 0.2) / n / 2, 8, 3, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2).scale(1, 0.55, 0.25), mat(x, ch - 0.06, s * (D * 0.56 + 0.02)), { tint: stripes[(i + 1) % 2]! });
+  }
+  // Slate menu board leaning on the front.
+  b.add('woodGrain', roundedBox(0.42, 0.52, 0.03, 0.01), mat(W / 2 + 0.28, 0.27, D / 2 - 0.05, -0.18, -0.5, 0), { tint: 0x6a4a2e });
+  b.add('white', roundedBox(0.36, 0.44, 0.012, 0.005, 1), mat(W / 2 + 0.285, 0.275, D / 2 - 0.03, -0.18, -0.5, 0), { tint: 0x2a3030 });
+  for (let i = 0; i < 4; i++) b.add('white', roundedBox(0.24 - (i % 2) * 0.08, 0.018, 0.004, 0.002, 1), mat(W / 2 + 0.29 + 0.0, 0.4 - i * 0.08, D / 2 - 0.018 + i * 0.01, -0.18, -0.5, 0), { tint: 0xf2ecdc });
+  // Two lanterns hanging from the front canopy corners.
+  const glows: THREE.Vector3[] = [];
+  for (const sx of [-1, 1]) {
+    const x = sx * (W / 2 - 0.03);
+    const z = D / 2 + 0.05;
+    b.add('white', bevelCylinder(0.004, 0.004, 0.22, 0.001, 3), mat(x, ch - 0.2, z), { tint: 0x3a2a1e });
+    const lan = new THREE.SphereGeometry(0.13, 10, 8);
+    lan.scale(1, 1.25, 1);
+    b.add('paperLantern', lan, mat(x, ch - 0.45, z), { tint: sx < 0 ? 0xd88a5a : 0xd8a058 });
+    b.add('woodDark', new THREE.CylinderGeometry(0.07, 0.08, 0.04, 8), mat(x, ch - 0.29, z), { tint: 0x3a2214 });
+    b.add('woodDark', new THREE.CylinderGeometry(0.08, 0.07, 0.04, 8), mat(x, ch - 0.61, z), { tint: 0x3a2214 });
+    glows.push(new THREE.Vector3(x, ch - 0.45, z));
+  }
+  return { group: b.build({ name: 'snack-cart' }), grill: new THREE.Vector3(-0.25, 1.25, 0), glows };
+}
+
+/**
+ * A burlap racing sack (open lathe): a full rounded foot where both feet stand, a bulge at the
+ * shins, drawn in at the knees, then up to a gathered, slightly flared rim at chest height that the
+ * racer clutches with both hands; loose vertical creases + a sag on one side so it reads as cloth
+ * (not a bucket). Origin at the ground, `h` tall.
+ */
+export function sackGeometry(rng: Rng, r = 0.3, h = 0.82): THREE.BufferGeometry {
+  const prof: [number, number][] = [
+    [0.0, 0.0],
+    [0.62, 0.0],
+    [0.92, 0.04],
+    [1.03, 0.12],
+    [1.06, 0.24],
+    [0.98, 0.38],
+    [0.88, 0.5],
+    [0.9, 0.66],
+    [0.96, 0.82],
+    [1.02, 0.92],
+    [1.08, 0.98],
+    [1.04, 1.0],
+  ];
+  const pts = prof.map(([x, y]) => new THREE.Vector2(x * r, y * h));
+  const g = new THREE.LatheGeometry(pts, 16);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const ph = rng.next() * 6.28;
+  const sag = rng.next() * 6.28;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const a = Math.atan2(z, x);
+    const v = y / h;
+    // Creases deepen toward the gathered rim; one side slumps a little lower.
+    const crease = 1 + (0.035 + 0.06 * v * v) * Math.sin(a * 7 + ph + v * 2.2) + 0.03 * Math.sin(a * 3 - ph);
+    const slump = v > 0.85 ? -0.05 * h * (0.5 + 0.5 * Math.cos(a - sag)) : 0;
+    pos.setXYZ(i, x * crease, y + slump, z * crease);
+  }
+  g.computeVertexNormals();
+  return g;
 }

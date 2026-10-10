@@ -96,6 +96,8 @@ export const NEW_BUILDINGS: NewBuilding[] = [
 ];
 
 export type ExtraPropKind =
+  | 'scaffold'
+  | 'hallBanner'
   | 'stall'
   | 'lamp'
   | 'lampLit'
@@ -128,7 +130,9 @@ export type ExtraPropKind =
   | 'wheelbarrow'
   | 'flowerCart'
   | 'bicycle'
-  | 'flowerRing';
+  | 'flowerRing'
+  | 'picnic'
+  | 'wildflowers';
 
 export interface ExtraProp {
   kind: ExtraPropKind;
@@ -147,6 +151,13 @@ export interface ExtraProp {
 }
 
 export const EXTRA_PROPS: ExtraProp[] = [
+  // Lantern Hall under restoration (r6 critic: the boarded windows read as a derelict ruin in every
+  // square shot): a timber scaffold with a tarp and the townsfolk's paint pots over the west window
+  // — story, not neglect.
+  { kind: 'scaffold', x: 28.67, z: 12.5, rot: 0, solid: [[27, 12], [28, 12], [29, 12]] },
+  // …and over the east window a 'Relight the Hall' banner (r7 blind judge: the boards' red X read as
+  // a placeholder / error marker).
+  { kind: 'hallBanner', x: 35.33, z: 11.95, rot: 0, noShadow: true },
   // Market row on the east road.
   { kind: 'stall', x: 50.4, z: 21.3, rot: 0, goods: 'produce', colors: [0xd8573e, 0xf6ecd8], solid: [[49, 21], [50, 21], [51, 21]] },
   { kind: 'stall', x: 55.8, z: 21.5, rot: 0.08, goods: 'flowers', colors: [0x8a5ab0, 0xf6ecd8], solid: [[54, 21], [55, 21], [56, 21]] },
@@ -170,7 +181,7 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'dock', x: 62.6, z: 36.6, rot: Math.PI },
   { kind: 'rowboat', x: 62.9, z: 39.6, rot: 0.5 },
   // Turned to the south-west: the painter works from its left, so her face and the canvas share a view.
-  { kind: 'easel', x: 60.25, z: 20.95, rot: -Math.PI / 2 + 0.75, solid: [[60, 20]] },
+  { kind: 'easel', x: 60.45, z: 22.15, rot: 0.7 - Math.PI, solid: [[60, 22]] },
   { kind: 'easel', x: 26.5, z: 23.2, rot: -1.83 },
   // Forge yard.
   { kind: 'barrel', x: 81.6, z: 18.8, solid: [[81, 18]] },
@@ -209,7 +220,7 @@ export const EXTRA_PROPS: ExtraProp[] = [
   // Meadow Lane: the schoolyard (swing, bench, chalk board), lamps along the lane.
   { kind: 'swing', x: 20.6, z: 46.2, rot: -0.25 },
   { kind: 'bench', x: 10.2, z: 49.4, rot: Math.PI / 2 - 0.2, solid: [[10, 49]] },
-  { kind: 'chalkBoard', x: 17.6, z: 50.0, rot: 0.25, colors: [0x2f4a3e] },
+  { kind: 'chalkBoard', x: 17.6, z: 50.0, rot: 0.25, colors: [0x56786a] },
   { kind: 'flowerPot', x: 13.4, z: 49.3, colors: [0xff8fab] },
   { kind: 'flowerPot', x: 17.0, z: 49.3, colors: [0xffd166] },
   { kind: 'lampLit', x: 24.8, z: 48.2, rot: -Math.PI / 2, solid: [[24, 48]] },
@@ -253,12 +264,17 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'flowerPot', x: 39.7, z: 27.9, colors: [0xff8fab] },
   { kind: 'barrel', x: 40.1, z: 26.7, solid: [[40, 26]] },
   { kind: 'laundry', x: 47.6, z: 28.4, rot: 0.08 },
+  // r5: the bare cobble south of the fountain — a flower cart on the east side, a crate + sack drop
+  // on the west (deliveries for the store).
+  { kind: 'flowerCart', x: 39.8, z: 30.7, rot: -0.35, solid: [[39, 30], [40, 30]] },
+  { kind: 'crates', x: 23.9, z: 29.7, rot: 0.5, solid: [[23, 29]] },
+  { kind: 'sacks', x: 24.9, z: 30.5, rot: -0.3 },
   // Market row odds and ends.
   { kind: 'flowerPot', x: 54.2, z: 20.4, colors: [0xffd166] },
   { kind: 'flowerPot', x: 57.2, z: 20.5, colors: [0xc77dff] },
   { kind: 'sacks', x: 49.1, z: 29.9, rot: 0.2 },
   { kind: 'produce', x: 55.9, z: 29.9, rot: 0.3 },
-  { kind: 'sandwichBoard', x: 51.8, z: 23.9, rot: -0.4, colors: [0x2f4a3e] },
+  { kind: 'sandwichBoard', x: 51.8, z: 23.9, rot: -0.4, colors: [0x56786a] },
   // Copper Kettle terrace + clinic lane.
   { kind: 'flowerPot', x: 78.4, z: 32.6, colors: [0xff8fab] },
   { kind: 'flowerPot', x: 81.6, z: 32.6, colors: [0xffd166] },
@@ -271,10 +287,11 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'flowerPot', x: 26.9, z: 34.2, colors: [0xc77dff] },
   { kind: 'flowerPot', x: 24.4, z: 34.3, colors: [0xffd166] },
   { kind: 'beehive', x: 20.8, z: 34.6, rot: 0.25, solid: [[20, 34]] },
-  { kind: 'cafeSet', x: 40.2, z: 34.6, rot: 0.3, solid: [[40, 34]] },
+  // (r13 critic: this parasol sat blown out in town-day's near foreground) — a low picnic instead
+  { kind: 'picnic', x: 40.4, z: 34.9, rot: 0.3, colors: [0x4a8ac0] },
   { kind: 'planter', x: 43.2, z: 35.8, colors: [0xffffff, 0xc77dff, 0xff8fab], solid: [[43, 35]] },
   { kind: 'flowerPot', x: 38.9, z: 36.1, colors: [0xff7aa2] },
-  { kind: 'sandwichBoard', x: 35.4, z: 36.6, rot: -0.3, colors: [0x2f4a3e] },
+  { kind: 'sandwichBoard', x: 35.4, z: 36.6, rot: -0.3, colors: [0x56786a] },
   // Meadow Lane allotment (south lawn): fenced raised beds, a wheelbarrow, hives and pots, so the
   // south view has a lived-in foreground instead of bare lawn under tree blobs.
   { kind: 'vegBed', x: 27.4, z: 54.6, rot: 0, solid: [[26, 54], [27, 54], [28, 54]] },
@@ -288,6 +305,18 @@ export const EXTRA_PROPS: ExtraProp[] = [
   { kind: 'flowerPot', x: 24.1, z: 53.6, colors: [0xff7aa2] },
   { kind: 'sacks', x: 30.2, z: 56.4, rot: 0.4 },
   { kind: 'crates', x: 41.6, z: 54.2, rot: -0.3, solid: [[41, 54]] },
+  // Round 3: a picnic + meadow clumps on the open south lawn, roses by the lane, stepping life
+  // into the bare green between the allotment and the orchard trees.
+  { kind: 'picnic', x: 33.2, z: 55.7, rot: 0.35, colors: [0xd8573e] },
+  { kind: 'wildflowers', x: 22.2, z: 55.8, colors: [0xff8fab, 0xffffff, 0xc77dff] },
+  { kind: 'wildflowers', x: 43.6, z: 57.0, colors: [0xffd166, 0xffffff, 0xff7aa2] },
+  { kind: 'wildflowers', x: 19.0, z: 52.9, colors: [0xc77dff, 0xffffff] },
+  { kind: 'wildflowers', x: 38.6, z: 52.9, colors: [0xff8fab, 0xffd166] },
+  { kind: 'wildflowers', x: 46.2, z: 53.4, colors: [0xffffff, 0xc77dff, 0xff8fab] },
+  { kind: 'flowerPot', x: 29.6, z: 53.4, colors: [0xffd166] },
+  { kind: 'wildflowers', x: 25.0, z: 37.6, colors: [0xff8fab, 0xffffff] },
+  { kind: 'wildflowers', x: 41.6, z: 39.0, colors: [0xc77dff, 0xffd166] },
+  { kind: 'picnic', x: 58.4, z: 41.2, rot: -0.5, colors: [0x3f7fb0] },
 ];
 
 /** Extra trees: [species, x, z, scale]. */
@@ -328,13 +357,19 @@ export const SPOTS: Record<string, [number, number, Facing | number]> = {
   fountain_s: [32.6, 28.5, 'down'],
   bench_sw: [27.4, 28.9, Math.PI * 0.8],
   bench_se: [36.6, 28.9, -Math.PI * 0.8],
-  hall_steps: [32.0, 13.8, 'down'],
+  hall_steps: [32.0, 14.75, 'down'], // (r6b: clear of the Hall's landing slabs, z 12.7–14.15)
   hall_lantern: [33.3, 14.3, 'up'],
   planters_hall: [28.6, 15.3, 'up'],
   plaza_play: [36.4, 32.4, 'down'],
+  // r21: the lunch rush north of the fountain (in the plaza lens's middle, not in front of the toolbar)
+  plaza_lunch: [31.2, 20.6, 'down'],
+  plaza_hop: [36.8, 21.6, 'down'],
+  // (Rowan's lunchtime chat partner spot: up-right of Marigold at fountain_w, not stacked behind her)
+  fountain_wn: [29.7, 23.9, 'left'],
   market_produce: [50.4, 23.1, 'up'],
   market_flowers: [55.6, 23.2, 'up'],
-  easel_river: [59.6, 21.6, 2.32],
+  // (facing south-east over the river to the Kettle Bridge — what she paints, and towards the lens)
+  easel_river: [59.9, 21.5, 0.7],
   easel_plaza: [25.4, 22.9, 1.3],
   bridge_mid: [64.4, 26.25, 'down'],
   river_dock: [61.3, 36.6, 'right'],
@@ -348,6 +383,7 @@ export const SPOTS: Record<string, [number, number, Facing | number]> = {
   school_yard: [19.4, 48.4, 'down'],
   school_bench: [10.9, 49.5, Math.PI / 2 - 0.2],
   veg_garden: [49.6, 46.6, 'right'],
+  allotment: [30.1, 55.5, 'left'],
 };
 
 /** Town camera bounds (look-target clamp). */
@@ -358,7 +394,7 @@ const PLAZA_C = { x: 32, z: 25, r: 7.6 };
 const post = (deg: number): [number, number] => [PLAZA_C.x + Math.cos((deg * Math.PI) / 180) * PLAZA_C.r, PLAZA_C.z + Math.sin((deg * Math.PI) / 180) * PLAZA_C.r];
 const [SE, SW, NW, NE] = [post(30), post(150), post(210), post(330)];
 /** Mast top on a plaza lamp post (m above ground). */
-const MAST = 3.05;
+const MAST = 3.45;
 /** Festoon pole top (m above ground). */
 const POLE = 3.3;
 
@@ -381,8 +417,10 @@ export const FESTOON_MASTS: [number, number][] = [SE, SW, NW, NE];
  */
 export const FESTOON_SPANS: { a: [number, number, number]; b: [number, number, number]; sag: number }[] = [
   // Across the plaza, north and south of the fountain (mast to mast, across the view).
-  { a: [NW[0], MAST, NW[1]], b: [NE[0], MAST, NE[1]], sag: 0.34 },
-  { a: [SE[0], MAST, SE[1]], b: [SW[0], MAST, SW[1]], sag: 0.34 },
+  // (r7: masts up 0.4 m, flatter sag — the lowest bulb sits ~3.2 m, well over the tallest head, so the
+  // wires stop slicing faces from the high lens)
+  { a: [NW[0], MAST, NW[1]], b: [NE[0], MAST, NE[1]], sag: 0.24 },
+  { a: [SE[0], MAST, SE[1]], b: [SW[0], MAST, SW[1]], sag: 0.24 },
   // Shop-front corners (under the eaves) out to the north masts.
   { a: [24.35, 3.2, 18.45], b: [NW[0], MAST, NW[1]], sag: 0.14 },
   { a: [39.65, 3.15, 18.45], b: [NE[0], MAST, NE[1]], sag: 0.14 },
@@ -403,3 +441,79 @@ export const SNOWMEN: [number, number, number][] = [
   [36.1, 17.3, -0.35],
   [21.0, 49.2, 0.1],
 ];
+
+/**
+ * Street-edge set dressing for the south quarter (r6 critic: Meadow Lane was hero buildings on big
+ * flat lawns): every ~2.3 m of lane frontage, alternating sides, a wildflower clump, a flower pot, a
+ * short picket run, a mailbox, a crate or barrel — kept off the lanes, building plots, schedule spots,
+ * trees and every other prop. Deterministic (pure data: co-op clients build the same town).
+ */
+function streetDressing(): ExtraProp[] {
+  let seed = 0x5eed;
+  const rnd = (): number => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const out: ExtraProp[] = [];
+  const taken: { x: number; z: number; r: number }[] = EXTRA_PROPS.map((p) => ({ x: p.x, z: p.z, r: p.kind === 'stall' || p.kind === 'picnic' ? 2 : p.kind === 'fence' || p.kind === 'hedge' || p.kind === 'vegBed' ? 1.8 : 1.1 }));
+  for (const t of EXTRA_TREES) taken.push({ x: t[1], z: t[2], r: 1.3 });
+  for (const s of Object.values(SPOTS)) taken.push({ x: s[0], z: s[1], r: 1.4 });
+  const segD = (x: number, z: number, a: [number, number], b: [number, number]): number => {
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1)));
+    return Math.hypot(x - (a[0] + dx * t), z - (a[1] + dz * t));
+  };
+  const onLane = (x: number, z: number): boolean => EXTRA_STREETS.some((s) => s.pts.some((p, i) => i > 0 && segD(x, z, s.pts[i - 1]!, p) < s.w + 0.45));
+  const inPlot = (x: number, z: number): boolean => NEW_BUILDINGS.some((b) => x > b.block[0] - 0.7 && x < b.block[2] + 1.7 && z > b.block[1] - 0.7 && z < b.block[3] + 1.7);
+  const lanes = EXTRA_STREETS.filter((s) => s.pts.reduce((m, p) => m + p[1], 0) / s.pts.length > 38 && s.pts.every((p) => p[0] < 56));
+  const POTS = [0xff8fab, 0xc77dff, 0xffd166, 0xf28a5a, 0x8ad0f8];
+  let side = 1;
+  for (const s of lanes) {
+    for (let i = 1; i < s.pts.length; i++) {
+      const a = s.pts[i - 1]!;
+      const b = s.pts[i]!;
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const ux = (b[0] - a[0]) / len;
+      const uz = (b[1] - a[1]) / len;
+      for (let d = 0.9; d < len - 0.5; d += 0.9 + rnd() * 0.5) {
+        side = -side;
+        // Two bands: the lane edge (pots, pickets, mailboxes) and a deeper verge of flower clumps.
+        const deep = rnd() < 0.4;
+        const off = s.w + (deep ? 2.3 + rnd() * 0.9 : 0.95 + rnd() * 0.35);
+        const x = a[0] + ux * d - uz * off * side;
+        const z = a[1] + uz * d + ux * off * side;
+        if (x < 4 || x > 56 || z > 58 || onLane(x, z) || inPlot(x, z) || taken.some((t) => Math.hypot(t.x - x, t.z - z) < t.r + 0.6)) continue;
+        const k = deep ? rnd() * 0.5 : rnd();
+        const rot = Math.atan2(ux, uz) + (rnd() - 0.5) * 0.4;
+        let p: ExtraProp;
+        if (k < 0.44) p = { kind: 'wildflowers', x, z, colors: [POTS[(rnd() * POTS.length) | 0]!, POTS[(rnd() * POTS.length) | 0]!], noShadow: true };
+        else if (k < 0.62) p = { kind: 'flowerPot', x, z, colors: [POTS[(rnd() * POTS.length) | 0]!], noShadow: true };
+        else if (k < 0.8) {
+          // A short picket run along the lane edge (gaps between runs: gardens open onto the lane).
+          const L = 1.6 + rnd() * 0.8;
+          p = { kind: 'fence', x, z, pts: [[-ux * L / 2, -uz * L / 2], [ux * L / 2, uz * L / 2]] };
+        } else if (k < 0.88) p = { kind: 'mailbox', x, z, rot: rot + (side > 0 ? Math.PI : 0), noShadow: true };
+        else if (k < 0.95) p = { kind: 'barrel', x, z, rot };
+        else p = { kind: 'crates', x, z, rot };
+        out.push(p);
+        taken.push({ x, z, r: p.kind === 'fence' ? 1.3 : 0.9 });
+      }
+    }
+  }
+  // The open south lawns get a few lived-in vignettes (a laundry line, a parked bicycle, a
+  // wheelbarrow by a flower clump, a log pile) instead of bare grass.
+  const VIGNETTES: ExtraProp[] = [
+    { kind: 'laundry', x: 15.4, z: 55.6, rot: 0.15 },
+    { kind: 'wheelbarrow', x: 11.8, z: 54.2, rot: 0.9 },
+    { kind: 'wildflowers', x: 13.0, z: 56.9, colors: [0xffd166, 0xff8fab], noShadow: true },
+    { kind: 'wildflowers', x: 19.6, z: 57.3, colors: [0xc77dff, 0xf2ece0], noShadow: true },
+    { kind: 'bicycle', x: 44.6, z: 53.0, rot: -0.3 },
+    { kind: 'logpile', x: 51.6, z: 55.4, rot: 0.2 },
+    { kind: 'wildflowers', x: 48.8, z: 57.0, colors: [0xff8fab, 0x8ad0f8], noShadow: true },
+    { kind: 'wildflowers', x: 54.0, z: 53.2, colors: [0xffd166, 0xf28a5a], noShadow: true },
+  ];
+  for (const v of VIGNETTES) if (!inPlot(v.x, v.z) && !onLane(v.x, v.z) && !taken.some((t) => Math.hypot(t.x - v.x, t.z - v.z) < t.r + 0.4)) {
+    out.push(v);
+    taken.push({ x: v.x, z: v.z, r: 1.4 });
+  }
+  return out;
+}
+EXTRA_PROPS.push(...streetDressing());

@@ -16,7 +16,7 @@
  */
 import { Rand } from './dsp';
 
-export type Species = 'robin' | 'finch' | 'warbler' | 'thrush' | 'wren' | 'chickadee' | 'dove' | 'owl' | 'gull' | 'cricket' | 'drip';
+export type Species = 'robin' | 'finch' | 'warbler' | 'thrush' | 'wren' | 'chickadee' | 'dove' | 'owl' | 'gull' | 'cricket' | 'drip' | 'frog' | 'bubble';
 
 interface Syl {
   dur: number;
@@ -167,15 +167,28 @@ function template(sp: Species, r: Rand, i: number): Syl {
       const f = r.range(4300, 5100);
       return { ...base, dur: 0.014, f0: f, f1: f * 0.99, h2: 0.2, h3: 0.05, fmRate: 200, fmDepth: 0.004, attack: 0.002, wet: 0.4, formant: 1, q: 4 };
     }
+    case 'frog': {
+      // A small pond frog's "rib-bit": a buzzy low carrier (rich 2nd/3rd harmonics) chopped by fast
+      // vocal-sac pulses (AM 45–75 Hz = the rasp), rising a little through the call, voiced through a
+      // throat formant ~1.2–1.8 kHz. Even entries are the "rib", odd the shorter, higher "bit".
+      const f = r.range(380, 520) * (i % 2 ? 1.12 : 1);
+      return { ...base, dur: i % 2 ? r.range(0.07, 0.1) : r.range(0.11, 0.16), f0: f, f1: f * r.range(1.08, 1.18), h2: r.range(0.7, 0.9), h3: r.range(0.45, 0.65), fmRate: r.range(20, 35), fmDepth: 0.02, trill: r.range(45, 75), attack: 0.008, formant: r.range(3, 3.6), q: 1.8, wet: 0.7, breath: 0.08 };
+    }
     case 'drip': {
       // A drop into a puddle: a bubble that glides slightly down and is gone in < 80 ms.
       const f = r.range(1400, 3600);
       return { ...base, dur: r.range(0.035, 0.07), f0: f, f1: f * r.range(0.8, 0.9), h2: 0.1, h3: 0.02, fmDepth: 0, attack: 0.0015, wet: 0.3, formant: 1, q: 1.5 };
     }
+    case 'bubble': {
+      // A brook's babble grain: a resonant bubble closing at the surface — pitch RISES fast through
+      // its short life (Minnaert resonance as the bubble shrinks), 300–1500 Hz, 20–55 ms.
+      const f = 300 * Math.pow(5, r.next());
+      return { ...base, dur: r.range(0.02, 0.055), f0: f, f1: f * r.range(1.35, 1.9), h2: 0.06, h3: 0, fmDepth: 0, attack: 0.001, wet: 0.25, formant: 1, q: 2.2 };
+    }
   }
 }
 
-const BANK_SIZE: Partial<Record<Species, number>> = { chickadee: 12, owl: 12, dove: 16, cricket: 12, drip: 24 };
+const BANK_SIZE: Partial<Record<Species, number>> = { chickadee: 12, owl: 12, dove: 16, cricket: 12, drip: 24, frog: 16, bubble: 32 };
 
 export class BirdBank {
   private banks = new Map<Species, AudioBuffer[]>();

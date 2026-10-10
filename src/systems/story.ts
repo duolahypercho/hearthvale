@@ -609,7 +609,8 @@ export class StorySystem implements System, StoryApi {
             scene = `room-${room}`;
             q?.debugFill(idx + 1);
           }
-          if (cs && scene) await cs.stage(scene, mark);
+          // `&mark=<id>` freezes any scene on another of its marks (e.g. `?demo=lantern-festival&mark=crane`).
+          if (cs && scene) await cs.stage(scene, new URLSearchParams(location.search).get('mark') ?? mark);
           break;
         }
       }

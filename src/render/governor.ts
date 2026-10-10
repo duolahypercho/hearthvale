@@ -20,7 +20,10 @@
  * but in Auto the rate tier drops before any quality does:
  *   (tier: full → half refresh) → 1 GTAO targets at 0.6× (0.3 of full res on high) → 2 GTAO off
  *   → 3 bloom off → 4 shadow maps ½ res → 5 shadow maps ¼ res → 6 render scale 0.85 → 7 render scale 0.7
- * and restores them one at a time (last shed, first restored) after `backoff` seconds of frames at
+ * A step that bought under 4 % (AO / bloom / shadow res on a fill-bound frame, e.g. the beach at
+ * sunset where only the pixel count matters) does not wait out another two windows: the next step
+ * follows after one short window, so a fill-bound scene reaches render scale 0.85 in ~6 s, not ~17 s.
+ * It restores them one at a time (last shed, first restored) after `backoff` seconds of frames at
  * the target; a restore that immediately causes a drop is undone and the next attempt waits twice
  * as long (10 s → 160 s), and the band between "at target" and "over" holds (hysteresis), so it
  * never oscillates. Uncapped only protects 60 fps (never sheds quality to chase 120+). No step
@@ -99,6 +102,8 @@ export class QualityGovernor {
   /** Seconds since the last restore (a quick drop after it → the restore failed). */
   private sinceUp = Infinity;
   private shadowK = 1;
+  /** Window average that triggered the last shed (0 = none pending): judges whether it helped. */
+  private shedFrom = 0;
   // Frame-rate cap (Options → Display) and the Auto tier.
   private capSetting = 0;
   private readonly capForced = forcedCap();
@@ -246,10 +251,14 @@ export class QualityGovernor {
     // Auto's full tier must really hold the refresh: a 9 ms average on a 120 Hz panel is a 8.3 / 16.7
     // mix (the judder this exists to remove), so missed refreshes count as over budget there.
     const tierMiss = auto && this.autoFull ? missK : 0;
+    const shedFrom = this.shedFrom;
+    this.shedFrom = 0;
     if (avg > budget * DOWN_K || tierMiss > 0.06) {
       this.goodFor = 0;
       this.overStreak++;
-      if (this.overStreak < 2 && avg < budget * SEVERE_K && tierMiss < 0.25) return;
+      // The last shed step bought < 4 %: it was the wrong lever, shed the next one now.
+      const futile = shedFrom > 0 && avg > shedFrom * 0.96;
+      if (!futile && this.overStreak < 2 && avg < budget * SEVERE_K && tierMiss < 0.25) return;
       this.overStreak = 0;
       if (auto && this.autoFull) {
         // Rate first: a steady half refresh beats shedding quality to chase the full one.
@@ -259,6 +268,8 @@ export class QualityGovernor {
       } else if (this.level < STEPS.length) {
         if (this.sinceUp < 4) this.backoff = Math.min(160, this.backoff * 2);
         this.set(this.level + 1);
+        this.shedFrom = avg;
+        if (futile) this.settle = 0.5;
       }
     } else if (avg <= budget * UP_K && missK <= 0.06) {
       this.overStreak = 0;
@@ -284,6 +295,7 @@ export class QualityGovernor {
   /** Back to the full preset (quality change / map load). */
   reset(): void {
     this.set(0);
+    this.shedFrom = 0;
     this.backoff = 10;
     this.tierBackoff = 10;
   }

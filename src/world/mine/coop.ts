@@ -274,7 +274,12 @@ class Headless {
     this.remaining--;
     const at = new THREE.Vector3(spec.x + 0.5, 0, spec.z + 0.5);
     const drops = rollRockLoot(() => this.rng.next(), spec.ore, spec.big, this.L.biome).map((id) => this.drop(id, at, 1.4));
-    if (!this.st.ladder) {
+    const lr = this.L.ladderRock;
+    if (!this.st.ladder && lr && lr.x === spec.x && lr.z === spec.z) {
+      // The ladder was hiding under this rock (same rule as the live map).
+      this.st.ladder = { x: spec.x, z: spec.z };
+      this.onLadder?.(spec.x, spec.z);
+    } else if (!this.st.ladder) {
       const total = this.L.rocks.length;
       const done = 1 - this.remaining / Math.max(1, total);
       const p = 0.035 + done * done * 0.3 + (this.monsters.every((m) => !m.alive) ? 0.08 : 0);
@@ -636,6 +641,11 @@ export class MineCoop implements MineNetApi {
     this.toHost(['m.p', f, cm(p.x), cm(p.z), alive ? 1 : 0]);
   }
 
+  /** (r6) Other farmers known to stand on `floor` (arrival spacing: never land inside one). */
+  othersOn(floor: number): THREE.Vector3[] {
+    return this.farmersOn(floor).map((f) => f.pos);
+  }
+
   private farmersOn(floor: number): { id: number; pos: THREE.Vector3; targetable: boolean }[] {
     const out: { id: number; pos: THREE.Vector3; targetable: boolean }[] = [];
     for (const p of this.peers.values()) if (p.floor === floor) out.push({ id: p.id, pos: p.pos, targetable: p.alive });
@@ -989,7 +999,7 @@ export class MineCoop implements MineNetApi {
           m.fx.sparks(at, { color: 0xffffff, to: crit ? 0xffc040 : 0xffe8c0, count: crit ? 18 : 10, speed: crit ? 5 : 3.6, up: 0.8, size: crit ? 0.14 : 0.1, gravity: 4, drag: 3, life: 0.28, dir: k, cone: 0.4 });
           if (mo.kind === 'slime') m.fx.puff(at, { color: 0x7ed957, count: 10, speed: 2.6, up: 1.2, size: 0.16, gravity: 9, drag: 1, life: 0.6, dir: k, cone: 0.5 });
           if (killed === 1) m.fx.splat(mo.pos, new THREE.Color(mo.kind === 'slime' ? 0x5fa840 : 0x3a302c), mo.kind === 'slime' ? 0.95 : 0.7, 6);
-          mineSfx.hitFlesh(crit === 1);
+          mineSfx.hit(mo.kind, crit === 1, killed === 1, mo.pos);
         }
         this.popHits(m, shown, origin);
         if (striker === this.myId() && shown.length) {
@@ -1049,7 +1059,7 @@ export class MineCoop implements MineNetApi {
       const dz = h.mo.pos.z - origin.z;
       const d = Math.hypot(dx, dz) || 1;
       at.x += (dx / d) * h.mo.radius * 0.6;
-      this.numbers.pop(at, String(h.dmg), h.crit ? 'crit' : 'dmg', { dy: -i * 30 });
+      this.numbers.pop(at, String(h.dmg), h.crit ? 'crit' : 'dmg', { dy: -i * 6, dx: (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 44, track: h.mo.pos });
     });
   }
 
@@ -1059,7 +1069,7 @@ export class MineCoop implements MineNetApi {
     const f = Math.abs(dir.x) > Math.abs(dir.z) ? new THREE.Vector3(Math.sign(dir.x), 0, 0) : new THREE.Vector3(0, 0, Math.sign(dir.z) || 1);
     a.fire(pos, f, Math.random() < 0.5 ? 1 : -1);
     setTimeout(() => a.impact(false, true), 80);
-    mineSfx.whoosh();
+    mineSfx.whoosh(pos);
   }
 
   private remoteAnim(id: number, what: 'pick' | 'sword', dir?: THREE.Vector3): void {
@@ -1100,14 +1110,17 @@ export class MineCoop implements MineNetApi {
     // Miner: west of the nearest ore rock on the other side.
     let best: { x: number; z: number; d: number } | null = null;
     for (const r of m.rocks?.rocks ?? []) {
-      if (!r.alive || !r.spec.ore) continue;
+      if (!r.alive) continue;
       const wx = r.spec.x - 0.5;
       const wz = r.spec.z + 0.5;
       if (!free(wx, wz)) continue;
-      const d = Math.hypot(wx - (spot.x - side * 2.2), wz - spot.z);
-      if (d < 5 && (!best || d < best.d)) best = { x: r.spec.x, z: r.spec.z, d };
+      // In the open beside the local farmer: on the far side from the fighter, never stacked
+      // behind / in front of the local farmer's hat in the 3/4 view.
+      if (Math.abs(wx - spot.x) < 1.7 || Math.abs(wz - spot.z) > 3.2 || Math.hypot(wx - fx, wz - fz) < 2.2) continue;
+      const d = Math.hypot(wx - (spot.x - side * 2.6), wz - spot.z) - (r.spec.ore ? 3 : 0);
+      if (d < 9 && (!best || d < best.d)) best = { x: r.spec.x, z: r.spec.z, d };
     }
-    const names = ['Juniper', 'Pip'];
+    const names = ['Juniper', 'Fennel'];
     const mk = (i: number, x: number, z: number, job: Bot['job'], tx: number, tz: number): void => {
       const p = net.remotes!.add!(900 + i, names[i]!, PRESET_LOOKS[i + 1] ?? PRESET_LOOKS[0]!);
       p.map = 'mine';

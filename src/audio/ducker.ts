@@ -94,11 +94,20 @@ export function loadDucker(ctx: BaseAudioContext): Promise<boolean> {
  * Wire a follower from `key` into `target` (a gain whose intrinsic value is 1). Returns the node
  * (worklet or fallback head) so callers can keep it alive / inspect it.
  */
-export function attachDucker(ctx: BaseAudioContext, key: AudioNode, target: GainNode, worklet: boolean): AudioNode {
+export function attachDucker(ctx: BaseAudioContext, key: AudioNode, target: GainNode, worklet: boolean, also: { gain: GainNode; amount: number }[] = []): AudioNode {
+  // Extra targets get a scaled copy of the same gain reduction (e.g. the ambience beds, half depth).
+  const fan = (src: AudioNode): void => {
+    src.connect(target.gain);
+    for (const a of also) {
+      const k = ctx.createGain();
+      k.gain.value = a.amount;
+      src.connect(k).connect(a.gain.gain);
+    }
+  };
   if (worklet) {
     const node = new AudioWorkletNode(ctx, DUCK_PROCESSOR, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
     key.connect(node);
-    node.connect(target.gain);
+    fan(node);
     return node;
   }
   // Fallback: power follower from native nodes. x² (WaveShaper) → 6 Hz one-pole-ish lowpass →
@@ -124,6 +133,7 @@ export function attachDucker(ctx: BaseAudioContext, key: AudioNode, target: Gain
     c2[i] = -0.29 * Math.tanh(Math.max(0, x) * 3);
   }
   ceil.curve = c2;
-  key.connect(sq).connect(lp).connect(amt).connect(ceil).connect(target.gain);
+  key.connect(sq).connect(lp).connect(amt).connect(ceil);
+  fan(ceil);
   return sq;
 }

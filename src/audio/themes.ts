@@ -8,6 +8,10 @@
  */
 import type { ThemeDef } from './composer';
 import { SONGBOOK } from './songbook';
+import { SONGBOOK_TOWN, winterTown } from './songbook-town';
+import { SONGBOOK_EVENTS } from './songbook-events';
+import { SONGBOOK_PLACES } from './songbook-places';
+import { SONGBOOK_MINE } from './songbook-mine';
 
 /** Song form: the tune twice, its answer, the tune, a bridge (C) in a new harmonic area, the tune home. */
 const FORM_SONG: ThemeDef['form'] = ['intro', 'A', 'A', 'B', 'A', 'C', 'A', 'outro'];
@@ -23,25 +27,32 @@ export const THEMES: Record<string, ThemeDef> = {
     key: 65, // F
     mode: 'major',
     swing: 0.53,
-    form: FORM_SONG,
+    // Round 12: melody first — no intro, the flute's pickup opens the song.
+    form: ['A', 'A', 'B', 'A', 'C', 'A', 'outro'],
     prog: {
       intro: ['Imaj7', 'IVmaj7'],
-      A: ['I', 'IVmaj7', 'vi7', 'V', 'I', 'IVmaj7', 'ii7 V', 'I'],
+      A: ['I', 'ii7', 'vi7', 'V', 'I', 'IVmaj7', 'ii7 V', 'I'],
       B: ['IV', 'V', 'iii7', 'vi', 'ii7', 'V', 'IVmaj7', 'Vsus4 V'],
       // Bridge: the relative minor, a borrowed bVII (Eb) glow, a suspended half-cadence home.
       C: ['vi', 'iii7', 'IVmaj7', 'I', 'ii7', 'iii7', 'bVII', 'V7sus4 V'],
       outro: ['IVmaj7', 'Iadd9'],
     },
     melody: {
-      inst: 'flute', range: [67, 89], density: 0.55, legato: true, ornament: 0.3, cInst: 'clarinet',
+      // (Round 19: cOctave -1 — the clarinet bridge was written D5-C6, its bright clarion: 3.1 kHz
+      // centroid and 44 % of it in 2-5 kHz against the flute's 1.9 kHz / 30 %, the whole C strain
+      // FORM-GLARE. Down an octave it is the warm chalumeau / throat register the strain was written for.)
+      inst: 'flute', range: [67, 89], density: 0.55, legato: true, ornament: 0.3, cInst: 'clarinet', cOctave: -1,
       tune: {
         octave: 1,
         // "F.. G A C | D.. C Bb A | A C D.. C | Bb A G.. (C D) | ..." — a dotted walk up and a sigh down.
         A: ['1:3 2:1 3:2 5:2', '6:3 5:1 4:2 3:2', '3:2 5:2 6:3 5:1', "4:1 3:1 2:4 5,:1 6,:1", '1:3 2:1 3:2 5:2', "1':3 7:1 6:2 5:2", '6:2 4:2 2:2 7,:2', '1:6 r:2'],
-        B: ['6:4 5:2 4:2', '5:4 4:2 3:2', '3:4 5:2 3:2', '2:2 3:2 6,:4', "4:2 6:2 1':3 7:1", "1':2 7:2 5:4", '6:3 5:1 4:2 3:2', '2:6 r:2'],
+        // (B opens on the Hearthvale leitmotif — the title's '1 2 3 5.. 3 2' — sequenced up a step.)
+        B: ["4:1 5:1 6:1 1':3 6:1 5:1", "5:1 6:1 7:1 2':3 7:1 6:1", '3:4 5:2 3:2', '2:2 3:2 6,:4', "4:2 6:2 1':3 7:1", "1':2 7:2 5:4", '6:3 5:1 4:2 3:2', '2:6 r:2'],
         // The clarinet takes the tune down into its warm register: "D. E F A | C.. A G | Bb. A Bb D | C... |".
         C: ['6,:3 7,:1 1:2 3:2', '5:4 3:2 2:2', '4:3 3:1 4:2 6:2', '5:6 r:2', '6:3 5:1 4:2 2:2', '3:3 2:1 3:2 5:2', 'b7:4 4:2 2:2', '1:4 7,:4'],
         Aend: ['6:2 4:1 3:1 2:2 7,:2', '1:8'],
+        // (Round 20: the second A's held tonic walks up G A into B's Bb instead of resting.)
+        again: { A: ['', '', '', '', '', '', '', '1:6 2:1 3:1'] },
         pickup: '5,:1 6,:1',
       },
     },
@@ -75,7 +86,7 @@ export const THEMES: Record<string, ThemeDef> = {
     swing: 0.56,
     form: FORM_SONG,
     prog: {
-      intro: ['Imaj7', 'IV'],
+      intro: ['I', 'bVII', 'I', 'bVII'],
       A: ['Imaj7', 'IV', 'Imaj7', 'IV', 'vi7', 'ii7', 'IV', 'V'],
       B: ['IV', 'V', 'iii7', 'vi7', 'ii7', 'V', 'bVII', 'V7sus4 V'],
       C: ['vi7', 'iii7', 'IVmaj7', 'Imaj7', 'ii7', 'II7', 'IV', 'V7sus4 V'],
@@ -87,8 +98,13 @@ export const THEMES: Record<string, ThemeDef> = {
       tune: {
         octave: 0,
         // "B D . D E D B | C E . E G E D | ..." — the hiccup rest is the hook.
-        A: ['3:1 5:1 r:1 5:1 6:1 5:1 3:2', "4:1 6:1 r:1 6:1 1':1 6:1 5:2", '3:1 5:1 r:1 5:1 6:1 5:1 3:1 2:1', '1:1 2:1 3:2 6,:1 1:1 r:2', '5:1 6:1 5:1 3:1 2:1 3:1 5:2', "6:3 1':1 6:2 5:2", "4:1 3:1 4:1 6:1 1':2 6:1 5:1", '2:3 7,:1 5,:2 r:2'],
+        // (Round 18: the answer enters from the B below rather than leaping a fifth off the rest, the
+        // half cadence falls through the V's thirds and turns up into the pickup — no jump left hanging;
+        // bar 6 reaches A' over the ii7, once, above the hook's G.)
+        A: ['3:1 5:1 r:1 5:1 6:1 5:1 3:2', "4:1 6:1 r:1 6:1 1':1 6:1 5:2", '3:1 5:1 r:1 5:1 6:1 5:1 3:1 2:1', '1:1 2:1 3:2 6,:1 1:1 r:2', '3:1 5:1 6:1 5:1 3:1 2:1 3:1 5:1', "6:3 2':1 1':2 6:2", "4:1 3:1 4:1 6:1 1':2 6:1 4:1", '2:3 7,:1 5,:1 6,:1 r:2'],
         Aend: ['4:1 3:1 4:1 6:1 5:2 4:1 2:1', '1:3 5,:1 1:2 r:2'],
+        // (Round 20: the second A's half cadence runs up A B C D E F# into B's G instead of resting.)
+        again: { A: ['', '', '', '', '', '', '', '2:2 3:1 4:1 5:1 6:1 7:1 r:1'] },
         B: ["1':4 6:2 5:2", "2':4 7:2 6:2", "3':4 2':2 1':2", "6:2 7:2 1':4", "1':3 7:1 6:2 1':2", '7:4 r:2 5:1 6:1', 'b7:3 6:1 4:2 2:2', '5:6 r:2'],
         // The nylon guitar's turn: long, high, a secondary dominant (A7) lifting into the last A.
         C: ["3':3 2':1 1':2 6:2", "5:4 7:2 2':2", "1':3 7:1 6:2 4:2", '3:6 r:2', "6:2 1':2 2':3 1':1", '6:3 #4:1 2:4', "1:2 4:2 6:2 1':2", "1':4 7:2 r:2"],
@@ -97,15 +113,18 @@ export const THEMES: Record<string, ThemeDef> = {
     },
     counter: { inst: 'ocarina', range: [62, 74], on: 'late' },
     accomp: { inst: 'guitar', pattern: 'fingerpick', range: [50, 67], voices: 4, vel: 0.7 },
-    accomp2: { inst: 'marimba', pattern: 'ostinato332', range: [62, 79], voices: 3, vel: 0.36, on: 'repeat' },
+    // (Round 4: the 3-3-2 ostinato moved under the tune — at 62–79 it buried the marimba melody.)
+    accomp2: { inst: 'marimba', pattern: 'ostinato332', range: [50, 64], voices: 3, vel: 0.4, on: 'repeat' },
     bass: { inst: 'upright', pattern: 'tresillo', range: [36, 50], vel: 0.82 },
     perc: { pattern: 'shaker', on: 'always', vel: 0.6 },
+    // (Round 6: the marimba ostinato moves to the far left, under the guitar's side, and the ocarina
+    // answers from the right — the tune's marimba no longer shares a side with its own timbre.)
     mix: {
-      melody: { gain: 0.9, pan: 0.12, send: 0.28 },
-      double: { gain: 0.2, pan: -0.2, send: 0.35 },
-      counter: { gain: 0.46, pan: -0.35, send: 0.35 },
-      accomp: { gain: 0.7, pan: -0.25, send: 0.22 },
-      accomp2: { gain: 0.42, pan: 0.35, send: 0.25 },
+      melody: { gain: 0.9, pan: 0.16, send: 0.28 },
+      double: { gain: 0.2, pan: 0.3, send: 0.35 },
+      counter: { gain: 0.46, pan: 0.34, send: 0.35 },
+      accomp: { gain: 0.7, pan: -0.18, send: 0.22 },
+      accomp2: { gain: 0.38, pan: -0.45, send: 0.3 },
       bass: { gain: 0.7, pan: 0, send: 0.05 },
       perc: { gain: 0.4, pan: -0.15, send: 0.12 },
     },
@@ -123,9 +142,10 @@ export const THEMES: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 62, // D
     mode: 'minor',
-    form: FORM_SONG,
+    // Round 7: the sixteen-bar cello bridge (C) is played — the waltz looped after 68 s on A/B alone.
+    form: ['intro', 'A', 'B', 'A', 'C', 'A', 'B', 'A', 'outro'],
     prog: {
-      intro: ['i', 'bVI'],
+      intro: ['i'],
       A: ['i', 'bVI', 'bIII', 'bVII', 'iv', 'i', 'iv V', 'i'],
       B: ['bIII', 'bVII', 'iv', 'i', 'bVImaj7', 'bIII', 'iim7b5', 'V'],
       // Sixteen-bar bridge in the relative major (F), the cello singing the tune low.
@@ -136,10 +156,18 @@ export const THEMES: Record<string, ThemeDef> = {
       inst: 'clarinet', range: [62, 84], density: 0.45, legato: true, ornament: 0.25, cInst: 'cello',
       tune: {
         octave: 1,
-        // "A.. Bb A | Bb.. A G | F.. E D | C.. D E | G.. A Bb | A. G F. | G Bb A C# | D" — a descending sequence that climbs home.
-        A: ['5:4 6:1 5:1', '6:4 5:1 4:1', '3:4 2:1 1:1', '7,:4 1:1 2:1', '4:4 5:1 6:1', '5:3 4:1 3:2', '4:2 6:1 5:1 #7,:2', '1:6'],
-        B: ["7:3 1':1 7:1 5:1", '4:3 5:1 4:1 2:1', "6:3 1':1 6:1 4:1", '5:4 r:2', "1':3 7:1 6:1 5:1", '7:3 6:1 5:1 3:1', '4:2 6:2 2:2', '2:4 #7,:2'],
+        // "A.. Bb A | Bb.. A G | F.. E D | C.. D E | G.. A Bb C | D'.. Bb A F | G Bb A C# | D" — a descending
+        // sequence that climbs home. (Round 18: the climb now crests once, on D' over the tonic in bar 6 —
+        // the Bb neighbour was the strain's ceiling four times over.)
+        A: ['5:4 6:1 5:1', '6:4 5:1 4:1', '3:4 2:1 1:1', '7,:4 1:1 2:1', '4:3 5:1 6:1 7:1', "1':3 6:1 5:1 3:1", '4:2 6:1 5:1 #7,:2', '1:6'],
+        B: ['3:3 4:1 5:2', '4:3 5:1 6:1 5:1', "6:3 1':1 6:1 4:1", '5:4 r:2', "1':3 7:1 6:1 5:1", '7:3 6:1 5:1 3:1', '4:3 6:1 2:2', '2:4 4:2'],
         C: ['3,:4 5,:1 7,:1', '2:3 1:1 7,:2', '1:4 6,:2', '5,:6', '4,:3 6,:1 1:2', '2:4 7,:2', '3:2 5:2 3:2', '#7,:4 r:2', '6,:3 1:1 3:2', '5:4 3:2', '4:4 6,:2', '1:6', '6,:2 1:2 3:2', '4:3 3:1 1:2', '2:3 4:1 6,:2', '5,:2 #7,:2 2:2'],
+        // Round 21: after the cello's bridge the waltz sighs — A's sequence leans G on the F chord and
+        // D on the C chord (each a 9-8 falling to the chord), B's tonic bar leans Bb to A.
+        late: {
+          A: ['', '', '4:4 3:1 2:1', '1:4 7,:1 2:1', '', '', '', ''],
+          B: ['', '', '', '6:2 5:2 r:2', '', '', '', ''],
+        },
       },
     },
     counter: { inst: 'cello', range: [48, 62], on: 'repeat', style: 'moving' },
@@ -170,27 +198,34 @@ export const THEMES: Record<string, ThemeDef> = {
     meter: '3/4',
     key: 64, // E
     mode: 'major',
-    form: FORM_SONG,
+    // Round 7: the C strain (IVmaj7 – iii7 – vi7 …, the iv6 sigh) is played before the last A.
+    form: ['intro', 'A', 'A', 'B', 'B', 'A', 'C', 'A', 'outro'],
     prog: {
-      intro: ['Imaj7', 'vi7'],
+      intro: ['Imaj7', 'vi7', 'ii7', 'V7sus4'],
       A: ['I', 'iii', 'vi7', 'IVmaj7', 'I', 'IV', 'iv', 'I'],
       B: ['vi', 'iii', 'IV', 'I', 'ii7', 'V', 'IV', 'V7sus4'],
       C: ['IVmaj7', 'iii7', 'vi7', 'Imaj7', 'IV', 'iv6', 'ii7', 'V7sus4'],
       outro: ['iv6', 'Imaj7'],
     },
     melody: {
-      inst: 'musicBox', range: [76, 93], density: 0.35, ornament: 0.15, bInst: 'celesta', cInst: 'flute', double: { inst: 'glock', interval: 12, on: 'repeat' },
+      inst: 'musicBox', range: [76, 93], density: 0.35, ornament: 0.15, bInst: 'celesta', cInst: 'flute', double: { inst: 'glock', interval: 12, on: 'repeat', handoff: true },
       tune: {
         octave: 1,
         // "B. C# B G# | D#. E D# B | E. F# E C# | C# B G# | ... | C. B A G | G# F# E" — rising thirds, then the minor iv.
-        A: ['5:3 6:1 5:1 3:1', "7:3 1':1 7:1 5:1", "1':3 2':1 1':1 6:1", '6:2 5:2 3:2', '5:3 6:1 5:1 3:1', "6:3 1':1 6:1 4:1", 'b6:3 5:1 4:1 b3:1', '3:1 2:1 1:4'],
+        A: ['5:3 6:1 5:1 3:1', '5:3 6:1 7:1 5:1', "6:3 7:1 1':1 6:1", '6:2 5:2 3:2', '5:3 6:1 5:1 3:1', '4:3 5:1 6:1 4:1', 'b6:3 5:1 4:1 b3:1', '3:1 2:1 1:2 r:2'],
         B: ["1':4 7:1 6:1", '7:4 6:1 5:1', '6:4 5:1 4:1', "3:2 5:2 1':2", "2':4 1':1 6:1", "7:3 1':1 2':2", "1':3 6:1 4:2", '5:4 r:2'],
         // A flute bridge over the minor-iv colour: "C#. A | B. G# B | E. C# | B | A. C# E | C. E | F#. E C# | B. A |".
         C: ['6:4 4:2', '5:3 3:1 5:2', "1':4 6:2", '5:6', "4:3 6:1 1':2", "b6:4 1':2", "2':3 1':1 6:2", '5:4 4:2'],
+        // Round 21: the last A after the flute's bridge leans — a C# on the G#m chord falling to its B,
+        // and a lydian D# over the IVmaj7 falling to C# (the box's one bright sigh).
+        late: { A: ['', '6:3 5:1 7:1 5:1', '', '7:2 6:2 5:1 3:1', '', '', '', ''] },
       },
     },
     counter: { inst: 'bell', range: [64, 76], on: 'late' },
     accomp: { inst: 'celesta', pattern: 'musicBox', range: [64, 81], voices: 3, vel: 0.42 },
+    // Round 4: a soft held tenor (three close voices, D3–E4 region, ~8 dB under the tune) fills the octave
+    // and a half between the bass and the celesta, so the A section glows instead of floating.
+    accomp2: { inst: 'pad', pattern: 'block', range: [50, 64], voices: 3, vel: 0.3 },
     perc: { pattern: 'sleigh', on: 'always', vel: 0.4 },
     bass: { inst: 'softBass', pattern: 'root', range: [40, 52], vel: 0.55 },
     // Strings only in the contrast sections, and ~4 dB lower: the music box has to sparkle, not sit in a wall.
@@ -200,6 +235,7 @@ export const THEMES: Record<string, ThemeDef> = {
       double: { gain: 0.17, pan: -0.25, send: 0.55 },
       counter: { gain: 0.42, pan: -0.35, send: 0.55 },
       accomp: { gain: 0.52, pan: -0.22, send: 0.45 },
+      accomp2: { gain: 0.3, pan: 0.18, send: 0.5 }, // (round 8: 0.2 — a hollow middle, 200-500 Hz 18 dB under the box)
       bass: { gain: 0.36, pan: 0, send: 0.1 },
       pad: { gain: 0.19, pan: 0, send: 0.55 },
       perc: { gain: 0.4, pan: 0.3, send: 0.35 },
@@ -207,6 +243,8 @@ export const THEMES: Record<string, ThemeDef> = {
     rest: [8, 15],
     gain: 0.93,
     sheen: 4.5,
+    // Music box + bells are bright already: a touch of exciter only (0.3 put 19 % of it above 5 kHz).
+    air: 0.04,
   },
 
   /** Hearthvale Square by day — a skipping ocarina tune, off-beat pizzicato, walking bass, woodblocks. */
@@ -229,14 +267,23 @@ export const THEMES: Record<string, ThemeDef> = {
       outro: ['ii7 V7', 'I6'],
     },
     melody: {
-      inst: 'ocarina', range: [67, 86], density: 0.75, ornament: 0.2, bInst: 'clarinet', cInst: 'flute', double: { inst: 'glock', interval: 12, on: 'late' },
+      // (Round 19: bOctave -1 — the clarinet's B was written E5-B5, where its strong third harmonic lands
+      // at 2-3 kHz: 40 % of the strain's tone in 2-5 kHz after the near-sine ocarina's 4 %, +4 LU, the
+      // whole B FORM-GLARE. An octave down it is the warm throat / chalumeau answer to the high ocarina.)
+      inst: 'ocarina', range: [67, 86], density: 0.75, ornament: 0.2, bInst: 'clarinet', bOctave: -1, cInst: 'flute', double: { inst: 'glock', interval: 12, on: 'late' },
       tune: {
         octave: 0,
         // "B D G D B'. A G | E D B D E. D B | C E G E A. G E | F# G A G F#. |" — up the arpeggio and back.
-        A: ["3:1 5:1 1':1 5:1 3':2 2':1 1':1", '6:1 5:1 3:1 5:1 6:2 5:1 3:1', "4:1 6:1 1':1 6:1 2':2 1':1 6:1", "7:1 1':1 2':1 1':1 7:2 r:2", "3:1 5:1 1':1 5:1 3':2 2':1 1':1", "1':1 2':1 3':1 2':1 1':2 6:2", '6:1 5:1 4:1 6:1 5:1 4:1 2:2', '1:2 r:1 5,:1 1:2 r:2'],
-        B: ["6:2 4:1 6:1 1':2 6:2", "5:2 3:1 5:1 1':2 5:2", "4:1 6:1 1':1 2':1 1':2 6:2", '7:3 6:1 5:4', "6:2 4:1 6:1 1':2 6:2", "2':2 7:2 1':2 6:2", "4:2 6:2 1':2 6:1 4:1", "2':3 1':1 7:2 5:2"],
-        C: ["6:2 1':2 3':3 2':1", "1':2 6:2 #4:2 2:2", "4:3 6:1 1':2 6:2", "5:2 7:2 2':4", "2':3 1':1 7:2 5:2", "6:2 #1':2 3':3 2':1", "1':3 6:1 4:2 2:2", '7,:2 2:2 4:2 5:2'],
+        // (Round 18: the answer's bar 6 tops out on C' over the IV — the strain's one high point — where
+        // it used to touch the opening's B' a third time.)
+        A: ["3:1 5:1 1':1 2':1 3':2 2':1 1':1", '6:1 5:1 3:1 5:1 6:2 5:1 3:1', "4:1 6:1 1':1 6:1 2':2 1':1 6:1", "7:1 1':1 2':1 1':1 7:2 r:2", "3:1 5:1 1':1 2':1 3':2 2':1 1':1", "1':1 2':1 3':1 4':1 3':2 1':2", '6:1 5:1 4:1 6:1 5:1 4:1 2:2', '1:2 r:1 5,:1 1:2 r:2'],
+        B: ["6:2 5:1 6:1 1':2 6:2", "5:2 3:1 5:1 1':2 5:2", "4:1 6:1 1':1 2':1 1':2 6:2", '7:3 6:1 5:4', "6:2 5:1 6:1 1':2 6:2", "3':2 7:2 1':2 6:2", "4:2 6:2 1':2 6:1 4:1", "2':3 1':1 7:2 5:2"],
+        // (Round 18: B's bar 6 leaps to B' on the iii7, its one high point, and turns down by step.)
+        // (C opens on the Hearthvale leitmotif — '1 2 3 5.. 3 2' — on the relative minor, then the II7.)
+        C: ["6:1 7:1 1':1 3':3 1':1 7:1", "7:1 1':1 2':1 #4':3 2':1 1':1", "4:3 6:1 1':2 6:2", "5:2 7:2 2':4", "2':3 1':1 7:2 5:2", "6:2 #1':2 3':3 2':1", "1':3 6:1 4:2 2:2", '7,:2 2:2 4:2 5:2'],
         Aend: ['6:1 5:1 4:1 6:1 5:1 4:1 2:1 7,:1', '1:2 5,:1 7,:1 1:4'],
+        // (Round 20: the second A walks the ocarina down G F# E D into the clarinet's low B.)
+        again: { A: ['', '', '', '', '', '', '', '1:2 r:2 1:1 7,:1 6,:1 5,:1'] },
         pickup: '1:1 2:1',
       },
     },
@@ -285,8 +332,10 @@ export const THEMES: Record<string, ThemeDef> = {
         octave: 0,
         // "E.. F#.. E | D.. C#.. A | C#.. E.. G# A | A G# F#.. E |" — 3+3+2, a neighbour-note hook that
         // climbs the arpeggio and sighs back down by step; B is a falling sequence (A G# F# / G# F# E / ...).
-        A: ['5:3 6:3 5:2', '4:3 3:3 1:2', "3:3 5:3 7:1 1':1", "1':2 7:1 6:3 5:2", '2:1 3:1 4:1 6:1 4:2 2:2', '5:3 4:2 3:1 2:2', '3:2 5:2 6:2 5:1 3:1', '4:2 2:2 2:1 1:1 7,:2'],
-        B: ["1':4 7:2 6:2", '7:4 6:2 5:2', '6:4 5:2 4:2', '3:3 2:1 3:2 5:2', "6:1 1':1 2':1 1':1 6:2 4:2", "7:1 2':1 3':1 2':1 7:2 5:2", "1':3 7:1 6:2 5:2", '2:4 r:4'],
+        A: ['5:3 6:3 5:2', '4:3 3:3 1:2', "3:3 5:3 7:1 1':1", "1':2 7:1 6:3 r:2", '2:1 3:1 4:1 6:1 4:2 2:2', '5:3 4:2 3:1 2:2', '3:2 5:2 6:2 5:1 3:1', '4:2 2:2 2:1 1:1 7,:2'],
+        // (Round 19: B climbs into its high A from the tonic — it used to jump a ninth straight off A's
+        // closing G#, the only unbreathed register leap left in the pan's line.)
+        B: ["1:1 3:1 5:1 1':3 7:1 6:1", '7:4 6:2 5:2', '6:4 5:2 4:2', '3:3 2:1 3:2 5:2', "6:1 1':1 2':1 1':1 6:2 4:2", "7:1 2':1 3':1 2':1 7:2 5:2", "1':3 7:1 6:2 5:2", '2:4 r:4'],
         C: ['6:3 4:3 3:2', '5:3 3:3 2:2', "1':3 6:3 5:2", '3:6 r:2', "b7:3 2':3 4':2", "1':3 6:3 4:2", '2:3 4:3 6:2', '5:4 7,:2 r:2'],
         Aend: ['4:2 2:2 5:2 4:1 2:1', '1:3 3:3 1:2'],
         pickup: '3:1 4:1',
@@ -307,6 +356,7 @@ export const THEMES: Record<string, ThemeDef> = {
     rest: [5, 12],
     gain: 1.3,
     sheen: 4.5,
+    air: 0.15, // ukulele + steel pan sparkle already (0.3 put 13 % above 5 kHz)
   },
 
   /** The mine (earth floors) — a drone with glass bells that keep returning to one small figure, over
@@ -344,11 +394,12 @@ export const THEMES: Record<string, ThemeDef> = {
       accomp: { gain: 0.5, pan: 0.4, send: 0.6 },
       melody: { gain: 0.62, pan: 0.2, send: 0.7 },
       counter: { gain: 0.38, pan: -0.3, send: 0.6 },
-      bass: { gain: 0.55, pan: 0, send: 0.2 },
+      // (Round 5: drone −4 dB, high-pass 60 → 90 Hz: the floor opened on a muddy 60–200 Hz hum.)
+      bass: { gain: 0.35, pan: 0, send: 0.2 },
       pad: { gain: 0.42, pan: 0, send: 0.6 },
     },
     // Tone: no sub rumble under the drone, 150–250 Hz mud cut (laptop speakers heard only boom).
-    eq: { hp: 60, cut: { f: 200, db: -3, q: 0.8 } },
+    eq: { hp: 90, cut: { f: 200, db: -3, q: 0.8 } },
     rest: [4, 12],
     gain: 1.1,
   },
@@ -382,7 +433,7 @@ export const THEMES: Record<string, ThemeDef> = {
     },
     counter: { inst: 'bell', range: [64, 79], on: 'always' },
     bass: { inst: 'drone', pattern: 'pedal', range: [40, 52], vel: 0.45 },
-    pad: { inst: 'pad', range: [60, 76], voices: 3, vel: 0.32, on: 'always' },
+    pad: { inst: 'pad', range: [55, 71], voices: 3, vel: 0.32, on: 'always' }, // (round 8: 60-76, lowmid -16.6)
     mix: {
       double: { gain: 0.5, pan: 0, send: 0.85 },
       accomp: { gain: 0.5, pan: 0.4, send: 0.6 },
@@ -399,7 +450,9 @@ export const THEMES: Record<string, ThemeDef> = {
 
   /** Deepest: the ember floors — low cello groans, tritone bells and a heavier drone. */
   'mine-lava': {
-    width: 0,
+    // The cave reverb over its low cello left L/R correlation at 0.24 (a mono laptop speaker loses the
+    // tail): narrow the sides a little above 300 Hz.
+    width: -0.1,
     id: 'mine-lava',
     title: 'Ember Deep',
     blurb: 'The ember floors',
@@ -455,7 +508,7 @@ export const THEMES: Record<string, ThemeDef> = {
     breaks: false,
     form: ['intro', 'A', 'B', 'A', 'C', 'A', 'outro'],
     prog: {
-      intro: ['Imaj7', 'IVmaj7'],
+      intro: ['Iadd9', 'bVIImaj7'],
       A: ['Imaj7', 'iii7', 'IVmaj7', 'iv6', 'Imaj7', 'vi7', 'ii7', 'V7sus4'],
       B: ['vi7', 'iii7', 'IVmaj7', 'Imaj7', 'ii7', 'iii7', 'IVmaj7', 'V7sus4'],
       C: ['IVmaj7', 'iii7', 'vi7', 'Imaj7', 'ii7', 'bVIImaj7', 'IVmaj7', 'V7sus4'],
@@ -468,8 +521,8 @@ export const THEMES: Record<string, ThemeDef> = {
         octave: 1,
         // "F. Eb Db Ab | C Eb F.. | Bb. Ab Gb F | A(bb).. Ab Gb |" — a lullaby that dips and climbs back,
         // borrows the minor iv, then rises to the high Db and falls home by step.
-        A: ['3:3 2:1 1:2 5,:2', '7,:2 2:2 3:4', '6:3 5:1 4:2 3:2', 'b6:4 5:2 4:2', '3:3 2:1 1:2 3:1 5:1', "1':3 7:1 6:2 5:2", '4:3 3:1 2:4', '2:2 1:2 2:2 4:2'],
-        B: ["5:4 6:2 1':2", "7:4 1':2 2':2", "3':4 2':2 1':2", '7:4 5:4', '6:3 5:1 4:4', '5:3 3:1 5:4', "6:2 1':2 3':4", "2':4 1':2 6:1 5:1"],
+        A: ['3:3 2:1 1:2 5,:2', '7,:2 2:2 3:4', '6:3 5:1 4:2 3:2', 'b6:4 5:2 4:2', '3:3 2:1 1:2 3:1 5:1', "1':3 7:1 6:2 5:2", '4:3 3:1 2:4', '2:4 r:4'],
+        B: ["5:4 6:2 1':2", "7:4 1':2 2':2", "3':4 2':2 1':2", '7:4 r:4', '6:3 5:1 4:4', '5:3 3:1 5:4', "6:2 1':2 3':4", "2':4 1':2 6:1 5:1"],
         C: ["6:4 1':2 3':2", "2':4 7:2 5:2", '6:3 5:1 3:4', '5:6 r:2', "4:3 6:1 1':4", 'b7:4 6:2 4:2', '3:4 1:2 6,:2', '2:4 1:4'],
         Aend: ['4:3 3:1 2:2 7,:2', '1:8'],
       },
@@ -497,7 +550,7 @@ export const THEMES: Record<string, ThemeDef> = {
     key: 63, // Eb
     mode: 'major',
     swing: 0.6,
-    form: ['intro', 'A', 'B', 'A', 'C', 'A', 'outro'],
+    form: ['intro', 'A', 'A', 'B', 'A', 'outro'],
     prog: {
       intro: ['vi7', 'IVmaj7'],
       A: ['vi7', 'IVmaj7', 'Imaj7', 'V7sus4', 'vi7', 'ii7', 'IVmaj7', 'V7sus4 V'],
@@ -555,11 +608,11 @@ export const THEMES: Record<string, ThemeDef> = {
       inst: 'vibes', range: [62, 86], density: 0.6, ornament: 0.15, bInst: 'clarinet', cInst: 'flute',
       tune: {
         octave: 1,
-        // "D F A. G F D. | F D B D G. F. | Eb G Bb. A G Eb. | C. Eb D C. |" — a lazy swing tune with a blue Db.
-        A: ['3:1 5:1 7:2 6:1 5:1 3:2', '5:1 3:1 #1:1 3:1 6:2 5:2', "4:1 6:1 1':2 7:1 6:1 4:2", '2:2 4:1 3:1 2:2 r:2', '3:1 5:1 7:2 6:1 5:1 3:2', "1':1 6:1 4:1 6:1 b3:2 1:2", '3:2 5:2 3:1 #1:1 6,:2', '2:2 4:2 5:2 7,:2'],
-        B: ["1':4 6:2 4:2", 'b6:4 5:2 4:2', '5:3 3:1 7:2 5:2', "#1':2 6:2 3:2 5:2", "4:3 6:1 1':2 6:2", '5:3 7,:1 2:2 4:2', '3:3 2:1 1:4', '5:4 r:4'],
-        C: ["3:2 5:2 7:3 2':1", "3':2 #1':2 6:2 5:2", "4:3 6:1 1':2 6:2", '5:3 7,:1 2:2 4:2', "3':4 1':2 6:2", "b6:4 4:2 2':2", '7:3 5:1 3:4', '1:4 7,:2 r:2'],
-        Aend: ['3:2 5:2 3:1 #1:1 6,:2', '2:2 7,:2 1:4'],
+        // Round 7: the arpeggio hook stays, the rest is sung — "D F A. G F D. | D. B C D. F. | Eb G Bb. A G Eb. | D. C Bb C (breath) |", a blue run down from the top Bb over the IV7 (Bb Ab G F Eb Db).
+        A: ['3:1 5:1 7:2 6:1 5:1 3:2', '3:2 #1:1 2:1 3:2 5:2', "4:1 6:1 1':2 7:1 6:1 4:2", '3:2 2:1 1:1 2:2 r:2', '3:1 5:1 7:2 6:1 5:1 3:2', "1':2 b7:1 6:1 5:1 4:1 b3:2", '3:2 4:1 3:1 #1:2 3:2', '2:2 4:2 5:1 4:1 2:2'],
+        B: ["1':4 6:2 4:2", 'b6:4 5:2 4:2', '5:3 3:1 7:2 5:2', '#1:3 3:1 5:2 4:2', "4:3 6:1 1':2 6:2", '7:4 6:2 5:2', '3:3 2:1 1:4', '2:4 r:4'],
+        C: ["3:2 5:2 7:3 2':1", "#1':2 2':2 3':4", "3':3 2':1 1':2 6:2", '7:3 6:1 5:4', "5:2 6:2 7:2 1':2", "1':3 b7:1 b6:4", '5:3 4:1 3:4', '1:4 2:2 r:2'],
+        Aend: ['3:2 4:1 3:1 #1:2 2:2', '2:2 7,:2 1:4'],
         pickup: '1:1 2:1',
       },
     },
@@ -589,7 +642,8 @@ export const THEMES: Record<string, ThemeDef> = {
     meter: '6/8',
     key: 64, // E
     mode: 'dorian',
-    form: FORM_SONG,
+    // Round 7: B returns after the C strain (… A C B A) — 84 s looped too soon.
+    form: ['intro', 'A', 'A', 'B', 'A', 'C', 'B', 'A', 'outro'],
     prog: {
       intro: ['i', 'bVII'],
       A: ['i', 'bVII', 'i', 'IV', 'i', 'bVII', 'IV bVII', 'i'],
@@ -602,9 +656,12 @@ export const THEMES: Record<string, ThemeDef> = {
       tune: {
         octave: 1,
         // "E. G B. G | A. F# D. F# | E F# G B. C# | C#.. B. A |" — the raised sixth (C#) is the forest's colour.
-        A: ['1:2 3:1 5:2 3:1', '4:2 2:1 7,:2 2:1', '1:1 2:1 3:1 5:2 6:1', '6:3 5:2 4:1', '1:2 3:1 5:2 3:1', "7:2 1':1 7:2 5:1", '6:1 5:1 4:1 2:1 4:1 3:1', '1:3 r:3'],
-        B: ["5:2 7:1 1':2 7:1", '7:2 4:1 2:2 4:1', "6:2 1':1 2':2 1':1", '5:3 3:3', "3:1 5:1 7:1 1':2 7:1", "2':2 1':1 7:2 4:1", "6:2 4:1 6:2 1':1", "2':2 1':1 7:3"],
-        C: ["5:2 7:1 2':3", "1':2 7:1 5:3", '4:2 2:1 7,:3', '1:3 6,:3', '2:2 5,:1 7,:3', '3:2 5:1 7:3', "6:2 1':1 6:1 4:2", '7:3 4:3'],
+        A: ['1:2 3:1 5:2 3:1', '4:2 3:1 2:2 3:1', '1:1 2:1 3:1 5:2 6:1', '6:3 5:2 4:1', '1:2 3:1 5:2 3:1', '7:2 6:1 5:2 4:1', '6:1 5:1 4:1 2:1 4:1 3:1', '1:3 r:3'],
+        B: ['5:2 6:1 7:2 6:1', '7:2 6:1 5:2 4:1', "6:2 7:1 1':2 7:1", '5:3 r:3', '3:1 4:1 5:1 7:2 6:1', "2':2 1':1 7:2 6:1", "4:2 5:1 6:2 1':1", '6:1 5:1 4:1 2:1 r:2'],
+        // (Round 19: B's last bar runs down the scale into the A pickup (which sounds over its last beat) —
+        // it held the top F# a second time and then dropped a tenth to the B, the whistle's one
+        // unbreathed register jump.)
+        C: ['5:2 6:1 7:3', "1':2 7:1 5:3", '4:2 3:1 2:3', '1:3 r:3', '2:2 1:1 7,:3', '3:2 5:1 7:3', '6:2 5:1 4:3', '7:3 r:3'],
         pickup: '5,:1 7,:1',
       },
     },
@@ -623,6 +680,8 @@ export const THEMES: Record<string, ThemeDef> = {
     },
     rest: [5, 12],
     gain: 0.92,
+    // (Round 12: presence + air sat on the 12 % mellow line — a gentle sheen opens the whistle and harp.)
+    sheen: 2.5,
   },
 
   /** Festival jig — running fiddle quavers with whistle doubling, accordion oom-pah, bodhrán and tambourine. */
@@ -649,16 +708,18 @@ export const THEMES: Record<string, ThemeDef> = {
       inst: 'fiddle', range: [66, 91], density: 0.95, ornament: 0.35, double: { inst: 'whistle', interval: 12, on: 'repeat' },
       tune: {
         octave: 1,
-        // "F# E D A D F# | A2 F# B A F# | G B d B2 G | A B A C# E A |" — running jig quavers.
-        A: ['3:1 2:1 1:1 5,:1 1:1 3:1', '5:2 3:1 6:1 5:1 3:1', "4:1 6:1 1':1 6:2 4:1", '5:1 6:1 5:1 7,:1 2:1 5,:1', '3:1 2:1 1:1 5,:1 1:1 3:1', "5:1 6:1 7:1 1':2 5:1", '6:1 5:1 4:1 3:1 2:1 7,:1', '1:3 r:3'],
-        B: ["6:2 3:1 6:1 1':1 6:1", "4:2 6:1 1':1 6:1 4:1", "3:1 5:1 1':1 5:1 3:1 1:1", '2:1 7,:1 5,:1 2:2 3:1', "6:1 1':1 3':1 1':2 6:1", "6:1 1':1 6:1 4:2 6:1", '2:1 4:1 6:1 5:1 3:1 2:1', '1:3 r:3'],
+        // Round 7: "F# E D C# D F# | A2 F# B A F# | G B d B2 G | A B A G (breath) | … | B A G F# E C# | D (breath) |" — the jig figure kept, the runs mostly by step.
+        A: ['3:1 2:1 1:1 7,:1 1:1 3:1', '5:2 3:1 6:1 5:1 3:1', "4:1 6:1 1':1 6:2 4:1", '5:1 6:1 5:1 4:1 r:2', '3:1 2:1 1:1 7,:1 1:1 3:1', "5:1 6:1 7:1 1':2 6:1", '6:1 5:1 4:1 3:1 2:1 7,:1', '1:3 r:3'],
+        B: ['3:1 4:1 5:1 6:2 7:1', "1':2 7:1 6:1 5:1 4:1", '3:2 2:1 1:1 2:1 3:1', '5:1 4:1 3:1 2:2 5:1', "6:1 7:1 1':1 2':1 3':1 2':1", "1':1 7:1 6:1 4:2 6:1", '2:1 3:1 4:1 3:1 2:1 7,:1', '1:3 r:3'],
         // C: the singing strain — crotchet-quaver lilt instead of running quavers, climbing through
         // the new chords and settling on the dominant before the jig comes home.
-        C: ["4:2 6:1 1':2 6:1", "5:2 7:1 2':2 7:1", '3:2 5:1 7:2 5:1', "6:3 1':2 7:1", "2':2 1':1 6:2 4:1", "5:1 6:1 7:1 2':2 7:1", "1':2 7:1 6:1 5:1 3:1", '5:4 r:2'],
+        C: ['3:1 4:1 5:1 6:2 5:1', '5:2 6:1 7:2 6:1', '7:2 6:1 5:2 3:1', '6:3 r:3', "2':2 1':1 7:2 6:1", "7:2 1':1 2':2 1':1", "3':2 2':1 1':1 7:1 6:1", '5:4 r:2'],
         pickup: '1:1 2:1',
       },
     },
-    accomp: { inst: 'accordion', pattern: 'oompah', range: [57, 71], voices: 3, vel: 0.6 },
+    // Round 4: the accordion holds its chords (bellows swells, re-struck mid-bar) while the guitar
+    // keeps the oompah — the middle of the band was empty between the off-beat stabs.
+    accomp: { inst: 'accordion', pattern: 'block', range: [55, 69], voices: 3, vel: 0.5 },
     accomp2: { inst: 'guitar', pattern: 'oompah', range: [50, 64], voices: 4, vel: 0.5, on: 'repeat' },
     bass: { inst: 'upright', pattern: 'jig', range: [38, 52], vel: 0.85 },
     perc: { pattern: 'jig', on: 'always', vel: 0.6 },
@@ -681,16 +742,20 @@ export const THEMES: Record<string, ThemeDef> = {
     id: 'title',
     title: 'Hearthvale',
     blurb: 'Main theme',
-    bpm: 80,
+    bpm: 88,
     meter: '4/4',
     key: 62, // D
     mode: 'major',
     lift: 2,
     breaks: 'breath',
     form: ['intro', 'A', 'A', 'B', 'A', 'outro'],
+    // Round 12: the hook. Three running eighths up to a held note and a turn back — '1 2 3 5.. 3 2' —
+    // twice, the second time reaching the 6th over a tonic pedal; it comes back in spring's B and the
+    // town's bridge as the valley's leitmotif. Harmony: a hymn-like IV/5 pedal, a mixolydian bVII.
     prog: {
-      intro: ['Imaj7', 'IVmaj7'],
-      A: ['Imaj7', 'iii7', 'vi7', 'IVmaj7', 'ii7', 'V', 'IVmaj7', 'I'],
+      intro: ['Isus2'],
+      A: ['I', 'IV/5', 'I', 'bVII', 'IV', 'I/3', 'ii7', 'V7sus4 V'],
+      Aend: ['ii7 V7', 'I'],
       B: ['IV', 'V', 'iii7', 'vi', 'IVmaj7', 'iii7', 'ii7', 'V7sus4 V'],
       outro: ['IVmaj7', 'Iadd9'],
     },
@@ -699,32 +764,47 @@ export const THEMES: Record<string, ThemeDef> = {
       double: { inst: 'celesta', interval: 12, on: 'late' },
       tune: {
         octave: 1,
-        // "A D | D'... C# B | A... F# E | F# D'... C# B | B.. A G... | G E'... D C# | C#.. B A... |" —
-        // an octave leap and a slow fall home, twice, then the climb to E.
-        A: ["5,:1 1:1 1':4 7:1 6:1", '5:4 3:2 2:2', "3:2 1':4 7:1 6:1", '6:3 5:1 4:4', "4:2 2':4 1':1 7:1", '7:3 6:1 5:4', '4:2 6:2 5:2 3:2', '2:2 1:6'],
-        B: ["1':3 7:1 6:2 4:2", "2':3 1':1 7:2 5:2", '7:3 6:1 5:2 3:2', '2:2 3:2 6:4', "1':3 7:1 6:2 5:2", '5:3 6:1 7:4', "6:2 1':2 2':4", '5:8'],
-        Aend: ['4:2 6:2 5:2 2:2', '1:8'],
+        // "D E F# A.. F# E | D E F# B.. G | F# G A D'.. C# B | A G E G... |
+        //  G A B D'.. B A | D' C# B A.. F# | E F# G B.. D' C# | E.. D C# A, |"
+        // (Round 18: the second phrase climbs to its peak once — E' over the ii7 in bar 7, the only
+        // time the A strain touches it — instead of bumping the D' ceiling three bars running, then
+        // breathes down through the V before the hook comes round.)
+        A: ['1:1 2:1 3:1 5:3 3:1 2:1', '1:1 2:1 3:1 6:3 4:2', "3:1 4:1 5:1 1':3 7:1 6:1", '5:1 4:1 2:2 4:2 r:2', "4:1 5:1 6:1 1':3 6:1 5:1", "1':1 7:1 6:1 5:3 3:2", "4:1 5:1 6:1 2':3 1':1 7:1", '6:2 5:1 4:1 2:2 r:2'],
+        B: ["1':3 7:1 6:2 4:2", "2':3 1':1 7:2 5:2", '7:3 6:1 5:2 3:2', '2:2 3:2 6:2 r:2', "1':3 7:1 6:2 5:2", '5:3 6:1 7:4', "6:2 1':2 2':4", '5:8'],
+        Aend: ["4:1 5:1 6:1 2':2 7:1 6:1 5:1", '1:8'],
       },
     },
-    counter: { inst: 'cello', range: [48, 64], on: 'always', style: 'moving' },
+    counter: { inst: 'cello', range: [50, 64], on: 'repeat', style: 'moving' },
     accomp: { inst: 'harp', pattern: 'harpRoll', range: [55, 74], voices: 4, vel: 0.7 },
-    bass: { inst: 'softBass', pattern: 'root', range: [38, 50], vel: 0.7 },
+    // (Round 12: a plucked upright with finger noise, not the sine-and-triangle soft bass.)
+    bass: { inst: 'upright', pattern: 'rootFifth', range: [38, 50], vel: 0.74 },
     pad: { inst: 'pad', range: [54, 71], voices: 4, vel: 0.45, on: 'B' },
     mix: {
       melody: { gain: 0.84, pan: 0.05, send: 0.4 },
       double: { gain: 0.22, pan: 0.3, send: 0.5 },
       counter: { gain: 0.52, pan: -0.32, send: 0.4 },
       accomp: { gain: 0.74, pan: 0.3, send: 0.38 },
-      bass: { gain: 0.6, pan: 0, send: 0.08 },
+      // (Round 9: the louder low end left the main theme DULL — the harp roll and cello carry
+      // their own bottom, so the soft bass steps back and a sheen lifts the flute and celesta.)
+      bass: { gain: 0.72, pan: 0, send: 0.08 },
       pad: { gain: 0.36, pan: 0, send: 0.55 },
     },
     rest: [0, 0],
     gain: 0.82,
+    sheen: 3.5,
   },
 };
 
 // The season's other songs and the seasonal lullabies (rotated by the playlists in select.ts).
 Object.assign(THEMES, SONGBOOK);
+// More rainy-day and town songs (the 'rain:<season>' / 'town:<season>' playlists in select.ts).
+Object.assign(THEMES, SONGBOOK_TOWN);
+// The event score: cues for heart events and story scenes (songbook-events.ts, chosen by eventCue()).
+Object.assign(THEMES, SONGBOOK_EVENTS);
+// Second beach and forest songs (the 'beach:day' / 'forest:day' playlists in select.ts).
+Object.assign(THEMES, SONGBOOK_PLACES);
+Object.assign(THEMES, SONGBOOK_MINE);
+THEMES['town-winter'] = winterTown(THEMES.town!);
 
 /** Mood hints the festival system broadcasts (`festival:music`). */
 export interface FestivalHint {
@@ -746,17 +826,58 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
   const bpm = Math.max(60, Math.min(140, h.tempo || base.bpm));
   switch (h.timbre) {
     case 'pluck':
+      // The Blossom Parade has its own tune (not the jig): a lydian polka — two bars of 2/4 in each
+      // 4/4 bar, harp and ukulele off-beats, the raised fourth (C#) as the hook that makes the
+      // valley's spring sound like ribbons in the wind.
       return {
-        ...base, id, title: 'Ribbon Parade', blurb: 'The Blossom Parade', bpm, key: 67, mode: 'lydian',
-        prog: { intro: ['I', 'II'], A: ['I', 'I', 'II', 'V', 'I', 'I', 'II V', 'I'], B: ['vi', 'II', 'I', 'V', 'vi', 'II', 'II V', 'I'], C: ['II7', 'V', 'iii', 'vi', 'II', 'V', 'I', 'V'], outro: ['II', 'I'] },
-        melody: { ...base.melody!, inst: 'harp', range: [67, 91], density: 0.85, ornament: 0.2, double: { inst: 'whistle', interval: 12, on: 'repeat' } },
-        accomp: { inst: 'kalimba', pattern: 'oompah', range: [60, 76], voices: 3, vel: 0.55 },
-        accomp2: { inst: 'guitar', pattern: 'oompah', range: [50, 64], voices: 4, vel: 0.45, on: 'repeat' },
-        // The whistle an octave over the harp put 29 % of the energy in 2–5 kHz (HARSH): it sits back
-        // in a little more room, and one wide dip at 3.3 kHz takes the edge off the pair.
-        mix: { ...base.mix, melody: { gain: 0.9, pan: 0.1, send: 0.3 }, double: { gain: 0.2, pan: -0.3, send: 0.4 } },
-        eq: { ...base.eq, cut: { f: 3300, db: -3.5, q: 0.8 } },
-        gain: 0.9,
+        ...base, id, title: 'Ribbon Parade', blurb: 'The Blossom Parade', bpm: Math.max(108, Math.min(bpm, 118)), key: 67, mode: 'lydian', meter: '4/4', swing: 0.52,
+        form: ['intro', 'A', 'A', 'B', 'A', 'C', 'B', 'A', 'outro'],
+        lift: 0,
+        prog: {
+          intro: ['I', 'II'],
+          A: ['I', 'I', 'II', 'V', 'I', 'I', 'II V', 'I'],
+          B: ['vi', 'II', 'I', 'V', 'vi', 'II', 'II V', 'I'],
+          C: ['II7', 'V', 'iii', 'vi', 'II', 'V', 'I', 'V'],
+          outro: ['II', 'I'],
+        },
+        melody: {
+          // Round 4: a sustained lead — the tin whistle sings A over the plucked band (harp takes B,
+          // the flute the slow C), and the comping moved under it.
+          // (Up an octave: the tin whistle's own D5–D7 compass, a festival lead that rings over the band.)
+          inst: 'whistle', range: [74, 98], density: 0.85, ornament: 0.18, bInst: 'harp', cInst: 'flute', double: { inst: 'glock', interval: 0, on: 'repeat' },
+          tune: {
+            octave: 1,
+            // "G B D. D E D. | G'. F# E D... | C# D E. C#. A. | D.. E F#. - |" — up the triad, the
+            // lydian C# leaning on the II chord, a skip down home.
+            // (Round 18: no leap left hanging — the C# leans back down to the D, the climb to B' turns on
+            // the F#, and the closing F# resolves UP to the G instead of dropping a seventh.)
+            A: ['1:1 3:1 5:2 5:1 6:1 5:2', "1':2 7:1 6:1 5:4", '4:1 5:1 6:2 5:2 4:2', '5:3 6:1 7:2 r:2', '1:1 3:1 5:2 5:1 6:1 5:2', "1':2 7:1 1':1 3':2 2':1 1':1", '6:1 4:1 2:2 3:1 5:1 7:2', "1':2 5:1 1':1 r:2 5,:1 7,:1"],
+            // B: out to E minor, a three-note sigh (E F# G) answered a step higher each time.
+            B: ["6:1 7:1 1':2 7:1 6:1 3:2", "4:1 5:1 6:2 1':1 7:1 6:2", "5:1 6:1 7:1 1':1 3':2 1':2", "2':3 1':1 7:2 r:2", "6:1 7:1 1':2 7:1 6:1 3:2", "4:1 6:1 2':2 1':1 7:1 6:2", '6:1 4:1 2:2 3:1 5:1 7:2', "1':2 5:1 3:1 1:2 r:2"],
+            // C: the flute sings it slow over A7 → D — long notes, the parade passing the hall.
+            C: ["2':4 1':2 4:2", "5:4 7:2 2':2", "3':4 2':2 7:2", '6:6 r:2', "4:2 6:2 2':3 1':1", "7:2 2':2 5':3 4':1", "3':4 2':2 1':2", "2':4 7:1 6:1 5:2"],
+            Aend: ['6:1 4:1 2:2 3:1 5:1 7:2', "1':4 5:2 1':2"],
+            pickup: '5,:1 7,:1',
+          },
+        },
+        counter: { inst: 'ocarina', range: [62, 76], on: 'late' },
+        accomp: { inst: 'ukulele', pattern: 'pizzOff', range: [55, 67], voices: 3, vel: 0.5 },
+        accomp2: { inst: 'marimba', pattern: 'arp8', range: [50, 64], voices: 3, vel: 0.32, on: 'B' },
+        bass: { inst: 'upright', pattern: 'rootFifth', range: [38, 52], vel: 0.82 },
+        perc: { pattern: 'polka', on: 'always', vel: 0.6 },
+        mix: {
+          melody: { gain: 0.86, pan: 0.08, send: 0.3 },
+          double: { gain: 0.12, pan: -0.3, send: 0.4 },
+          counter: { gain: 0.42, pan: -0.35, send: 0.32 },
+          accomp: { gain: 0.62, pan: -0.32, send: 0.22 },
+          accomp2: { gain: 0.36, pan: 0.42, send: 0.28 },
+          bass: { gain: 0.7, pan: 0, send: 0.05 },
+          perc: { gain: 0.38, pan: 0.1, send: 0.14 },
+        },
+        eq: undefined,
+        rest: [0, 0],
+        gain: 1,
+        sheen: 3,
       };
     case 'bell':
       if (h.mode === 'mixolydian') {
@@ -771,18 +892,19 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
               octave: 1,
               // A slow barcarolle in 6/8, rising and falling like swell: "E.. G#. B | A.. G#. F# | E.. G#. C# |
               // B.. G#.. |" — mixolydian D natural over the bVII; B is a falling sequence of three-note waves.
-              A: ['1:3 3:2 5:1', '4:3 3:2 2:1', '1:3 3:2 6:1', '5:3 3:3', '3:3 5:2 6:1', '7:3 6:2 4:1', '6:2 4:1 2:2 #7,:1', '1:6'],
-              B: ['6:3 5:2 4:1', '5:3 4:2 3:1', '4:3 3:2 2:1', '1:3 3:2 4:1', '6:3 4:2 2:1', '2:3 4:2 7:1', '6:2 4:1 1:3', '5,:3 2:3'],
+              // (Round 7: the swell rises by step and the B waves fall in sequence — 54 % leaps → ~35 %.)
+              A: ['1:3 2:2 3:1', '4:3 3:2 2:1', '3:3 4:2 6:1', '5:3 3:3', '3:3 5:2 6:1', '7:3 6:2 4:1', '6:2 5:1 4:1 3:1 2:1', '1:6'],
+              B: ['6:3 5:2 4:1', '5:3 4:2 3:1', '4:3 3:2 2:1', '1:3 r:3', '2:3 3:2 4:1', '4:3 5:2 7:1', '6:2 5:1 4:3', '5:3 r:3'],
               // C: out on the relative minor, the lanterns drifting further — wider waves, a long D natural.
-              C: ["6:3 1':2 6:1", "4:3 6:2 1':1", "7:3 2':2 7:1", "1':3 5:3", '3:3 6:2 5:1', '4:3 2:2 6:1', "4:2 6:1 1':2 6:1", '5:3 2:3'],
+              C: ["6:3 1':2 7:1", '6:3 5:2 4:1', "7:3 1':2 2':1", "1':3 r:3", '3:3 5:2 6:1', '4:3 3:2 2:1', "4:2 6:1 1':2 6:1", '5:3 2:3'],
             },
           },
-          accomp: { inst: 'harp', pattern: 'waltzArp', range: [55, 72], voices: 4, vel: 0.5 },
+          accomp: { inst: 'harp', pattern: 'waltzArp', range: [52, 69], voices: 4, vel: 0.5 }, // (round 8: 55-72 — with the celesta above, 200-500 Hz sat 22 dB under the tune)
           accomp2: undefined,
           bass: { inst: 'softBass', pattern: 'jig', range: [38, 50], vel: 0.55 },
           pad: { inst: 'pad', range: [52, 69], voices: 3, vel: 0.36, on: 'always' },
           perc: { pattern: 'light', on: 'repeat', vel: 0.45 },
-          mix: { melody: { gain: 0.82, pan: 0.1, send: 0.5 }, double: { gain: 0.22, pan: -0.3, send: 0.6 }, accomp: { gain: 0.6, pan: -0.25, send: 0.4 }, bass: { gain: 0.48, pan: 0, send: 0.1 }, pad: { gain: 0.42, pan: 0, send: 0.55 }, perc: { gain: 0.5, pan: 0.2, send: 0.2 } },
+          mix: { melody: { gain: 0.82, pan: 0.1, send: 0.5 }, double: { gain: 0.22, pan: -0.3, send: 0.6 }, accomp: { gain: 0.6, pan: -0.25, send: 0.4 }, bass: { gain: 0.48, pan: 0, send: 0.1 }, pad: { gain: 0.56, pan: 0, send: 0.55 }, perc: { gain: 0.5, pan: 0.2, send: 0.2 } },
           rest: [0, 0],
           gain: 0.85,
           sheen: 4.5,
@@ -792,14 +914,14 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
         ...base, id, title: 'Starfall Carol', blurb: 'The Starfall Vigil', bpm: Math.min(bpm, 96), key: 65, mode: 'major', meter: '4/4',
         form: ['intro', 'A', 'B', 'A', 'C', 'A', 'outro'],
         lift: 0,
-        prog: { intro: ['I', 'IV'], A: ['I', 'vi', 'IV', 'V', 'I', 'vi', 'ii V', 'I'], B: ['IV', 'I', 'ii', 'V', 'IV', 'iii vi', 'ii', 'V'], C: ['vi', 'iii', 'IV', 'I', 'ii', 'V', 'iii vi', 'ii V'], outro: ['IV', 'I'] },
+        prog: { intro: ['I/5', 'V7'], A: ['I', 'vi', 'IV', 'V', 'I', 'vi', 'ii V', 'I'], B: ['IV', 'I', 'ii', 'V', 'IV', 'iii vi', 'ii', 'V'], C: ['vi', 'iii', 'IV', 'I', 'ii', 'V', 'iii vi', 'ii V'], outro: ['IV', 'I'] },
         melody: {
           inst: 'musicBox', range: [72, 93], density: 0.55, ornament: 0.15, double: { inst: 'bell', interval: -12, on: 'repeat' },
           tune: {
             octave: 1,
             // A carol: "C. D C A. F | D. E F. A | Bb. A G. F | E.. G.. |"
-            A: ['5:3 6:1 5:2 3:2', '6:3 7:1 1\':2 3:2', '4:3 3:1 2:2 1:2', '7,:4 2:4', '5:3 6:1 5:2 3:2', '6:3 7:1 1\':2 6:2', '4:2 6:2 5:2 2:2', '1:8'],
-            B: ['6:4 1\':2 6:2', '5:4 3:2 1:2', '2:3 3:1 4:2 6:2', '5:6 r:2', '4:3 5:1 6:2 1\':2', '7:2 5:2 1\':2 6:2', '6:3 5:1 4:2 2:2', '5:6 r:2'],
+            A: ['5:3 6:1 5:2 3:1 4:1', '6:3 7:1 1\':2 3:2', '4:3 3:1 2:2 1:2', '7,:4 2:2 4:2', '5:3 6:1 5:2 3:1 4:1', '6:3 7:1 1\':2 6:2', '4:2 3:2 2:2 7,:2', '1:8'],
+            B: ['6:4 5:2 4:2', '5:4 3:2 1:2', '2:3 3:1 4:2 6:2', '5:6 r:2', '4:3 5:1 6:2 1\':2', '7:2 5:2 1\':2 6:2', '6:3 5:1 4:2 2:2', '5:6 r:2'],
             // C: the vigil's quiet middle — the carol turns to the relative minor and climbs back.
             C: ['3:3 4:1 6:4', '5:3 3:1 7,:4', "4:2 6:2 1':4", '5:2 6:1 5:1 3:4', '2:3 4:1 6:4', "5:3 7:1 2':4", "7:2 5:2 6:2 1':2", '4:2 2:2 5:4'],
           },
@@ -813,20 +935,68 @@ export function festivalTheme(h: FestivalHint): ThemeDef {
         rest: [0, 0],
         gain: 0.72,
         sheen: 4,
+        air: 0.12, // music box + sleigh bells: bright already
       };
     case 'fiddle':
+      // The Harvest Fair's own tune: a real reel in D dorian (4/4, running quavers), not the jig with
+      // a new B strain. The hook is the "D E F D A D F A" figure; the B strain climbs to the top F and
+      // rattles down through C major; C is a singing strain in long notes over a slower harmony.
       return {
-        ...base, id, title: 'Harvest Reel', blurb: 'The Harvest Fair', bpm: Math.max(bpm, 118), key: 62, mode: 'dorian',
-        // Faster than the jig, so one more B strain keeps the set past 90 s.
-        form: ['intro', 'A', 'A', 'B', 'B', 'C', 'C', 'A', 'A', 'B', 'B', 'A', 'outro'],
-        prog: { intro: ['i', 'bVII'], A: ['i', 'i', 'IV', 'v', 'i', 'i', 'IV v', 'i'], B: ['bVII', 'bVII', 'i', 'i', 'bVII', 'bVII', 'IV v', 'i'], C: ['IV', 'v', 'bIII', 'IV', 'ii', 'v', 'i', 'v'], outro: ['bVII', 'i'] },
+        ...base, id, title: 'Harvest Reel', blurb: 'The Harvest Fair', bpm: Math.max(124, Math.min(bpm + 4, 136)), key: 62, mode: 'dorian', meter: '4/4', swing: 0.54,
+        form: ['intro', 'A', 'A', 'B', 'B', 'C', 'A', 'A', 'B', 'B', 'A', 'outro'],
+        lift: 2,
+        prog: {
+          intro: ['i', 'bVII'],
+          A: ['i', 'bVII', 'i', 'IV', 'i', 'bVII', 'IV v', 'i'],
+          B: ['bIII', 'bVII', 'IV', 'i', 'bIII', 'bVII', 'IV v', 'i'],
+          C: ['bVII', 'IV', 'bIII', 'bVII', 'IV', 'i', 'ii', 'v'],
+          outro: ['bVII', 'i'],
+        },
         melody: {
-          ...base.melody!,
+          inst: 'fiddle', range: [64, 91], density: 1, ornament: 0.3, cInst: 'accordion', double: { inst: 'whistle', interval: 12, on: 'late' },
           tune: {
-            ...base.melody!.tune!,
-            B: ['4:1 7,:1 2:1 4:2 2:1', "7:1 1':1 7:1 4:2 2:1", '5:1 3:1 1:1 5,:2 1:1', "3:1 5:1 1':1 5:1 3:1 2:1", '4:1 7,:1 2:1 4:2 2:1', "7:1 1':1 7:1 4:2 2:1", '4:1 6:1 4:1 5:1 7,:1 2:1', '1:3 r:3'],
+            octave: 1,
+            // Round 7: re-cut as a session reel — the hook is a scale run with one drop ("D E F D A G F E"),
+            // answered a step down on C, a run up to the top D and a breath (an empty half bar) at every
+            // phrase end. Peak notes are placed: the top D at bar 4 of A, the top G once in B (bar 6).
+            A: ['1:1 2:1 3:1 1:1 5:1 4:1 3:1 2:1', '7,:1 1:1 2:1 7,:1 3:1 2:1 1:1 7,:1', '1:1 3:1 5:1 3:1 4:1 6:1 5:1 3:1', "4:1 5:1 6:1 7:1 1':1 7:1 6:1 5:1", '1:1 2:1 3:1 1:1 5:1 4:1 3:1 2:1', '7,:1 2:1 4:1 5:1 4:1 2:1 4:1 5:1', "6:1 1':1 7:1 6:1 5:1 6:1 5:1 3:1", '2:2 1:2 r:4'],
+            B: ["3:1 4:1 5:1 6:1 7:1 1':1 2':1 3':1", "1':1 7:1 1':1 2':1 1':1 7:1 5:1 7:1", "6:1 4:1 6:1 1':1 7:1 6:1 5:1 4:1", '5:1 4:1 3:1 2:1 1:1 3:1 5:1 7:1', "1':1 2':1 3':1 2':1 1':1 7:1 6:1 7:1", "1':1 2':1 3':1 4':1 3':1 2':1 1':1 7:1", '6:1 7:1 6:1 5:1 4:1 5:1 4:1 2:1', '3:2 1:2 r:4'],
+            C: ["2':3 1':1 7:2 6:2", '6:3 5:1 4:4', "5:3 6:1 7:2 1':2", "2':4 1':2 r:2", "1':3 7:1 6:2 5:2", '5:4 4:2 3:2', '2:2 3:2 4:3 5:1', '5:4 6:1 5:1 r:2'],
+            // Round 20: a session player never plays the repeat the same — second time through, A's
+            // third bar turns round the tonic (F E D E F G A F) and the strain closes D. F E D instead
+            // of the E-D drop; B's second time comes down through the v and rolls home D A, C D.
+            again: {
+              A: ['', '', '3:1 2:1 1:1 2:1 3:1 4:1 5:1 3:1', '', '', '', '6:1 5:1 4:1 6:1 5:1 3:1 2:1 7,:1', '1:2 3:1 2:1 1:2 r:2'],
+              B: ['', '', '', '', '', '', '6:1 4:1 5:1 6:1 5:1 3:1 2:1 7,:1', '1:1 5,:1 7,:1 1:1 r:4'],
+            },
+            // Round 21 (critic r6: "40.2 % distinct melodic bars across 159 s"): after the singing C
+            // strain the set comes back varied — A's third bar turns on the dorian B (A G F G A B A F),
+            // the IV bar leans a C on the G chord down to its B (4-3), the bVII bar walks instead of
+            // arpeggiating and the half cadence puts a B over the v's root; B's C-chord bar opens on a
+            // D' (9-8) and its tonic bar leans G to F. The last A is lifted a whole step (lift: 2).
+            late: {
+              A: ['', '', '5:1 4:1 3:1 4:1 5:1 6:1 5:1 3:1', '7:2 6:1 5:1 4:1 5:1 6:1 5:1', '', '7,:1 1:1 2:1 4:1 3:1 2:1 3:1 5:1', "6:1 1':1 7:1 6:1 6:2 5:1 3:1", ''],
+              B: ['', "1':2 7:1 5:1 4:1 5:1 7:1 5:1", '', '4:2 3:1 2:1 1:1 3:1 5:1 7:1', '', '', '', ''],
+            },
+            pickup: '5,:1 7,:1',
           },
         },
+        counter: { inst: 'cello', range: [45, 62], on: 'late', style: 'moving' },
+        accomp: { inst: 'guitar', pattern: 'chop', range: [50, 66], voices: 4, vel: 0.52 },
+        accomp2: { inst: 'accordion', pattern: 'block', range: [57, 71], voices: 3, vel: 0.3, on: 'B' },
+        bass: { inst: 'upright', pattern: 'rootFifth', range: [38, 52], vel: 0.85 },
+        perc: { pattern: 'reel', on: 'always', vel: 0.6 },
+        mix: {
+          melody: { gain: 0.74, pan: 0.1, send: 0.24 },
+          double: { gain: 0.24, pan: -0.42, send: 0.28 },
+          counter: { gain: 0.44, pan: -0.3, send: 0.3 },
+          accomp: { gain: 0.6, pan: -0.32, send: 0.2 },
+          accomp2: { gain: 0.34, pan: 0.45, send: 0.22 },
+          bass: { gain: 0.72, pan: 0, send: 0.05 },
+          perc: { gain: 0.5, pan: 0.05, send: 0.12 },
+        },
+        rest: [0, 0],
+        gain: 1.2,
       };
     default:
       return { ...base, id, bpm };

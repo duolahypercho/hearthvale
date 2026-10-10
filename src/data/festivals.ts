@@ -305,7 +305,30 @@ export function favouredPresentation(year: number): number {
   return (year * 5 + 1) % PRESENTATIONS.length;
 }
 
+/** Show names the farmer gives a prize entry (the rivals are "Big Wendell", "Duchess"…). */
+const ENTRY_NICKNAMES = ['Old Faithful', 'Sunny Jim', 'Lady Marmalade', 'The Contender', 'Little Duke', 'Sweet Clementine', 'Grandma’s Pride', 'Captain Plump'];
+/** "Sunny Jim (pumpkin)" — deterministic per crop + year, so the card, the plinth and co-op agree. */
+export function entryNickname(id: string, year: number, cropName: string): string {
+  let h = year * 31;
+  for (let i = 0; i < id.length; i++) h = (h * 33 + id.charCodeAt(i)) >>> 0;
+  return `${ENTRY_NICKNAMES[h % ENTRY_NICKNAMES.length]!} (${cropName.toLowerCase()})`;
+}
+
 /** Presents villagers might wrap for the player at Starfall (festival keepsakes weighted in). */
+/** Gift Exchange: the rumour you get about what your drawn villager would love (original lines). */
+export const GIFT_HINTS: Record<string, string> = {
+  marigold: 'Marigold has been fussing over an empty vase on her sill all week.',
+  bram: 'Bram keeps saying the bakery needs “something golden from the fields.”',
+  wren: 'Wren’s sketchbook is all big blooms and glittering stones lately.',
+  odessa: 'Odessa only lights up for raw ore. Or pie, if you ask her friends.',
+  linus: 'Dr. Pell is prescribing himself leafy greens and quiet cups of tea.',
+  june: 'June wants a bright red treat — or the river’s rarest glowing catch.',
+  tobias: 'Tobias likes humble things: root veg, a warm brew, a fish from a still pond.',
+  kit: 'Kit collects shiny rocks, slippery creatures and anything sweet.',
+  rowan: 'Rowan is whittling again, and daydreaming about harvest pies.',
+  hazel: 'Hazel swears by flowers you grew yourself. Rocks in her beds? Never.',
+};
+
 export const STARFALL_GIFTS = ['starfallOpal', 'starfallOpal', 'gingerbreadVillager', 'winterRoseTea', 'ruby', 'aquamarine', 'emberOpal', 'truffle'];
 
 /** Honorific-free first name for UI lines ("Dr. Linus Pell" → "Linus"). */

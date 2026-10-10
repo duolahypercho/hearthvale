@@ -18,6 +18,8 @@
   height: 0;
   background: #07040a;
   transition: height 900ms cubic-bezier(0.65, 0, 0.35, 1);
+  /* The bars stay crisp over a fade-through-black (a cut, not a load hitch). */
+  z-index: 2;
 }
 .hv-cinema-layer .cin-bar.top {
   top: 0;
@@ -38,6 +40,7 @@
   position: absolute;
   inset: 0;
   background: radial-gradient(120% 120% at 50% 50%, #140c08, #050305);
+  z-index: 1;
   opacity: 0;
   transition: opacity 0.6s ease;
 }
@@ -91,6 +94,28 @@
 .cin-caption.low .cap-scrim {
   height: 260%;
   background: radial-gradient(closest-side, rgba(12, 6, 3, 0.55), rgba(12, 6, 3, 0.25) 60%, rgba(12, 6, 3, 0));
+}
+/* Letterboxed scenes: a low caption is a film subtitle set inside the bottom bar, so it never sits on
+   the faces and lanterns the shot is framing (the bar is 8.5vh; title + sub fit in it). */
+.hv-cinema-layer.boxed .cin-caption.low {
+  top: calc(100% - 4.25vh);
+  width: min(1500px, 94vw);
+}
+.hv-cinema-layer.boxed .cin-caption.low .cap-scrim {
+  display: none;
+}
+.hv-cinema-layer.boxed .cin-caption.low .cap-text {
+  font-size: clamp(20px, 1.85vw, 32px);
+  line-height: 1.05;
+  text-shadow: 0 0 24px rgba(255, 170, 80, 0.28);
+}
+.hv-cinema-layer.boxed .cin-caption.low .cap-sub {
+  margin-top: 3px;
+  font-size: clamp(12px, 0.9vw, 15px);
+  color: rgba(255, 228, 190, 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .cin-caption .cap-orn {
   font-size: 22px;
@@ -363,7 +388,30 @@
 /* Co-op farmhand: the host decides; the options show, dimmed, under a gently pulsing note. */
 .cin-choices.locked .cin-choice {
   cursor: default;
-  filter: saturate(0.55) brightness(0.92);
+  filter: saturate(0.2) brightness(0.78);
+  opacity: 0.78;
+  transition: filter 220ms, opacity 220ms, transform 220ms var(--ease-back), box-shadow 220ms;
+}
+.cin-choices.locked .cin-choice .key {
+  background: rgba(60, 40, 24, 0.55);
+  color: #f0dcc0;
+}
+.cin-lock {
+  width: 0.85em;
+  height: 0.95em;
+  display: inline-block;
+  vertical-align: -0.1em;
+}
+/* The host's pick, shown to the farmhand for a beat before the scene goes on. */
+.cin-choices.locked .cin-choice.chosen {
+  filter: none;
+  opacity: 1;
+  transform: translateX(-10px) scale(1.04);
+  box-shadow: 0 0 0 3px #ffd27a, 0 0 26px 6px rgba(255, 200, 100, 0.55), 0 5px 0 var(--wood-3);
+}
+.cin-choices.locked .cin-choice.chosen .key {
+  background: #e8a33a;
+  color: #3a1e08;
 }
 .cin-choices.locked .cin-choice.sel {
   transform: none;
@@ -378,6 +426,9 @@
 }
 .cin-wait {
   justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 16px;
   border-radius: 999px;
   font-family: var(--font-head);
@@ -567,8 +618,44 @@
     0 30px 60px rgba(10, 4, 0, 0.55),
     0 8px 18px rgba(10, 4, 0, 0.35);
 }
+.lt-crease {
+  position: relative;
+  height: 0;
+}
+.lt-crease::before {
+  /* the soft fold line, in the gap between paragraphs */
+  content: '';
+  position: absolute;
+  left: -64px;
+  right: -64px;
+  top: -13px;
+  height: 26px;
+  background: linear-gradient(180deg, transparent, rgba(120, 80, 40, 0.08) 48%, rgba(255, 255, 255, 0.28) 52%, transparent);
+  pointer-events: none;
+}
+body.hv-coach-on .lt-crease::before {
+  left: -48px;
+  right: -48px;
+}
+.lt-foothint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 12px;
+  text-align: center;
+  font-family: var(--font-body, sans-serif);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(110, 72, 36, 0.5);
+  animation: ltFade 1.2s 1s ease both;
+}
+.hv-letter-reader .lt-hint {
+  display: none;
+}
 .paper-gran::after {
-  /* a soft fold line across the middle */
+  display: none;
   content: '';
   position: absolute;
   left: 0;

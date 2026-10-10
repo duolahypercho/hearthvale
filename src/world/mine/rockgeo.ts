@@ -228,3 +228,23 @@ export function crystalPrism(radius: number, height: number, tipFrac = 0.28): TH
   g.computeVertexNormals();
   return g;
 }
+
+let contactMat: THREE.MeshBasicMaterial | null = null;
+let contactGeo: THREE.PlaneGeometry | null = null;
+/** Soft dark blob decal (radial alpha) shared by every rock contact shadow: grounds rocks on the floor. */
+export function contactShadow(): { geo: THREE.PlaneGeometry; mat: THREE.MeshBasicMaterial } {
+  if (!contactMat || !contactGeo) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d')!;
+    const g = ctx.createRadialGradient(32, 32, 4, 32, 32, 31);
+    g.addColorStop(0, 'rgba(0,0,0,0.85)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.5)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+    contactMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, fog: false });
+    contactGeo = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
+  }
+  return { geo: contactGeo, mat: contactMat };
+}

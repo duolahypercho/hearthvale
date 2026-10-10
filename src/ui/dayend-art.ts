@@ -325,7 +325,31 @@ export function nightValleySvg(seed = 7, season = 'spring'): string {
 }
 
 /** Quiet-day vignette: moonlit window, sleeping cat and a sprout on the sill (warm, on parchment). */
-export function quietVignetteSvg(): string {
+export function quietVignetteSvg(pet?: string): string {
+  // The sleeper on the sill is the farm's own pet: a cat curled up, or the dog asleep on its cushion.
+  const sleeper =
+    pet === 'dog'
+      ? `<g transform="translate(88 191)">
+    <ellipse cx="2" cy="-3" rx="44" ry="8" fill="#b8503e" stroke="#5a2414" stroke-width="3"/>
+    <path d="M-38 -4 H42" stroke="#e8c070" stroke-width="2" stroke-dasharray="5 4"/>
+    <path d="M-32 -6 C-37 -28 -12 -38 10 -34 C26 -31 34 -20 32 -6 Z" fill="#d98a4a" stroke="#6a3c18" stroke-width="3"/>
+    <path d="M-24 -7 C-16 -14 2 -15 14 -8" stroke="#f6e2c4" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <path d="M-30 -16 C-44 -24 -36 -40 -22 -34 C-28 -32 -32 -26 -26 -22" fill="#f6e2c4" stroke="#6a3c18" stroke-width="2.6" stroke-linejoin="round"/>
+    <path d="M12 -21 l3 -13 l9 9 Z M26 -24 l8 -10 l2 13 Z" fill="#d98a4a" stroke="#6a3c18" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M15 -24 l1.5 -6 l4 4 Z M28.5 -25 l4 -5 l1 6 Z" fill="#f4c0a0"/>
+    <ellipse cx="24" cy="-14" rx="14" ry="11" fill="#d98a4a" stroke="#6a3c18" stroke-width="3"/>
+    <ellipse cx="32" cy="-9" rx="8" ry="5.5" fill="#f6e2c4" stroke="#6a3c18" stroke-width="2"/>
+    <circle cx="38.5" cy="-10" r="2.4" fill="#3a2418"/>
+    <path d="M21 -15 q3 2.4 6 0" stroke="#3a2418" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+    <ellipse cx="17" cy="-9" rx="3" ry="1.8" fill="#f4a090" opacity=".7"/>
+    <ellipse cx="28" cy="-3" rx="7" ry="3.2" fill="#f6e2c4" stroke="#6a3c18" stroke-width="2"/>
+  </g>`
+      : `<g transform="translate(86 190)">
+    <path d="M-30 0 C-34 -24 -10 -34 12 -30 C30 -27 36 -12 32 0 Z" fill="#e8a060" stroke="#6a3c18" stroke-width="3"/>
+    <path d="M18 -26 l4 -12 l7 9 Z M28 -24 l8 -9 l2 12 Z" fill="#e8a060" stroke="#6a3c18" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M20 -14 q4 3 8 0 M-30 0 c-12 -2 -12 -14 -2 -14" stroke="#6a3c18" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M-12 -24 q6 -4 12 0 M-18 -14 q8 -3 14 1" stroke="#c07838" stroke-width="3" fill="none" stroke-linecap="round"/>
+  </g>`;
   return `<svg viewBox="0 0 260 220" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="qvSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a2150"/><stop offset=".7" stop-color="#3a3470"/><stop offset="1" stop-color="#6a4a78"/></linearGradient>
@@ -350,12 +374,7 @@ export function quietVignetteSvg(): string {
   <path d="M56 172 C110 160 160 168 204 158 V190 H56 Z" fill="#1a1f48"/>
   <path d="M130 84 V190 M56 130 H204" stroke="#6a3c18" stroke-width="6"/>
   <rect x="28" y="190" width="204" height="16" rx="5" fill="#c98c4c" stroke="#4a2810" stroke-width="3"/>
-  <g transform="translate(86 190)">
-    <path d="M-30 0 C-34 -24 -10 -34 12 -30 C30 -27 36 -12 32 0 Z" fill="#e8a060" stroke="#6a3c18" stroke-width="3"/>
-    <path d="M18 -26 l4 -12 l7 9 Z M28 -24 l8 -9 l2 12 Z" fill="#e8a060" stroke="#6a3c18" stroke-width="2.5" stroke-linejoin="round"/>
-    <path d="M20 -14 q4 3 8 0 M-30 0 c-12 -2 -12 -14 -2 -14" stroke="#6a3c18" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-    <path d="M-12 -24 q6 -4 12 0 M-18 -14 q8 -3 14 1" stroke="#c07838" stroke-width="3" fill="none" stroke-linecap="round"/>
-  </g>
+  ${sleeper}
   <g transform="translate(184 190)">
     <path d="M-16 0 L-19 -24 H19 L16 0 Z" fill="#c8643a" stroke="#6a2e14" stroke-width="3" stroke-linejoin="round"/>
     <rect x="-22" y="-30" width="44" height="8" rx="3" fill="#d87a48" stroke="#6a2e14" stroke-width="3"/>

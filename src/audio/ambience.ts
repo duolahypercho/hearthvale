@@ -6,9 +6,11 @@
  * in real time and offline.
  */
 import type { AudioGraph } from './graph';
-import { Rand, clamp, makeRain, mtof } from './dsp';
+import { Rand, clamp, mtof } from './dsp';
+import { RainBuilder, type RainLayerKind } from './rain';
 import { noiseHit } from './instruments';
 import { BirdBank, chimeBuffer, phrase, type Species } from './birds';
+import { Crowd } from './crowd';
 
 export type AmbSeason = 'spring' | 'summer' | 'fall' | 'winter';
 export type AmbWeather = 'sun' | 'rain' | 'storm' | 'snow' | 'wind';
@@ -44,11 +46,19 @@ export class Ambience {
   private send: GainNode;
   private gust = 0.4;
   private gustTarget = 0.4;
+  /** Windy days blow in sets (round 18): a gust, then a lull, alternating. */
+  private gustUp = false;
   private surfPhase = 0;
+  /** Outdoor night lift on the night beds and critters (1 by day, 2 at full night). */
+  private nightLift = 1;
   /** Surf swells travel across the stereo field (this panner is automated per wave). */
   private surfPan: StereoPannerNode;
-  /** Droplet layers (light / heavy), built on the first rain. */
-  private drops: { light: GainNode; heavy: GainNode } | null = null;
+  /** Droplet layers (src/audio/rain.ts: far canopy / near / downpour), baked in slices on the first rain. */
+  private drops: Record<RainLayerKind, GainNode> | null = null;
+  private dropsLp: BiquadFilterNode | null = null;
+  private rainBuild: RainBuilder[] | null = null;
+  /** The eave / water-butt drip train: its own slowly drifting period, pitch and side of the listener. */
+  private eave = { period: 0.7, rate: 0.68, pan: -0.5 };
   private dropsKey = '';
   private crickets: { pan: number; period: number; next: number; f: number }[] = [];
   /** Pre-rendered syllable banks (birds, crickets, drips). */
@@ -60,6 +70,11 @@ export class Ambience {
   private wxTarget = 0;
   /** Cicada chorus envelope bookkeeping. */
   private cicadaOn = false;
+  /** Indoor rain's slow shower envelope (linear gain, ~0.45-2.2), shared by the roof / hiss / drops. */
+  private shower = 1;
+  private babbleDests: AudioNode[] | undefined;
+  /** Town / festival crowd life (talkers, laughter, applause, footsteps, the shop bell). */
+  readonly crowd: Crowd;
   private chimeBufs = new Map<number, AudioBuffer>();
   lightningAt = -1;
   /** Until this time the game drives thunder from its own lightning strikes (no random rolls). */
@@ -75,6 +90,7 @@ export class Ambience {
     this.send = g.ctx.createGain();
     this.send.gain.value = 0.35;
     this.send.connect(g.space);
+    this.crowd = new Crowd(g, this.out, this.send, seed + 23);
     const ctx = g.ctx;
     const bed = (name: string, buf: AudioBuffer, chain: AudioNode[], rate = 1): Bed => {
       const src = ctx.createBufferSource();
@@ -99,18 +115,37 @@ export class Ambience {
       return b;
     };
     // Every bed runs on decorrelated stereo noise (L/R correlation ~0.3): wide, not a point in the head.
-    bed('wind', g.pinkSt, [bf('bandpass', 420, 0.55), bf('lowpass', 1600)]);
+    // (Round 6: + a 110 Hz high-pass — the wide band-pass still let a 50-100 Hz rumble under every
+    // calm morning; wind in grass is air, not a subwoofer.)
+    bed('wind', g.pinkSt, [bf('bandpass', 420, 0.55), bf('lowpass', 1600), bf('highpass', 110, 0.6)]);
     // Leaf rustle: pink (not white) noise so a windy day reads as foliage, not hiss (render: 63 % > 2 kHz).
     // (tilted: pink through a 350 Hz–2.8 kHz band and a −6 dB shelf above 4 kHz — no steady hiss).
     const tilt = bf('highshelf', 4000, 0.7);
     tilt.gain.value = -6;
     bed('leaves', g.pinkSt, [bf('lowpass', 2800, 0.5), bf('highpass', 350, 0.5), tilt], 0.9);
     // Rain hiss lives up at 4–6 kHz; the droplet layers (makeRain) carry the individual drops.
-    bed('rain', g.pinkSt, [bf('bandpass', 5000, 0.55), bf('highshelf', 7000, 0.7)]);
+    // (Round 12: centred 3.8 kHz, was 5 kHz — the re-voiced rain read HISSY with 23 % above 5 kHz.)
+    const rainTop = bf('highshelf', 7000, 0.7);
+    rainTop.gain.value = -4;
+    // (Round 16: only a faint air now — the drops (rain.ts) are the rain; this was the noise carpet.)
+    bed('rain', g.pinkSt, [bf('bandpass', 2600, 0.5), rainTop, bf('lowpass', 5200, 0.6)]);
+    // Runoff (round 16): water running off the yard and along the ditch — a soft, low gurgle.
+    const runoff = bed('runoff', g.whiteSt, [bf('bandpass', 560, 1.5), bf('lowpass', 1500, 0.6), bf('highpass', 170, 0.7)]);
+    for (const [rate, depth] of [[2.3, 120], [5.3, 80], [0.29, 150]] as const) {
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = rate;
+      const lg = ctx.createGain();
+      lg.gain.value = depth;
+      lfo.connect(lg).connect(runoff.filter!.frequency);
+      lfo.start(0);
+    }
     // (High-passes on the brown / pink low beds: the sub-60 Hz rumble was 27–29 % of the beach and
     // indoor-rain energy — inaudible on laptops, woolly on headphones, and it ate the limiter's headroom. The low-pass stays first: it is the bed's automated `filter`.)
-    bed('rainLow', g.brownSt, [bf('lowpass', 380, 0.5), bf('highpass', 55, 0.7)]);
-    bed('fountain', g.pinkSt, [bf('bandpass', 1200, 0.5), bf('lowpass', 3800)]);
+    bed('rainLow', g.pinkSt, [bf('lowpass', 900, 0.5), bf('highpass', 150, 0.7)]);
+    // (A −4 dB shelf over 3 kHz: the jet's splash, not a hiss.)
+    const fshelf = bf('highshelf', 3000, 0.7);
+    fshelf.gain.value = -4;
+    bed('fountain', g.pinkSt, [bf('bandpass', 1200, 0.5), bf('lowpass', 3800), fshelf]);
     const surf = bed('surf', g.pinkSt, [bf('lowpass', 500, 0.6), bf('highpass', 45, 0.7)]);
     this.surfPan = ctx.createStereoPanner();
     surf.gain.disconnect();
@@ -138,7 +173,8 @@ export class Ambience {
     // Interior room tone: a faint low hum of a quiet wooden house.
     bed('room', g.brownSt, [bf('lowpass', 240, 0.6), bf('highpass', 50, 0.7)], 0.8);
     // Fireplace: a soft roar under the crackles.
-    bed('fire', g.pinkSt, [bf('lowpass', 520, 0.7)], 0.7);
+    // (Round 6: + a 90 Hz high-pass — a hearth roars in the low mids, it doesn't hum in the sub.)
+    bed('fire', g.pinkSt, [bf('lowpass', 520, 0.7), bf('highpass', 90, 0.6)], 0.7);
     // Cicadas: a 4–7 kHz noise band pulsed at ~40 Hz (the tymbal buzz), in choruses that swell in and
     // out every 10–25 s (see tick) — never a constant band.
     const cic = bed('cicada', g.whiteSt, [bf('bandpass', 5300, 3), tame()]);
@@ -164,29 +200,50 @@ export class Ambience {
     this.beds.rain!.gain.connect(this.send);
   }
 
-  /** The two droplet textures (~45 and ~110 drops/s), looping from different points. */
+  /**
+   * The droplet layers (src/audio/rain.ts). Real time: baked a slice per tick (≤ ~3 ms) so the first
+   * shower never spikes a frame; offline: all at once. One looping source per layer, through a shared
+   * low-pass (open outdoors, the wall's ~1.6 kHz indoors).
+   */
   private buildDrops(): void {
     const g = this.g;
     const ctx = g.ctx;
-    const layer = (perSec: number, seed: number, lp: number): GainNode => {
+    const kinds: RainLayerKind[] = ['canopy', 'near', 'heavy'];
+    this.rainBuild ??= kinds.map((k, i) => new RainBuilder(ctx, k, new Rand(4101 + i * 1101)));
+    if (g.offline) for (const b of this.rainBuild) b.step();
+    else this.rainBuild.find((b) => !b.complete)?.step(120);
+    if (!this.rainBuild.every((b) => b.complete)) return;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 12000;
+    lp.Q.value = 0.5;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 200;
+    lp.connect(hp).connect(this.out);
+    hp.connect(this.send);
+    this.dropsLp = lp;
+    const out = {} as Record<RainLayerKind, GainNode>;
+    for (const b of this.rainBuild) {
       const src = ctx.createBufferSource();
-      src.buffer = makeRain(ctx, 5.3, perSec, new Rand(seed));
+      src.buffer = b.buffer;
       src.loop = true;
-      const f = ctx.createBiquadFilter();
-      f.type = 'lowpass';
-      f.frequency.value = lp;
       const gn = ctx.createGain();
       gn.gain.value = 0;
-      src.connect(f).connect(gn).connect(this.out);
-      gn.connect(this.send);
-      src.start(ctx.currentTime, this.rng.next() * 5);
-      return gn;
-    };
-    this.drops = { light: layer(45, 4101, 9000), heavy: layer(110, 5202, 11000) };
+      src.connect(gn).connect(lp);
+      src.start(ctx.currentTime, this.rng.next() * b.buffer.duration);
+      out[b.kind] = gn;
+    }
+    this.drops = out;
+    this.rainBuild = null;
   }
+
+  /** Sound-design solo (audio lab): only these beds play (`'drops'` = the rain layers). */
+  static only: string[] | null = null;
 
   private setBed(name: string, level: number, now: number, tau = 1.2): void {
     const b = this.beds[name];
+    if (Ambience.only && !Ambience.only.includes(name)) level = 0;
     if (!b || !Number.isFinite(level)) return; // a malformed env must never throw inside the game loop
     if (Math.abs(b.level - level) < 0.002) return;
     b.level = level;
@@ -208,65 +265,150 @@ export class Ambience {
 
     // Gusts: a smoothed random walk.
     if ((this.next.gust ?? 0) <= now) {
-      this.gustTarget = clamp(0.25 + r.next() * 0.9 * windy + (r.chance(0.15) ? 0.4 : 0), 0.1, 1.2);
-      this.next.gust = now + 2 + r.next() * 5;
+      if (windy >= 1) {
+        // (Round 18: a windy day blows in sets — a 3-7 s gust, then a 4-10 s lull — where an
+        // independent random target each few seconds could average out into a steady roar: the
+        // fall-wind render's loudness range fell 6.4 → 2.3 LU on a different draw.)
+        this.gustUp = !this.gustUp;
+        this.gustTarget = this.gustUp ? r.range(0.85, 1.2) : r.range(0.12, 0.35);
+        this.next.gust = now + (this.gustUp ? 3 + r.next() * 4 : 4 + r.next() * 6);
+      } else {
+        this.gustTarget = clamp(0.25 + r.next() * 0.9 * windy + (r.chance(0.15) ? 0.4 : 0), 0.1, 1.2);
+        this.next.gust = now + 2 + r.next() * 5;
+      }
     }
     this.gust += (this.gustTarget - this.gust) * 0.03;
     // Weather swell: slower than the gusts (a new target every 5–20 s = 0.05–0.2 Hz), it pushes
     // rain intensity, drop density and the wind's body up and down together.
     if ((this.next.wx ?? 0) <= now) {
       this.wxTarget = (r.chance(0.5) ? 1 : -1) * r.range(0.45, 1);
-      this.next.wx = now + 5 + r.next() * 15;
+      // (Round 12: showers come and go a little faster in the rain — 4-12 s — so the bed moves.)
+      this.next.wx = now + (raining ? 4 + r.next() * 8 : 5 + r.next() * 15);
     }
     this.wx += (this.wxTarget - this.wx) * 0.03;
     const swellDb = (d: number): number => Math.pow(10, (d * this.wx) / 20);
-    const wind = outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) : mine ? 0.015 : 0;
+    // Night lift: after 01:00 the score rests until morning and the beds carry the night alone; the
+    // night air (wind in the trees, the leaves, the critters) comes up ~6 dB with the dark so the
+    // music-free hours sit near -30 LUFS instead of -38 (near silence on laptop speakers).
+    // (Round 5: +5.6 dB, was +8 — the ambience bus came up 3.5 dB for the day beds.)
+    const nightLift = outdoors ? 1 + 0.9 * s.night : 1;
+    this.nightLift = nightLift;
+    // Day beds (round 5): the wind / leaves / snow air sat 13–17 LU under a playing song — outdoors by
+    // day they come up a further ~3.5 dB so the place is heard under the score (≤ 10 LU down).
+    const dayLift = outdoors ? 1 + 0.5 * (1 - s.night) : 1;
+    // In the square the people carry the sense of place: the wind / leaf wash sits 6 dB lower.
+    const townBed = s.map === 'town' || s.map.startsWith('fest') ? 0.5 : 1;
+    // (A windy day is already loud: the day lift fades out as the weather's own wind takes over.)
+    const windLift = 1 + (dayLift - 1) * (1 - 0.7 * Math.max(0, windy - 0.65) / 0.35);
+    // Round 12: still air carries the quiet hours. On a calm night the wind / leaf wash drops ~9 dB
+    // under its day level (the night lift goes to the critters only), and a calm early morning sits
+    // ~6 dB down — the place is crickets, a frog, an owl, drips; never a pink-noise wash under them.
+    const calm = 1 - clamp((windy - 0.35) / 0.3, 0, 1);
+    // (Calm days too: the noon render was a 50 Hz-5 kHz wash with the birds buried in it — a still
+    // summer noon is birds and insects. Calm day ≈ -8 dB: no day lift and -4.4 dB.)
+    // (Round 6: calm mornings -8.4 dB, calm days -6 dB, was -4.7 / -4.4 — the live probe's farm-morning
+    // floor sat at -25.7 dBFS, within 4 dB of a menu hover and level with a footstep.)
+    const hush = outdoors ? 1 - calm * Math.max(0.65 * Math.min(1, s.night * 1.5), h >= 4.5 && h < 10 ? 0.62 * (1 - s.night) : 0.5) : 1;
+    const bedLift = 1 + (windLift - 1) * (1 - calm);
+    // (Round 12: a storm's own wind / rain bed −4 dB so the thunder can stand +8-12 dB over it.)
+    // (Plain rain: the wind wash −6 dB as well — the rain render was still broadband down to 50 Hz;
+    // the patter and the drops are the sound of a wet day.)
+    // (Round 18: falling snow deadens the air — the wind −3 dB on a snow day. Its gust² swing put a
+    // 30 s window 3 LU over the last render's, and the winter mix read 'mellow' under the wash.)
+    const stormBed = storm ? 0.63 : raining ? 0.5 : s.weather === 'snow' ? 0.7 : 1;
+    const wind = stormBed * (outdoors ? townBed : 1) * (outdoors ? (0.075 + 0.12 * windy) * (0.45 + 0.85 * this.gust * this.gust) * swellDb(2) * hush * bedLift : mine ? 0.015 : 0);
     this.setBed('wind', wind, now, 0.8);
     const wf = this.beds.wind!.filter!;
     wf.frequency.setTargetAtTime((260 + 520 * this.gust) * (1 + 0.15 * this.wx), now, 1.2);
     const hasLeaves = s.season !== 'winter' && outdoors && !beach;
-    this.setBed('leaves', hasLeaves ? 0.034 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.3 : 1) : 0, now, 0.6);
+    this.setBed('leaves', townBed * (raining && !storm ? 0.6 : 1) * (hasLeaves ? (0.034 + 0.05 * Math.pow(this.gust, 2) * windy * (s.season === 'fall' ? 1.6 : 1)) * hush * (1 + (dayLift - 1) * (1 - calm)) : 0), now, 0.6);
     // Rain: ±4 dB and ±30 % of the hiss band with the weather swell (showers come and go).
-    this.setBed('rain', (outdoors && raining ? (storm ? 0.2 : 0.13) : s.indoor && raining ? 0.03 : 0) * swellDb(5), now, 1.5);
-    this.beds.rain!.filter!.frequency.setTargetAtTime(5000 * (1 + 0.3 * this.wx), now, 1.5);
-    this.setBed('rainLow', (raining && !mine ? (storm ? 0.15 : 0.06) * (s.indoor ? 0.5 : 1) : 0) * swellDb(3), now, 1.5);
-    // Individual drops: a light patter always, the heavy layer in a storm; muffled on the roof indoors.
+    // (Round 5: with the ambience bus +6 dB, rain sits ~3 LU under the score offline and level with it
+    // in game — rain is a foreground mood; the adapter drops the music to ~0.7 on wet days.)
+    // Round 12 re-voice: rain is patter and hiss (centroid 3-5 kHz), not a roar — the low bed is
+    // high-passed at 150 Hz and ~10 dB down, the drops carry the rain; indoors the roof and the gutter
+    // tick at 1-4 kHz over a much quieter room (the house-rain render was 83 % below 250 Hz).
+    // (Round 6: heard from indoors the rain comes in showers — a slow ±5 dB ebb over ~40 s on the
+    // roof, the hiss and the drops. The house-rain render had LRA 3.3 LU: a steady wash through a wall.)
+    const shower = s.indoor && raining ? Math.pow(10, (3.3 * Math.sin(now / 6.3) + 1.7 * Math.sin(now / 2.3 + 1)) / 20) : 1;
+    this.shower = shower;
+    // (Round 16: the hiss carpet −10 dB (0.2 → 0.065) and centred lower; the drops carry the rain.)
+    this.setBed('rain', (outdoors && raining ? (storm ? 0.11 : 0.075) : s.indoor && raining ? 0.01 * shower : 0) * swellDb(7), now, 1.5);
+    this.beds.rain!.filter!.frequency.setTargetAtTime(2600 * (1 + 0.25 * this.wx), now, 1.5);
+    this.setBed('runoff', outdoors && raining && !beach ? (storm ? 0.05 : 0.03) * swellDb(4) : 0, now, 2);
+    this.setBed('rainLow', (raining && !mine ? (storm ? 0.05 : 0.014) * (s.indoor ? 0.35 * shower : 1) : 0) * swellDb(3), now, 1.5);
+    // Individual drops (round 16, rain.ts): the far canopy grain always, the near drops you can count,
+    // the downpour layer on the swell and in a storm; indoors heard through the wall (low-passed).
     if (raining && !mine && !this.drops) this.buildDrops();
     if (this.drops) {
-      const lv = !raining || mine ? 0 : s.indoor ? 0.18 : 1;
-      // Drop density follows the swell: the heavy layer fades in on the downpours even in plain rain.
       const q = Math.round(this.wx * 20) / 20;
-      const key = `${lv}:${storm}:${q}`;
+      const sq = Math.round(shower * 10) / 10;
+      const lv = !raining || mine || (Ambience.only && !Ambience.only.includes('drops')) ? 0 : s.indoor ? 0.22 * sq * Math.pow(10, (8 * q) / 20) : 1;
+      const key = `${lv}:${storm}:${q}:${s.indoor}`;
       if (key !== this.dropsKey) {
         this.dropsKey = key;
-        this.drops.light.gain.setTargetAtTime(0.5 * lv * (1 + 0.5 * q), now, 1.5);
-        this.drops.heavy.gain.setTargetAtTime((storm ? 0.55 * (1 + 0.3 * q) : Math.max(0, q - 0.15) * 0.45) * lv, now, 1.5);
+        this.drops.canopy.gain.setTargetAtTime(1.45 * lv * (1 + 0.55 * q), now, 1.5);
+        this.drops.near.gain.setTargetAtTime(1.6 * lv * (s.indoor ? 0.4 : storm ? 1.35 : 1) * (1 + 0.35 * q), now, 1.5);
+        this.drops.heavy.gain.setTargetAtTime((storm ? 0.95 * (1 + 0.4 * q) : Math.max(0, q - 0.1) * 1.1) * lv, now, 1.5);
+        this.dropsLp!.frequency.setTargetAtTime(s.indoor ? 1600 : 12000, now, 0.3);
       }
     }
-    this.setBed('fountain', outdoors ? 0.14 * s.fountain : 0, now, 0.6);
-    this.setBed('cave', mine ? 0.1 : 0, now, 2);
-    this.setBed('caveAir', mine ? 0.07 : 0, now, 2);
+    // (Round 4: −5 dB — the fountain's broadband wash had been the town's loudest layer; the
+    // crowd now carries the square.)
+    this.setBed('fountain', outdoors ? 0.078 * s.fountain : 0, now, 0.6);
+    // (Round 6: the hollow roar -3 dB — the live probe's cave floor sat at -20 dBFS, 8 dB over the
+    // farm's: a distant 12-tile fight was buried in it. The drips and the far rumbles carry the mine.)
+    this.setBed('cave', mine ? 0.05 : 0, now, 2);
+    this.setBed('caveAir', mine ? 0.05 : 0, now, 2);
     const cold = s.season === 'winter' && outdoors;
-    this.setBed('howl', cold ? 0.012 + 0.03 * this.gust * windy : 0, now, 1);
+    this.setBed('howl', cold ? (0.012 + 0.03 * this.gust * windy) * dayLift : 0, now, 1);
     this.beds.howl!.filter!.frequency.setTargetAtTime(480 + 420 * this.gust, now, 2);
-    this.setBed('snowHush', outdoors && s.weather === 'snow' ? 0.02 : 0, now, 2);
+    this.setBed('snowHush', outdoors && s.weather === 'snow' ? 0.035 : 0, now, 2);
     const hearth = s.indoor && (s.night > 0.3 || s.season === 'winter' || s.season === 'fall' || raining);
-    this.setBed('room', s.indoor ? 0.05 : 0, now, 1);
-    this.setBed('fire', hearth ? 0.035 : 0, now, 1.5);
+    this.setBed('room', s.indoor ? (raining ? 0.005 : 0.022) : 0, now, 1);
+    // (Round 12: the hearth's roar −4 dB — with the room tone it was most of the house's low hum;
+    // the crackles carry the fire.)
+    // (Round 6: the roar breathes with the flames' own flare cycle, ±4 dB, and sits a further -3.8 dB
+    // under rain — the house-rain render was a steady 30 Hz-1 kHz wash, LRA 2.5 LU, the roof on top.)
+    const roar = 1 + 0.6 * Math.sin(now / 9.3) * Math.sin(now / 4.1 + 1);
+    this.setBed('fire', hearth ? (raining ? 0.009 : 0.022) * roar : 0, now, 1.5);
     const town = s.map === 'town' || s.map.startsWith('fest');
-    const cicadaTime = s.season === 'summer' && outdoors && !raining && h >= 10 && h <= 18.5;
+    const cicadaTime = s.season === 'summer' && outdoors && !beach && !raining && h >= 10 && h <= 18.5;
     this.cicadas(now, cicadaTime);
 
     // Surf: individual waves on the coast. Inland water babbles (forest stream) or laps (pond).
     if (beach) {
       if ((this.next.wave ?? 0) <= now + ahead) {
         const t = Math.max(now, this.next.wave ?? now);
-        this.wave(t, 1);
-        this.next.wave = t + 6.5 + r.next() * 4;
+        // Sets of waves: mostly mid-size, now and then a big one; the period wanders 6–14 s.
+        const size = r.chance(0.18) ? r.range(1.2, 1.45) : r.range(0.7, 1.05);
+        this.wave(t, size);
+        // Round 12: the period wanders 5-14 s and now and then a second wave rides in right behind
+        // the first (a set), so the surf never settles into a metronome.
+        this.next.wave = r.chance(0.2) ? t + r.range(2.6, 4.2) : t + 5 + r.next() * 9 * (0.6 + 0.4 * size);
       }
     } else this.setBed('surf', 0, now, 2);
     const stream = outdoors && s.map === 'forest';
-    this.setBed('brook', stream ? 0.02 + 0.07 * s.water : 0, now, 1);
+    // (Round 12: the wash −3.5 dB — the birds and the woodpecker were masked by it; the granular
+    // babble carries the brook.)
+    this.setBed('brook', stream ? 0.015 + 0.045 * s.water : 0, now, 1);
+    // The babble: granular bubbles (rising 300–1500 Hz chirps, 20–40 a second, spread across the
+    // stereo field) over the bed's wash — the difference between a brook and wind.
+    if (stream) {
+      // (The brook surges: a slow 6-15 s swell in the babble, so the stream moves.)
+      const lvl = (0.3 + 0.7 * s.water) * (0.6 + 0.4 * Math.sin(now / 2.3) * Math.sin(now / 5.7 + 2));
+      let bt = this.next.babble ?? now;
+      if (bt < now) bt = now;
+      while (bt < now + ahead) {
+        // Five fixed positions across the bank (built once: no per-grain panner / filter nodes).
+        this.babbleDests ??= [-0.7, -0.35, 0, 0.35, 0.7].map((pn, i) => this.dest(pn, 0.2 + (i % 2) * 0.2));
+        const d = this.babbleDests[this.rng.int(0, 4)]!;
+        this.bank.play(d, 'bubble', this.rng.int(0, 31), bt, 0.036 * lvl * this.rng.range(0.4, 1), this.rng.range(0.9, 1.12));
+        // Clustered: runs of quick bubbles with short lulls (a stream gurgles, it doesn't tick).
+        bt += this.rng.chance(0.12) ? this.rng.range(0.08, 0.16) : this.rng.range(0.012, 0.04);
+      }
+      this.next.babble = bt;
+    }
 
     const until = now + ahead;
     const due = (k: string, min: number, max: number, active: boolean): number | null => {
@@ -287,28 +429,65 @@ export class Ambience {
     const chorus = h < 9.5 ? 1 : h < 17 ? 0.45 : h < 19.5 ? 0.6 : 0;
     const birdsActive = outdoors && !beach && !raining && s.night < 0.35 && chorus > 0 && s.season !== 'winter';
     // Dawn chorus: a phrase (often answered) every ~2 s at sunrise, sparser through the afternoon.
-    let t = due('bird', 1.1 / Math.max(0.2, chorus), 3.6 / Math.max(0.2, chorus), birdsActive);
+    const woods = s.map === 'forest' ? 0.6 : 1;
+    let t = due('bird', (1.1 * woods) / Math.max(0.2, chorus), (3.6 * woods) / Math.max(0.2, chorus), birdsActive);
     if (t !== null) this.bird(t, s, chorus);
-    t = due('dove', 14, 30, birdsActive && h < 10.5);
+    t = due('dove', 9, 22, birdsActive && h < 10.5);
     if (t !== null) this.dove(t);
     t = due('chickadee', 12, 35, outdoors && !raining && s.season === 'winter' && s.night < 0.3);
     if (t !== null) this.chickadee(t, r.range(-0.7, 0.7));
     t = due('crow', 20, 55, outdoors && !raining && (s.season === 'fall' || s.season === 'winter') && s.night < 0.3 && !beach);
     if (t !== null) this.crow(t);
+    // Round 17: a snowy day moves — snow slumps off a laden branch (a soft whump and a powder hiss),
+    // more often in the gusts; the snow render was a steady hush (LRA 3.1 LU, 4 events a minute).
+    t = due('snowslide', 7 - 3 * this.gust, 20 - 8 * this.gust, outdoors && s.season === 'winter' && (s.weather === 'snow' || s.weather === 'wind') && !beach);
+    if (t !== null) this.snowSlide(t);
     t = due('gull', 5, 14, beach && !storm && s.night < 0.4);
     if (t !== null) this.gull(t);
     // Night.
     const crittersNight = outdoors && s.night > 0.55 && !raining && s.season !== 'winter';
-    if (crittersNight) this.cricketChorus(now, until, s.season === 'fall' ? 2 : 4);
-    t = due('frog', 1.5, 5, crittersNight && (s.season === 'spring' || s.season === 'summer') && s.water > 0.15);
+    if (crittersNight) this.cricketChorus(now, until, s.season === 'fall' ? 3 : 6);
+    // (Frogs call in bouts — a minute-scale ebb, so the pond's evening has a shape: LRA ≥ 4 LU.)
+    const frogBout = Math.sin(now / 11) + 0.6 * Math.sin(now / 4.3 + 1) > -0.2;
+    t = due('frog', 1.5, 5, crittersNight && frogBout && (s.season === 'spring' || s.season === 'summer') && s.water > 0.15);
     if (t !== null) this.frog(t);
     t = due('owl', 25, 60, outdoors && s.night > 0.7 && !storm);
     if (t !== null) this.owl(t);
+    // Round 12 (event density, not bed level): something small in the grass, a distant dog, a
+    // night bird's single note; in the morning a woodpecker and the farm rooster.
+    t = due('rustle', 6, 16, outdoors && s.night > 0.5 && !raining && !beach);
+    if (t !== null) this.rustle(t);
+    t = due('dog', 35, 80, outdoors && s.night > 0.6 && !raining && (s.map === 'farm' || s.map === 'town'));
+    if (t !== null) this.dog(t);
+    t = due('nightjar', 18, 40, outdoors && s.night > 0.7 && !raining && (s.season === 'summer' || s.season === 'spring'));
+    if (t !== null) this.nightjar(t);
+    t = due('woodpecker', 20 * woods, 45 * woods, outdoors && !raining && s.night < 0.3 && h < 13 && (s.map === 'forest' || s.map === 'farm') && s.season !== 'winter');
+    if (t !== null) this.woodpecker(t);
+    t = due('rooster', 40, 90, outdoors && s.map === 'farm' && h >= 5.5 && h < 8.5 && !raining);
+    if (t !== null) this.rooster(t);
     // Weather.
-    t = due('drip', 0.05, 0.25, raining && !mine);
-    if (t !== null) this.drip(t, s.indoor ? 0.4 : 1);
+    // (Round 6: indoors the drops are the eaves outside the window — sparser, and they follow the
+    // shower with the roof; 20 a second at a fixed level were the flat floor of the house-rain render.)
+    // (Round 16: outdoors the random puddle drips thin to one every ~0.3-1.1 s — the near drops are in
+    // the rain layers now — and the eaves / water butt get their own drip train, see eaveDrip.)
+    // (Round 18: indoors a little quicker and +2 dB — 0.14-0.5 s — the house-rain render counted 3.9
+    // audible drops a second against its own patter: a room of hiss with the odd tick.)
+    t = s.indoor ? due('drip', 0.14, 0.5, raining) : due('drip', 0.3, 1.1, raining && !mine);
+    if (t !== null) this.drip(t, s.indoor ? 0.5 * this.shower : 0.8);
+    const eaves = raining && !s.indoor && (s.map === 'farm' || s.map === 'town');
+    t = due('eave', this.eave.period * 0.92, this.eave.period * 1.08, eaves);
+    if (t !== null) this.eaveDrip(t);
+    // Indoors: rain on the roof shingles (1-4 kHz ticks in clusters) and the gutter's slow drip.
+    // (The roof follows the showers: thinner and quieter in a lull, a drumming patter in a downpour.)
+    const roofGap = (1.3 - 0.6 * this.wx) / Math.sqrt(this.shower);
+    t = due('roof', 0.02 * roofGap, 0.09 * roofGap, raining && s.indoor);
+    if (t !== null) this.roofTick(t, (storm ? 1.3 : 1) * swellDb(10) * this.shower);
+    // (The gutter runs with the shower too — a quick trickle in a downpour, a slow drip in a lull. Its
+    // plinks were the loudest steady thing in the house-rain render's 1-4 kHz band.)
+    t = due('gutter', 0.5 / this.shower, 1.4 / this.shower, raining && s.indoor);
+    if (t !== null) this.gutter(t, this.shower);
     t = due('thunder', 14, 38, storm && now > this.externalThunderUntil);
-    if (t !== null) this.thunder(t, r.next());
+    if (t !== null) this.thunder(t, r.range(0.1, 0.8));
     // Farm wind chimes on strong gusts.
     t = due('chime', raining ? 7 : 3, raining ? 16 : 9, s.map === 'farm' && this.gust > 0.75 && !storm);
     if (t !== null) this.chimes(t, s.key);
@@ -319,13 +498,14 @@ export class Ambience {
     t = due('lap', 0.8, 2.6, outdoors && !beach && s.map !== 'forest' && s.water > 0.25);
     if (t !== null) this.lap(t, s.water);
     // Hearth crackles indoors.
-    t = due('crackle', 0.08, 0.6, hearth);
-    if (t !== null) this.crackle(t);
+    // (The fire flares and settles on its own slow cycle — crackles bunch up, then thin out.)
+    const flare = 1 + 0.7 * Math.sin(now / 9.3) * Math.sin(now / 4.1 + 1);
+    t = due('crackle', 0.08 * flare, 0.6 * flare, hearth);
+    if (t !== null) this.crackle(t, raining ? 0.6 : 1);
     // Town life: distant chatter by day (busier at festivals), the smithy's anvil, a cart.
     const festive = s.map.startsWith('fest');
     const bustle = town && !raining && ((h >= 8 && h < 19.5) || festive);
-    t = due('walla', festive ? 0.25 : 0.9, festive ? 1.2 : 3.2, bustle);
-    if (t !== null) this.walla(t, festive ? 1 : 0.6);
+    this.crowd.tick(now, until, { active: bustle, festive, density: festive ? (s.night > 0.5 ? 0.7 : 1) : h < 10 || h > 17.5 ? 0.4 : 0.8 });
     t = due('anvil', 12, 30, town && !festive && h >= 9 && h < 17 && !raining);
     if (t !== null) this.anvil(t);
     // Mine life.
@@ -432,15 +612,151 @@ export class Ambience {
     const r = this.rng;
     const species = r.weighted([['warbler', 3], ['robin', 4], ['finch', 3], ['thrush', 2.5], ['wren', 1.5], ['chickadee', s.season === 'spring' ? 1.5 : 0.8]] as const);
     if (species === 'chickadee') this.chickadee(t, 0);
-    else this.sing(species, t, (species === 'wren' ? 0.042 : species === 'thrush' ? 0.056 : 0.06) * (chorus > 0.9 ? 0.85 : 1));
+    // (Round 17: in the woods the birds are closer than across a field — +2.5 dB over the brook, whose
+    // babble had masked half of them: forest-stream fell to 6 audible events a minute.)
+    else this.sing(species, t, (species === 'wren' ? 0.042 : species === 'thrush' ? 0.056 : 0.06) * (chorus > 0.9 ? 0.85 : 1) * (s.map === 'forest' ? 1.33 : 1));
+  }
+
+  /**
+   * Snow sliding off a branch: the clump's soft landing (a 120-250 Hz whump through a thick blanket)
+   * after a short powder hiss as it lets go, then the fine powder sifting down (2-6 kHz, ~1 s); now
+   * and then the relieved branch springs back with a wooden tick.
+   */
+  private snowSlide(t: number): void {
+    const r = this.rng;
+    const near = r.range(0.35, 1);
+    const d = this.dest(r.range(-0.9, 0.9), 0.35 + 0.4 * (1 - near));
+    const fall = r.range(0.18, 0.45);
+    // (Round 18: the whump −5 dB (0.09 → 0.05) and the powder +2.5 dB — the landings had lifted the
+    // snow bed 4 LU and darkened the winter mix to 'mellow'; the event is the hiss and the soft thud.)
+    noiseHit(this.g, d, t, { f: r.range(2400, 3600), q: 0.8, amp: 0.016 * near, attack: 0.05, tau: fall * 0.4, buf: this.g.pink });
+    noiseHit(this.g, d, t + fall, { type: 'lowpass', f: r.range(180, 260), amp: 0.05 * near, attack: 0.012, tau: 0.07, buf: this.g.brown });
+    noiseHit(this.g, d, t + fall + 0.005, { f: r.range(500, 800), q: 0.9, amp: 0.025 * near, attack: 0.01, tau: 0.06, buf: this.g.pink });
+    noiseHit(this.g, d, t + fall + 0.03, { type: 'highpass', f: r.range(2200, 3200), amp: 0.019 * near, attack: 0.12, tau: r.range(0.3, 0.6), buf: this.g.pink });
+    if (r.chance(0.35)) noiseHit(this.g, d, t + 0.02, { f: r.range(900, 1400), q: 5, amp: 0.02 * near, attack: 0.0008, tau: 0.012 });
   }
 
   private chickadee(t: number, _pan: number): void {
     this.sing('chickadee', t, 0.06, 0.5);
   }
 
+  /** A dove: each phrase its own pitch (±10 %), tempo (0.85-1.2×), length (3-5 hoots) and perch. */
   private dove(t: number): void {
-    this.sing('dove', t, 0.09, 0.3);
+    const r = this.rng;
+    const pitch = r.range(0.9, 1.1);
+    const stretch = r.range(0.85, 1.2);
+    const keep = r.int(3, 5);
+    const d = this.dest(r.range(-0.85, 0.85), r.range(0.25, 0.8));
+    let i = 0;
+    for (const [k, dt, gain, rate] of phrase('dove', r, this.motif())) {
+      if (i++ >= keep) break;
+      this.bank.play(d, 'dove', k, t + dt * stretch, 0.09 * gain * r.range(0.8, 1.1), rate * pitch);
+    }
+  }
+
+  /** Rain on the roof: a cluster of 2-5 tiny shingle ticks, 1-4 kHz, scattered across the ceiling. */
+  private roofTick(t: number, k: number): void {
+    const r = this.rng;
+    const d = this.dest(r.range(-0.9, 0.9), 0.15);
+    const n = r.int(2, 5);
+    for (let i = 0; i < n; i++) noiseHit(this.g, d, t + r.next() * 0.06, { f: 1000 * Math.pow(4, r.next()), q: 2.2, amp: (0.012 + r.next() * 0.02) * k, attack: 0.0006, tau: 0.003 + r.next() * 0.004 });
+  }
+
+  /** The gutter by the window: a drop falling into the water butt, a hollow resonant plink. */
+  private gutter(t: number, k = 1): void {
+    const r = this.rng;
+    const d = this.dest(-0.6, 0.35);
+    this.bank.play(d, 'drip', r.int(0, 23), t, 0.05 * k, r.range(0.7, 0.85));
+    if (r.chance(0.3)) this.bank.play(d, 'drip', r.int(0, 23), t + r.range(0.18, 0.3), 0.03 * k, r.range(0.75, 0.9));
+  }
+
+  /** Something small moving through the grass: a short run of dry 1.5-4 kHz rustles. */
+  private rustle(t: number): void {
+    const r = this.rng;
+    const d = this.dest(r.range(-0.9, 0.9), r.range(0.2, 0.6));
+    const n = r.int(4, 9);
+    let tt = t;
+    for (let i = 0; i < n; i++) {
+      noiseHit(this.g, d, tt, { f: r.range(1500, 4000), q: 1.2, amp: 0.018 * r.range(0.5, 1), attack: 0.004, tau: 0.02 + r.next() * 0.02, buf: this.g.pink });
+      tt += r.range(0.05, 0.16);
+    }
+  }
+
+  /** A farm dog far down the lane: two or three soft, distant barks. */
+  private dog(t: number): void {
+    const r = this.rng;
+    const ctx = this.g.ctx;
+    const d = this.dest(r.range(-0.9, 0.9), 0.9);
+    const n = r.int(2, 3);
+    const f0 = r.range(360, 470);
+    for (let i = 0; i < n; i++) {
+      const tt = t + i * r.range(0.32, 0.5);
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0, tt);
+      o.frequency.exponentialRampToValueAtTime(f0 * 0.65, tt + 0.12);
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 900;
+      bp.Q.value = 1.6;
+      const a = ctx.createGain();
+      a.gain.setValueAtTime(0, tt);
+      a.gain.linearRampToValueAtTime(0.03, tt + 0.012);
+      a.gain.setTargetAtTime(0, tt + 0.05, 0.035);
+      o.connect(bp).connect(a).connect(d);
+      o.start(tt);
+      o.stop(tt + 0.25);
+    }
+  }
+
+  /** A nightjar's churring note, far off: a 40 Hz-pulsed 1.1 kHz trill that rises and fades. */
+  private nightjar(t: number): void {
+    const r = this.rng;
+    const d = this.dest(r.range(-0.9, 0.9), 0.7);
+    const dur = r.range(1.2, 2.4);
+    this.chirp(d, t, r.range(1050, 1150), r.range(1150, 1300), dur, 0.012 * this.nightLift, 0, r.range(36, 44));
+  }
+
+  /** A woodpecker drumming on a far trunk: a fast, slightly decelerating roll of hollow knocks. */
+  private woodpecker(t: number): void {
+    const r = this.rng;
+    const d = this.dest(r.range(-0.9, 0.9), r.range(0.5, 0.85));
+    const n = r.int(10, 18);
+    const f = r.range(900, 1300);
+    let tt = t;
+    for (let i = 0; i < n; i++) {
+      noiseHit(this.g, d, tt, { f, q: 4, amp: 0.035 * (1 - i / (n * 1.6)), attack: 0.0008, tau: 0.008 });
+      tt += 0.045 + i * 0.0015;
+    }
+  }
+
+  /** The rooster at first light, from the coop across the yard. */
+  private rooster(t: number): void {
+    const r = this.rng;
+    const ctx = this.g.ctx;
+    const d = this.dest(r.range(0.3, 0.8), 0.7);
+    const f0 = r.range(520, 600);
+    // "cock-a-doodle-doo": three short rising syllables and a long falling one.
+    const syl: [number, number, number, number][] = [[0, 0.11, 1, 1.1], [0.15, 0.1, 1.05, 1.2], [0.3, 0.12, 1.2, 1.35], [0.48, 0.7, 1.35, 0.95]];
+    for (const [dt, dur, a0, a1] of syl) {
+      const tt = t + dt;
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0 * a0, tt);
+      o.frequency.linearRampToValueAtTime(f0 * a1, tt + dur);
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 1500;
+      bp.Q.value = 1.8;
+      const a = ctx.createGain();
+      a.gain.setValueAtTime(0, tt);
+      a.gain.linearRampToValueAtTime(0.022, tt + 0.03);
+      a.gain.setValueAtTime(0.022, tt + dur * 0.7);
+      a.gain.linearRampToValueAtTime(0, tt + dur);
+      o.connect(bp).connect(a).connect(d);
+      o.start(tt);
+      o.stop(tt + dur + 0.02);
+    }
   }
 
   private crow(t: number): void {
@@ -477,37 +793,49 @@ export class Ambience {
     for (const c of this.crickets) {
       if (c.next < now - 1) c.next = now;
       while (c.next < until) {
-        const d = this.dest(c.pan, 0.5);
-        const pulses = r.int(3, 4);
-        const k = r.int(0, 11);
-        for (let i = 0; i < pulses; i++) this.bank.play(d, 'cricket', k, c.next + i * 0.022, 0.028, c.f);
+        // The chorus breathes: each cricket swells and fades on its own slow cycle (two slow sines
+        // per cricket, 9–31 s), and every ~40 s the whole field falls silent for a few seconds —
+        // something moved in the grass — then starts again one by one. (The night bed was a flat
+        // wall, LRA ~2 LU; a real field ebbs.)
+        const tt = c.next;
+        const sw = 0.55 + 0.45 * Math.sin(2 * Math.PI * (tt / (17 + c.f * 9) + c.pan)) * Math.sin(2 * Math.PI * (tt / 31 + c.f));
+        // (Round 12: longer lulls — ~5 s in every 41 — so the field visibly breathes: LRA ≥ 4 LU.)
+        const lull = Math.sin(2 * Math.PI * (tt / 41)) > 0.82 - 0.03 * (c.pan + 1);
+        // (Round 6: and the whole field ebbs together on a ~23 s swell, -8 dB at its ebb — a warm gust,
+        // a cooler minute; the summer-night render still measured LRA 4.0, a wall with gaps.)
+        const field = 0.7 + 0.3 * Math.sin(2 * Math.PI * (tt / 23.3) + 1.3);
+        if (!lull && r.next() < 0.6 + 0.4 * sw) {
+          const d = this.dest(c.pan, 0.5);
+          const pulses = r.int(3, 4);
+          const k = r.int(0, 11);
+          for (let i = 0; i < pulses; i++) this.bank.play(d, 'cricket', k, tt + i * 0.022, 0.028 * this.nightLift * field * (0.2 + 1 * sw * sw), c.f);
+        }
         c.next += c.period * r.range(0.9, 1.1);
       }
     }
   }
 
+  /**
+   * A frog by the water: one or two "rib-bit" calls from the pre-rendered bank (pulsed, formant-
+   * voiced syllables — not an oscillator), and now and then a neighbour answers from across the
+   * pond, a touch lower and further away.
+   */
   private frog(t: number): void {
-    const ctx = this.g.ctx;
-    const d = this.dest(this.rng.range(-0.8, 0.8), 0.4);
-    const f = this.rng.range(180, 260);
-    for (let i = 0; i < 2; i++) {
-      const tt = t + i * 0.1;
-      const o = ctx.createOscillator();
-      o.type = 'sawtooth';
-      o.frequency.setValueAtTime(f, tt);
-      o.frequency.linearRampToValueAtTime(f * 1.3, tt + 0.06);
-      const bp = ctx.createBiquadFilter();
-      bp.type = 'bandpass';
-      bp.frequency.value = 850;
-      bp.Q.value = 4;
-      const a = ctx.createGain();
-      a.gain.setValueAtTime(0, tt);
-      a.gain.linearRampToValueAtTime(0.06, tt + 0.01);
-      a.gain.linearRampToValueAtTime(0, tt + 0.07);
-      o.connect(bp).connect(a).connect(d);
-      o.start(tt);
-      o.stop(tt + 0.08);
-    }
+    const r = this.rng;
+    const call = (tt: number, pan: number, dist: number, rate: number, amp: number): void => {
+      const d = this.dest(pan, dist);
+      const k = 2 * r.int(0, 7);
+      const n = r.chance(0.35) ? 2 : 1;
+      for (let i = 0; i < n; i++) {
+        const t0 = tt + i * r.range(0.32, 0.42);
+        this.bank.play(d, 'frog', k, t0, amp, rate);
+        this.bank.play(d, 'frog', k + 1, t0 + r.range(0.13, 0.17), amp * 0.85, rate);
+      }
+    };
+    const pan = r.range(-0.8, 0.8);
+    // (+8 dB after the first render: at 0.05 the calls sank under the dusk wind bed.)
+    call(t, pan, 0.4, r.range(0.95, 1.05), 0.125 * this.nightLift);
+    if (r.chance(0.4)) call(t + r.range(0.5, 0.9), -pan * 0.8, 0.65, r.range(0.86, 0.94), 0.1 * this.nightLift);
   }
 
   private owl(t: number): void {
@@ -515,26 +843,69 @@ export class Ambience {
     this.sayPhrase('owl', t, [this.rng.range(-0.9, 0.9), 0.75], [o, o + 1, o + 2, o + 3], 0.07);
   }
 
+  /**
+   * The eave over the water butt (round 16): one place, one hollow pitch, a period that drifts
+   * between a quick trickle and a slow drip with the shower — the rain's foreground "clock" that
+   * never quite keeps time. Now and then the drop lands on the rim (a wooden knock) instead.
+   */
+  private eaveDrip(t: number): void {
+    const r = this.rng;
+    const e = this.eave;
+    e.period = clamp(e.period + r.range(-0.06, 0.06) - 0.05 * this.wx, 0.38, 1.3);
+    e.rate = clamp(e.rate + r.range(-0.006, 0.006), 0.6, 0.76);
+    if (r.chance(0.02)) e.pan = r.range(0.35, 0.7) * (r.chance(0.5) ? -1 : 1);
+    const d = this.dest(e.pan, 0.3);
+    if (r.chance(0.12)) {
+      noiseHit(this.g, d, t, { f: r.range(420, 560), q: 6, amp: 0.05, attack: 0.0008, tau: 0.018 });
+      return;
+    }
+    this.bank.play(d, 'drip', r.int(0, 23), t, 0.06 * r.range(0.8, 1.1), e.rate * r.range(0.985, 1.015));
+    if (r.chance(0.18)) this.bank.play(d, 'drip', r.int(0, 23), t + r.range(0.09, 0.16), 0.035, e.rate * 1.04);
+  }
+
   private drip(t: number, level: number): void {
     const r = this.rng;
     const d = this.dest(r.range(-1, 1), r.next() * 0.8);
     // A drop into a puddle: gone in < 80 ms with a slight downward glide (pre-rendered bank).
-    this.bank.play(d, 'drip', r.int(0, 23), t, 0.02 * level, r.range(0.9, 1.1));
+    // (Now and then a fat plink from the eaves or a puddle — at random, never on a loop.)
+    const fat = r.chance(0.1);
+    this.bank.play(d, 'drip', r.int(0, 23), t, (fat ? 0.05 : 0.02) * level, fat ? r.range(0.7, 0.85) : r.range(0.9, 1.1));
   }
 
   thunder(t: number, dist: number): void {
     const g = this.g;
-    const d = this.dest(this.rng.range(-0.7, 0.7), dist * 0.5);
-    if (dist < 0.4) noiseHit(g, d, t, { type: 'highpass', f: 1200, amp: 0.25 * (1 - dist), attack: 0.004, tau: 0.06 });
-    // Rolling rumble: several overlapping low swells.
-    const n = 4 + Math.floor(this.rng.next() * 4);
-    let tt = t + 0.05 + dist * 0.6;
-    for (let i = 0; i < n; i++) {
-      noiseHit(g, d, tt, { type: 'lowpass', f: 200 + (1 - dist) * 250, q: 0.7, amp: (0.6 - i * 0.05) * (1 - dist * 0.5), attack: 0.15 + this.rng.next() * 0.3, tau: 0.6 + this.rng.next() * 0.8, buf: g.brown });
-      tt += 0.4 + this.rng.next() * 0.9;
+    const r = this.rng;
+    const d = this.dest(r.range(-0.7, 0.7), dist * 0.5);
+    // The crack (near strikes): a 2–5 kHz tearing burst and a scatter of crackles over ~300 ms —
+    // the part a laptop speaker carries — then the low roll. A storm's thunder should stand ~10 dB
+    // over the rain bed, not ~3 dB.
+    const near = 1 - dist;
+    // Round 12: every strike cracks (the ambient storm's own rolls were sub swells with no crack);
+    // a far one is darker and softer, its crack arriving with the roll.
+    {
+      const ck = Math.max(0.3, near);
+      const cf = 1 - 0.5 * dist;
+      noiseHit(g, d, t, { f: 3200 * cf, q: 0.8, amp: 0.8 * ck, attack: 0.003, tau: 0.06 + dist * 0.05 });
+      noiseHit(g, d, t + 0.01, { type: 'highpass', f: 1500 * cf, amp: 0.45 * ck, attack: 0.004, tau: 0.11 });
+      // The tearing tail: a 0.4-0.8 s ripple of 700 Hz-2 kHz crackle as the channel splits the air.
+      for (let i = 0; i < 14; i++) noiseHit(g, d, t + 0.05 + r.next() * (0.4 + near * 0.4), { f: (700 + r.next() * 1300) * cf, q: 1.2, amp: (0.1 + r.next() * 0.15) * ck, attack: 0.004, tau: 0.03 + r.next() * 0.05, buf: g.pink });
+      const n = 6 + Math.floor(r.next() * 6);
+      for (let i = 0; i < n; i++) noiseHit(g, d, t + 0.03 + r.next() * (0.3 + dist * 0.4), { f: (1800 + r.next() * 3000) * cf, q: 1.6, amp: (0.12 + r.next() * 0.18) * ck, attack: 0.002, tau: 0.015 + r.next() * 0.03 });
     }
-    // Near strikes push the score right down; distant rolls only make a little room.
-    g.duckMusic(t, 0.55 + 0.3 * dist, 1 + 1.5 * (1 - dist), 2);
+    // Rolling rumble: overlapping 40–120 Hz swells (with a little 200–400 Hz growl on near strikes),
+    // arriving later and softer the further away the bolt fell.
+    const n = 4 + Math.floor(r.next() * 4);
+    let tt = t + 0.06 + dist * 0.6;
+    for (let i = 0; i < n; i++) {
+      const a = (1.4 - i * 0.12) * (1 - dist * 0.45) * 1.25;
+      // (Round 12: the roll swells in — 0.3-0.9 s attacks, the first after a beat of silence — instead of
+      // a slammed low block.)
+      noiseHit(g, d, tt, { type: 'lowpass', f: 120 + near * 60, q: 0.8, amp: a, attack: (i === 0 ? 0.3 : 0.4) + r.next() * 0.5, tau: 0.6 + r.next() * 0.8, buf: g.brown });
+      noiseHit(g, d, tt + 0.02, { f: 260 + near * 140, q: 0.9, amp: a * 0.28, attack: 0.1, tau: 0.35 + r.next() * 0.4, buf: g.brown });
+      tt += 0.35 + r.next() * 0.8;
+    }
+    // The roll ducks the score (a near strike pulls it ~9 dB for a couple of seconds).
+    g.duckMusic(t, 0.36 + 0.4 * dist, 1 + 1.8 * near, 2.2);
     this.lightningAt = t;
   }
 
@@ -575,54 +946,14 @@ export class Ambience {
     noiseHit(this.g, d, t, { f: 700, q: 0.8, amp: 0.025 * near, attack: 0.05, tau: 0.12, buf: this.g.pink });
   }
 
-  private crackle(t: number): void {
+  private crackle(t: number, k = 1): void {
     const r = this.rng;
     const d = this.dest(r.range(-0.5, -0.2), 0.2);
     const n = r.int(1, 3);
-    for (let i = 0; i < n; i++) noiseHit(this.g, d, t + i * r.range(0.01, 0.04), { f: r.range(1800, 5200), q: 2, amp: r.range(0.02, 0.06), tau: 0.004 + r.next() * 0.006 });
+    for (let i = 0; i < n; i++) noiseHit(this.g, d, t + i * r.range(0.01, 0.04), { f: r.range(1800, 5200), q: 2, amp: r.range(0.02, 0.06) * k, tau: 0.004 + r.next() * 0.006 });
     if (r.chance(0.08)) noiseHit(this.g, d, t, { type: 'lowpass', f: 700, amp: 0.05, attack: 0.004, tau: 0.03, buf: this.g.pink }); // a log settles
   }
 
-  /** Distant crowd murmur: a few overlapping formant syllables, far away and lowpassed. */
-  private walla(t: number, level: number): void {
-    const ctx = this.g.ctx;
-    const r = this.rng;
-    const d = this.dest(r.range(-0.9, 0.9), 0.7 + r.next() * 0.3);
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 1400;
-    lp.connect(d);
-    const base = r.pick([120, 150, 190, 230, 280]);
-    const syl = r.int(3, 7);
-    let tt = t;
-    const F = [[730, 1090], [530, 1840], [300, 2200], [570, 840], [440, 1020]];
-    for (let i = 0; i < syl; i++) {
-      const dur = r.range(0.08, 0.16);
-      const o = ctx.createOscillator();
-      o.type = 'sawtooth';
-      const f0 = base * Math.pow(2, r.range(-3, 4) / 12);
-      o.frequency.setValueAtTime(f0, tt);
-      o.frequency.linearRampToValueAtTime(f0 * r.range(0.9, 1.08), tt + dur);
-      const [f1, f2] = r.pick(F);
-      const a = ctx.createGain();
-      a.gain.setValueAtTime(0, tt);
-      a.gain.linearRampToValueAtTime(0.012 * level, tt + 0.02);
-      a.gain.linearRampToValueAtTime(0, tt + dur);
-      for (const [ff, q] of [[f1!, 5], [f2!, 8]] as const) {
-        const bp = ctx.createBiquadFilter();
-        bp.type = 'bandpass';
-        bp.frequency.value = ff;
-        bp.Q.value = q;
-        o.connect(bp).connect(a);
-      }
-      a.connect(lp);
-      o.start(tt);
-      o.stop(tt + dur + 0.02);
-      tt += dur + r.range(0.01, 0.06) + (r.chance(0.2) ? 0.2 : 0);
-    }
-    // Now and then somebody laughs.
-    if (r.chance(0.12)) for (let i = 0; i < 4; i++) this.chirp(lp, tt + 0.1 + i * 0.13, base * 2.1, base * 1.8, 0.08, 0.008 * level);
-  }
 
   /** The smithy: two or three ringing hammer strikes on the anvil, far across the square. */
   private anvil(t: number): void {
@@ -685,21 +1016,29 @@ export class Ambience {
       }
       return;
     }
+    // Entering a hot noon: the first chorus is already swelling (up within ~3 s, not after a gap).
+    const first = !this.cicadaOn;
     this.cicadaOn = true;
+    if (first) this.next.cicada = Math.min(this.next.cicada ?? 0, now);
     if ((this.next.cicada ?? 0) > now) return;
     const r = this.rng;
-    const rise = r.range(3, 5);
-    const hold = r.range(2, 6);
+    const rise = first ? r.range(1.5, 2.5) : r.range(3, 5);
+    const hold = r.range(4, 8);
     const fall = r.range(3, 6);
-    const peak = r.range(0.012, 0.02);
-    b.filter!.frequency.setTargetAtTime(r.range(4500, 6500), now, 1);
+    // (Round 5: +18 dB — the noon chorus never surfaced, even in the bed alone; it is summer's signature.)
+    // (Round 12: −4 dB — with the noon wash gone the chorus alone read HISSY / BRIGHT.)
+    const peak = r.range(0.06, 0.095);
+    // (Round 6: centred 4.2-5.6 kHz, was 4.5-6.5 — with the calm-day bed down 2 dB the noon render
+    // read HISSY again: 18 % of its power above 5 kHz.)
+    b.filter!.frequency.setTargetAtTime(r.range(4200, 5600), now, 1);
     gp.cancelScheduledValues(now);
     gp.setValueAtTime(Math.max(0.0005, b.level), now);
     gp.linearRampToValueAtTime(peak, now + rise);
     gp.setValueAtTime(peak, now + rise + hold);
-    gp.linearRampToValueAtTime(0.0015, now + rise + hold + fall);
-    b.level = 0.0015;
-    this.next.cicada = now + rise + hold + fall + r.range(1, 9);
+    // (Round 12: down to silence between choruses — the 0.0015 floor left a static 5-6 kHz band.)
+    gp.linearRampToValueAtTime(0.0001, now + rise + hold + fall);
+    b.level = 0.0001;
+    this.next.cicada = now + rise + hold + fall + r.range(1, 6);
   }
 
   private wave(t: number, size: number): void {
@@ -723,8 +1062,22 @@ export class Ambience {
     fp.setTargetAtTime(420, t, 0.9);
     fp.setTargetAtTime(1900, t + 2.2, 0.2);
     fp.setTargetAtTime(700, t + 3.0, 1.0);
-    // Foam hiss as the wave recedes, fizzing out on the far side.
-    noiseHit(this.g, this.dest(0.45 * dir, 0.2), t + 2.6, { type: 'bandpass', f: 4200, q: 0.4, amp: 0.05 * size, attack: 0.3, tau: 0.9, buf: this.g.pinkSt });
+    // The break: white water crashing (1.5–8 kHz) as the lip lands...
+    const r = this.rng;
+    const brk = t + 2.15 + r.next() * 0.2;
+    // (attack 60 → 150 ms: a crash, not a splice — the spectrogram showed a hard broadband edge.)
+    // (Round 12: 0.15 → 0.32 s — the render still showed the break as a hard broadband wall.)
+    noiseHit(this.g, this.dest(0.1 * dir, 0.25), brk - 0.12, { type: 'highpass', f: 1500, amp: 0.2 * size, attack: 0.32, tau: 0.38, buf: this.g.pinkSt });
+    // ...then the foam: a 2–8 kHz fizz that spreads up the beach and dies away over 2–3 s.
+    noiseHit(this.g, this.dest(0.45 * dir, 0.2), brk + 0.25, { type: 'bandpass', f: 4800, q: 0.35, amp: 0.26 * size, attack: 0.35, tau: 0.9, buf: this.g.pinkSt });
+    noiseHit(this.g, this.dest(-0.2 * dir, 0.3), brk + 0.4, { type: 'highpass', f: 6500, amp: 0.07 * size, attack: 0.5, tau: 0.8 });
+    // Backwash: the water drains back through the shingle — a rattle of pebbles thinning out.
+    const n = Math.round(26 * size);
+    for (let i = 0; i < n; i++) {
+      const u = Math.pow(r.next(), 1.6);
+      const tt = brk + 1.1 + u * 2.2;
+      noiseHit(this.g, this.dest(r.range(-0.8, 0.8), 0.35), tt, { f: 1800 + r.next() * 3600, q: 3, amp: (0.04 + r.next() * 0.04) * size * (1 - u * 0.6), attack: 0.001, tau: 0.006 + r.next() * 0.008 });
+    }
     this.surfPhase++;
   }
 }

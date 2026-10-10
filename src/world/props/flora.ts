@@ -171,7 +171,34 @@ export class FloraMaterials {
     return this._dead;
   }
   weed(): THREE.MeshStandardMaterial {
-    if (!this.weedMat) this.weedMat = plantMaterial('weed', { height: 0.5, amplitude: 0.1, flutter: 0.6 });
+    if (!this.weedMat) {
+      this.weedMat = plantMaterial('weed', { height: 0.5, amplitude: 0.1, flutter: 0.6 });
+      // Fall turns the ferns / weeds per plant: rusty bracken, straw gold, the rest stay a tired olive
+      // (one flat tint left the forest understory summer-green under the amber canopies).
+      patchMaterial(this.weedMat, 'weed-season', (shader) => {
+        addOriginVarying(shader);
+        shader.uniforms.uSeasonW = globalUniforms.uSeasonW;
+        let fs = shader.fragmentShader;
+        if (!fs.includes('uniform vec4 uSeasonW;')) fs = before(fs, 'void main() {', 'uniform vec4 uSeasonW;');
+        fs = after(
+          fs,
+          '#include <color_fragment>',
+          /* glsl */ `
+          if (uSeasonW.z > 0.001) {
+            // Turned in CLUMPS (~3 m patches share a colour, a little per-plant jitter), in muted
+            // tones: dark rust bracken, a dull straw, and plenty that stay a tired olive / moss green
+            // — a calm understory under the loud canopies, not scattered gold starbursts.
+            float hc = hvHash12(floor(vHvOrigin.xz * 0.34) + 11.0);
+            float hp = hvHash12(floor(vHvOrigin.xz * 2.3) + 5.0);
+            float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+            vec3 tgt = hc < 0.32 ? vec3(0.6, 0.27, 0.1) : hc < 0.5 ? vec3(0.7, 0.55, 0.24) : vec3(0.42, 0.47, 0.2);
+            float k = (hc < 0.5 ? 0.8 : 0.55) * (0.85 + 0.3 * hp);
+            diffuseColor.rgb = mix(diffuseColor.rgb, tgt * (0.6 + 1.1 * lum), clamp(k, 0.0, 1.0) * uSeasonW.z);
+          }`,
+        );
+        shader.fragmentShader = fs;
+      });
+    }
     return this.weedMat;
   }
   private _stem: THREE.MeshStandardMaterial | null = null;
@@ -427,14 +454,23 @@ export function buildFlora(kind: FloraKind, r: Rng, variant: number, lod: number
           b.add(wm, head, mat(Math.cos(a) * 0.05, h + 0.01, Math.sin(a) * 0.05));
         }
       } else {
-        const n = fern ? 9 : 7 + r.int(0, 3);
-        const dark = new THREE.Color(fern ? 0x2f6b2e : 0x3d6e22);
-        const light = new THREE.Color(fern ? 0x7dbb4a : 0x8cc04a);
+        // Four understory silhouettes so the forest floor is never one tiled star: arching drooping
+        // fronds, a lush broad-leaf hosta clump, a one-sided sword fan, and a soft grass clump.
+        const FV = [
+          { n: 13, len: 0.46, w: 0.06, bend: 1.0, tilt: -0.75, spread: 1, dark: 0x2b5f2a, light: 0x76b247 },
+          { n: 7, len: 0.42, w: 0.15, bend: 0.7, tilt: -0.3, spread: 1, dark: 0x2c6a35, light: 0x6fb85a },
+          { n: 9, len: 0.6, w: 0.11, bend: 0.65, tilt: -0.9, spread: 0.45, dark: 0x356b2a, light: 0x8ac04e },
+          { n: 17, len: 0.38, w: 0.04, bend: 0.4, tilt: -0.08, spread: 1, dark: 0x3d6e22, light: 0xa5c957 },
+        ][variant % 4]!;
+        const n = fern ? FV.n : 7 + r.int(0, 3);
+        const dark = new THREE.Color(fern ? FV.dark : 0x3d6e22);
+        const light = new THREE.Color(fern ? FV.light : 0x8cc04a);
         for (let i = 0; i < n; i++) {
-          const a = (i / n) * Math.PI * 2 + r.next() * 0.5;
-          const g = leafBlade(fern ? 0.62 : 0.34 + r.next() * 0.2, fern ? 0.1 : 0.085, 0.5 + r.next() * 0.5);
+          const a = fern ? (i / n) * Math.PI * 2 * FV.spread + r.next() * 0.5 : (i / n) * Math.PI * 2 + r.next() * 0.5;
+          const len = fern ? FV.len * (0.7 + r.next() * 0.6) : 0.34 + r.next() * 0.2;
+          const g = leafBlade(len, fern ? FV.w : 0.085, fern ? FV.bend * (0.7 + r.next() * 0.5) : 0.5 + r.next() * 0.5);
           vcolor(g, (p) => dark.clone().lerp(light, THREE.MathUtils.smoothstep(p.y, 0, 0.35)));
-          b.add(wm, g, mat(0, 0, 0, -0.15, a, 0));
+          b.add(wm, g, mat(0, 0, 0, fern ? FV.tilt + (r.next() - 0.5) * 0.3 : -0.15, a, 0));
         }
         if (!fern) {
           // tiny seed-heads
@@ -447,7 +483,7 @@ export function buildFlora(kind: FloraKind, r: Rng, variant: number, lod: number
       }
       const g = b.geometries().get(wm)!;
       // Ferns (few, big) cast; the hundreds of field weeds rely on baked ground AO instead.
-      return [{ geometry: g, material: wm, depthMaterial: windDepthMaterial({ height: 0.5, amplitude: 0.1 }), castShadow: fern }];
+      return [{ geometry: g, material: wm, depthMaterial: windDepthMaterial({ height: 0.5, amplitude: 0.1 }), castShadow: fern, tinted: fern }];
     }
     case 'bush':
     case 'berryBush': {

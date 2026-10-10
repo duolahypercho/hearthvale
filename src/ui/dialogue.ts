@@ -14,20 +14,39 @@
  */
 import type { Game } from '../core/game';
 import type { Panel } from './hud';
-import { portraitSvg } from './portraits';
+import { portraitSvg, insertArt, setPortraitLight } from './portraits';
 import { NPCS, NPC_IDS, parseLine, type NpcId, type Mood, type Emote } from '../data/npcs';
 import { itemDef } from '../data/items';
 
 export interface DialogueBoxApi {
   say(id: NpcId, text: string, mood?: Mood): Promise<void>;
   narrate(text: string): Promise<void>;
-  choose(id: NpcId, q: string | undefined, options: string[], mood?: Mood): Promise<number>;
+  /** `locked`: a co-op spectator's view of someone else's choice (options shown, not pickable, with this note). */
+  choose(id: NpcId, q: string | undefined, options: string[], mood?: Mood, locked?: string): Promise<number>;
   /** Hide the box (scripted mode). */
   end(): void;
   /** Letterbox bars + optional title card. */
   cinema(on: boolean, title?: string, sub?: string): void;
   /** Stage helper: complete the current line instantly (screenshots). */
   finishLine(): void;
+  /**
+   * Co-op spectator: show the host's friendship points for this villager on the heart row (the scene
+   * is the host's), labelled with the host's name; null hands the row back to the local ledger.
+   */
+  spectatorHearts?(id: NpcId, pts: number | null, who?: string): void;
+  /**
+   * Heart-event insert card (r7): a painted close-up of the thing the line is about (portraits
+   * insertArt kind) pinned left of the scene with a caption; null takes it down.
+   */
+  insert?(card: { kind: string; caption: string } | null): void;
+  /** Co-op spectator: highlight the option the host picked. */
+  markChoice?(i: number): void;
+  /**
+   * r15 deterministic capture: `clock(true)` hands the typewriter to the sim clock (no timers); the
+   * director then calls `pump(dt)` every stepped frame, and finished lines / choices auto-advance.
+   */
+  clock?(on: boolean): void;
+  pump?(dt: number): void;
 }
 
 declare module '../core/game' {
@@ -42,8 +61,12 @@ declare module '../core/events' {
     'dialogue:speaking': { id: string; on: boolean };
     /** Pop an emote bubble over a villager. */
     'npc:emote': { id: string; emote: Emote };
-    /** Typewriter word blip (audio can voice it). */
-    'ui:blip': { id: string };
+    /**
+     * Typewriter word blip (audio voices it): emitted as each word starts to appear, with the word
+     * itself (punctuation included, so questions rise and exclamations accent), its index in the
+     * line and whether it is the line's last word.
+     */
+    'ui:blip': { id: string; word?: string; index?: number; last?: boolean };
   }
 }
 
@@ -51,16 +74,18 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2 { bottom: 24px; width: min(1140px, calc(100vw - 40px)); gap: 14px; align-items: flex-end; }
 /* The parchment fills the whole text box; text is anchored top-left so the reading position never moves. */
 /* The text box keeps a compact height (3 lines) and sits level with the bottom of the taller portrait card. */
-.hv-dialogue.dlg2 .dlg-box { min-height: 206px; display: flex; flex-direction: column; margin-bottom: 4px; }
+.hv-dialogue.dlg2 .dlg-box { min-height: 0; display: flex; flex-direction: column; margin-bottom: 4px; }
 .hv-dialogue.dlg2 .dlg-box:has(.dlg-choices) .dlg-next { display: none !important; }
-.hv-dialogue.dlg2 .dlg-box .hv-inner { flex: 1 1 auto; height: auto; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start; padding: 40px 48px 30px; overflow: hidden;
+.hv-dialogue.dlg2 .dlg-box:has(.dlg-choices) .dlg-text { min-height: 0; }
+.hv-dialogue.dlg2 .dlg-box:has(.dlg-choices) .dlg-text:empty { display: none; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner { flex: 1 1 auto; height: auto; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start; padding: 34px 48px 26px; overflow: hidden;
   box-shadow: inset 0 2px 5px rgba(120, 70, 20, 0.35), inset 0 0 0 2px rgba(150, 100, 50, 0.25), inset 0 0 38px rgba(150, 90, 30, 0.2); }
 /* Ink flourishes in the parchment corners + a pressed rule under the text. */
 .hv-dialogue.dlg2 .dlg-box .hv-inner::before, .hv-dialogue.dlg2 .dlg-box .hv-inner::after { content: ''; position: absolute; width: 58px; height: 58px; pointer-events: none; opacity: 0.5;
   background: var(--dlg-flourish) center / contain no-repeat; }
 .hv-dialogue.dlg2 .dlg-box .hv-inner::before { left: 8px; top: 8px; }
 .hv-dialogue.dlg2 .dlg-box .hv-inner::after { right: 8px; bottom: 8px; transform: rotate(180deg); }
-.hv-dialogue.dlg2 .dlg-text { min-height: 0; font-size: 30px; line-height: 42px; letter-spacing: 0.1px; position: relative; z-index: 1; }
+.hv-dialogue.dlg2 .dlg-text { min-height: 84px; font-size: 30px; line-height: 42px; letter-spacing: 0.1px; position: relative; z-index: 1; }
 .hv-dialogue.dlg2 .dlg-text .rest { visibility: hidden; }
 .hv-dialogue.dlg2 .dlg-next { right: 26px; bottom: 16px; z-index: 2; }
 .hv-dialogue.dlg2 .dlg-speaker { position: absolute; top: -17px; left: 34px; z-index: 3; line-height: 26px; pointer-events: none; font-family: var(--font-head); font-weight: 700; font-size: 21px; color: #fff; padding: 3px 18px 5px; border-radius: 10px;
@@ -78,7 +103,12 @@ const CSS = /* css */ `
   box-shadow: inset 0 0 24px rgba(70, 36, 12, 0.38), inset 0 0 3px rgba(70, 36, 12, 0.5); }
 .hv-dialogue.dlg2 .dlg-name { position: relative; z-index: 2; margin-top: 8px; font-size: 24px; padding: 0 20px 1px; box-shadow: 0 3px 0 rgba(60,30,10,.3); }
 .hv-dialogue.dlg2 .dlg-role { max-width: 310px; font-size: 13.5px; line-height: 16px; margin-top: 3px; }
-.hv-dialogue.dlg2.cine { bottom: calc(7.5vh + 16px); transition: bottom 400ms var(--ease-out); }
+.hv-dialogue.dlg2.cine { bottom: calc(4.6vh + 14px); transition: bottom 400ms var(--ease-out); }
+/* r9 co-op cinematic mode (critic: "roster, chat, spectator badge, title, heart chip, insert and dialogue
+   all at once — debug-rich multiplayer, not a finished cinematic"): during a heart event the roster, the
+   chat log, the "watching" chip (folded into the title card), emote nudges and every name tag step out. */
+body.hv-cine .coop-roster, body.hv-cine .coop-log, body.hv-cine .coop-tags, body.hv-cine .coop-nudge, body.hv-cine .coop-watch,
+body.hv-cine .coop-wheel, body.hv-cine .h-quest, body.hv-cine .hv-quest { opacity: 0 !important; pointer-events: none !important; transition: opacity 300ms; }
 .hv-hud.hv-heartcine .h-clock, .hv-hud.hv-heartcine .hv-toolbar, .hv-hud.hv-heartcine .hv-energy, .hv-hud.hv-heartcine .h-toasts { opacity: 0 !important; pointer-events: none; transition: opacity 300ms; }
 .hv-dialogue.dlg2 .dlg-portrait .layer { position: absolute; inset: 0; }
 .hv-dialogue.dlg2 .dlg-portrait .layer svg { animation: dlgBreathe 3.2s ease-in-out infinite; transform-origin: 50% 90%; }
@@ -89,7 +119,8 @@ const CSS = /* css */ `
 @keyframes dlgNod { to { translate: 0 1.6px; } }
 @keyframes dlgSwap { from { opacity: 0; transform: scale(1.06) translateY(4px); } }
 @keyframes dlgOut { to { opacity: 0; } }
-.hv-dialogue.dlg2 .dlg-hearts { display: grid; grid-template-columns: repeat(10, 22px); gap: 3px; margin-top: 5px; }
+.hv-dialogue.dlg2 .dlg-hearts { display: grid; grid-template-columns: repeat(10, 22px); gap: 3px; margin-top: 5px; position: relative; }
+.hv-dialogue.dlg2 .dlg-hearts.spec::after { content: attr(data-spec); position: absolute; left: 50%; top: -17px; transform: translateX(-50%); white-space: nowrap; font: 700 13.5px/1 Nunito, sans-serif; color: #7a4a2a; background: #fbefd6; border: 1px solid #c89a5a; border-radius: 8px; padding: 2px 7px; }
 .hv-dialogue.dlg2 .dlg-hearts svg { width: 22px; height: 20px; display: block; overflow: visible; }
 /* The heart that just filled pops (ease-out-back) and flashes. */
 .hv-dialogue.dlg2 .dlg-hearts svg.pop { animation: dlgPop 620ms var(--ease-back) both; filter: drop-shadow(0 0 4px rgba(255, 120, 100, 0.9)); }
@@ -100,6 +131,64 @@ const CSS = /* css */ `
 @keyframes dlgHeart { 40% { transform: scale(1.35) translateY(-3px); } }
 @keyframes dlgShake { 20%,60% { transform: translateX(-4px); } 40%,80% { transform: translateX(4px); } }
 .hv-dialogue.dlg2 .dlg-side .hv-inner { position: relative; }
+/* r6: one joined frame (Stardew-style): text box and portrait card are equal height, flush, sharing one
+   wood border and bottom edge, with a riveted seam between them — one widget, not two. */
+.hv-dialogue.dlg2 { gap: 0; align-items: stretch; }
+.hv-dialogue.dlg2 .dlg-box { margin-bottom: 0; border-radius: 18px 0 0 18px; border-right-width: 0; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner { border-radius: 12px 4px 4px 12px; }
+.hv-dialogue.dlg2 .dlg-side { width: 296px; border-radius: 0 18px 18px 0; border-left-width: 0; }
+.hv-dialogue.dlg2 .dlg-side .hv-inner { border-radius: 4px 12px 12px 4px; padding: 9px 9px 8px; }
+.hv-dialogue.dlg2 .dlg-side::before { content: ''; position: absolute; left: -4px; top: 6px; bottom: 6px; width: 8px; z-index: 5; border-radius: 4px; pointer-events: none;
+  background: radial-gradient(circle at 50% 14px, #f2cf7a 0 2.5px, #8a5a24 3px, transparent 3.5px) 0 0 / 8px 50% repeat-y, linear-gradient(90deg, var(--wood-3), var(--wood-2) 45%, var(--wood-3));
+  box-shadow: 0 0 0 1px rgba(40, 20, 8, 0.35); }
+.hv-dialogue.dlg2 .dlg-side { width: 252px; }
+.hv-dialogue.dlg2 .dlg-portrait { width: 232px; height: 206px; overflow: hidden; border-radius: 8px; }
+/* (the role line lives in the social page; the card stays as short as the box needs) */
+.hv-dialogue.dlg2 .dlg-role { display: none; }
+/* The card is the portrait alone (the name rides the box's speaker tab); the heart meter sits on a
+   parchment strip over the portrait's foot — so the joined frame stays as low as the old text box and
+   never hides the actors' feet. */
+.hv-dialogue.dlg2 .dlg-name { display: none; }
+.hv-dialogue.dlg2 .dlg-hearts { position: absolute; left: 50%; bottom: 13px; transform: translateX(-50%); z-index: 4; margin: 0;
+  background: rgba(251, 241, 218, 0.94); border: 1.5px solid #c89a5a; border-radius: 10px; padding: 3px 6px; box-shadow: 0 2px 0 rgba(90, 50, 20, 0.25); }
+.hv-dialogue.dlg2 .dlg-portrait .layer svg { width: 232px; height: 232px; margin-top: -4px; }
+.hv-dialogue.dlg2 .dlg-portrait::after { background-size: 232px 232px; }
+/* (the name plate overlaps the portrait's lower edge like a frame label: a shorter card, so the joined box isn't mostly empty) */
+.hv-dialogue.dlg2 .dlg-name { margin-top: -16px; font-size: 21px; }
+.hv-dialogue.dlg2 .dlg-role { max-width: 232px; font-size: 14px; line-height: 15px; }
+.hv-dialogue.dlg2 .dlg-hearts { grid-template-columns: repeat(10, 19px) !important; gap: 3px !important; }
+.hv-dialogue.dlg2 .dlg-hearts svg { width: 19px !important; height: 17px !important; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner { padding-top: 30px; padding-bottom: 22px; }
+/* r6b: Stardew proportions — the portrait is the star of the frame: a big square bust (272 px, the
+   face alone ≈ 150 px) over a carved name plaque, the heart meter on a strip across its foot. The
+   speaker tab retires (the plaque carries the name), the text box matches the card's height. */
+.hv-dialogue.dlg2 { width: min(1180px, calc(100vw - 40px)); }
+.hv-dialogue.dlg2 .dlg-side { width: 300px; }
+.hv-dialogue.dlg2 .dlg-side .hv-inner { padding: 10px 10px 8px; display: flex; flex-direction: column; align-items: center; }
+.hv-dialogue.dlg2 .dlg-portrait { width: 278px; height: 268px; border-radius: 10px; box-shadow: 0 0 0 3px #f6e2b8, 0 0 0 5px var(--wood-3), 0 3px 8px rgba(40, 20, 8, 0.45); }
+.hv-dialogue.dlg2 .dlg-portrait .layer svg { width: 278px; height: 278px; margin-top: -6px; }
+.hv-dialogue.dlg2 .dlg-portrait::after { background-size: 278px 278px; }
+.hv-dialogue.dlg2 .dlg-hearts { bottom: 50px; }
+.hv-dialogue.dlg2 .dlg-name { display: block; position: relative; margin-top: 9px; font-family: var(--font-head); font-weight: 700; font-size: 24px; line-height: 30px; color: #5a2e14; letter-spacing: 0.5px;
+  padding: 1px 30px 3px; border-radius: 6px; background: linear-gradient(#fbf0d6, #efd9ae); border: 2px solid #a8743e; box-shadow: inset 0 -3px 0 rgba(160, 110, 50, 0.25), 0 2px 0 rgba(60, 30, 10, 0.3); }
+.hv-dialogue.dlg2 .dlg-name::before, .hv-dialogue.dlg2 .dlg-name::after { content: ''; position: absolute; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #f6d488, #8a5a24); }
+.hv-dialogue.dlg2 .dlg-name::before { left: 9px; }
+.hv-dialogue.dlg2 .dlg-name::after { right: 9px; }
+.hv-dialogue.dlg2:not(.narr) .dlg-speaker { display: none; }
+.hv-dialogue.dlg2 .dlg-box .hv-inner { padding-top: 34px; }
+.hv-dialogue.dlg2 .dlg-text { font-size: 31px; line-height: 44px; }
+@media (max-width: 1100px), (max-height: 760px) {
+  .hv-dialogue.dlg2 .dlg-side { width: 236px; }
+  .hv-dialogue.dlg2 .dlg-portrait { width: 214px; height: 206px; }
+  .hv-dialogue.dlg2 .dlg-portrait .layer svg { width: 214px; height: 214px; }
+  .hv-dialogue.dlg2 .dlg-name { font-size: 19px; line-height: 24px; }
+  .hv-dialogue.dlg2 .dlg-hearts { bottom: 42px; }
+  .hv-dialogue.dlg2 .dlg-text { font-size: 25px; line-height: 36px; }
+}
+.hv-dialogue.dlg2.narr .dlg-box { border-radius: 18px; border-right-width: 2px; }
+.hv-dialogue.dlg2.narr .dlg-box .hv-inner { border-radius: 12px; }
+/* The music card waits while someone is talking (r6: 'Now playing' sat beside Hazel's line). */
+body.hv-dlg-open .hv-np { opacity: 0 !important; transition: opacity 200ms; }
 .dlg-float { position: absolute; width: 22px; height: 20px; pointer-events: none; animation: dlgFloat 1100ms ease-out forwards; }
 @keyframes dlgFloat { from { opacity: 0; transform: translateY(0) scale(0.4); } 15% { opacity: 1; transform: translateY(-8px) scale(1.1); } to { opacity: 0; transform: translateY(-70px) scale(0.8) rotate(12deg); } }
 .hv-dialogue.dlg2 .dlg-ribbon { position: absolute; top: 16px; right: 8px; max-width: 200px; z-index: 4; font-family: var(--font-head); font-weight: 700; font-size: 14px; color: #fff; padding: 3px 12px 3px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -115,15 +204,23 @@ const CSS = /* css */ `
 .hv-dialogue.dlg2 .dlg-choice.sel { background: #fff6dc; border-color: #c8573e; transform: translateX(6px); box-shadow: 0 3px 0 rgba(120,60,20,.25); }
 .hv-dialogue.dlg2 .dlg-choice.sel::before { content: ''; position: absolute; }
 .hv-dialogue.dlg2 .dlg-q { font-size: 23px; line-height: 32px; }
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice { pointer-events: none; opacity: 0.62; }
+.hv-dialogue.dlg2 .dlg-wait { font-family: var(--font-body); font-weight: 800; font-size: 17px; color: #8a5a34; text-align: center; animation: dlgWait 1.4s ease-in-out infinite alternate; }
+@keyframes dlgWait { from { opacity: 0.45; } to { opacity: 1; } }
 .dlg-letterbox { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
 .dlg-letterbox::before, .dlg-letterbox::after { content: ''; position: absolute; left: 0; right: 0; height: 0; background: #120a06; transition: height 520ms var(--ease-out); }
 .dlg-letterbox::before { top: 0; }
 .dlg-letterbox::after { bottom: 0; }
-.dlg-letterbox.on::before, .dlg-letterbox.on::after { height: 7.5vh; }
-.dlg-title { position: absolute; left: 50%; top: 3.75vh; transform: translate(-50%, -50%); text-align: center; pointer-events: none; opacity: 0; transition: opacity 700ms, translate 700ms var(--ease-out); translate: 0 -6px; z-index: 6; white-space: nowrap;
+.dlg-letterbox.on::before, .dlg-letterbox.on::after { height: 4.6vh; }
+/* (thin bars: the scene keeps the frame; the title floats over a soft dark band instead of a slab) */
+.dlg-letterbox.on::before { box-shadow: 0 0 0 0 transparent; background: linear-gradient(180deg, #120a06 0%, #120a06 70%, rgba(18,10,6,0.85) 100%); }
+.dlg-letterbox::before { height: 0; }
+.dlg-title::before { content: ''; position: absolute; left: -60px; right: -60px; top: -14px; bottom: -14px; z-index: -1; border-radius: 999px;
+  background: radial-gradient(closest-side, rgba(18,10,6,0.62), rgba(18,10,6,0)); }
+.dlg-title { position: absolute; left: 50%; top: 4.6vh; transform: translate(-50%, -50%); text-align: center; pointer-events: none; opacity: 0; transition: opacity 700ms, translate 700ms var(--ease-out); translate: 0 -6px; z-index: 6; white-space: nowrap;
   display: flex; align-items: center; gap: 16px; }
 .dlg-title.on { opacity: 1; translate: 0 0; }
-.dlg-title.dim { opacity: 0.55; }
+.dlg-title.dim { opacity: 0.88; }
 .dlg-title .t { font-family: var(--font-head); font-weight: 700; font-size: clamp(22px, 3.3vh, 36px); color: #fff4dc; text-shadow: 0 2px 0 #5a2a10, 0 0 18px rgba(255, 190, 110, .35); letter-spacing: 0.6px; }
 .dlg-title .s { font-family: var(--font-body); font-weight: 800; font-size: clamp(14px, 1.7vh, 18px); color: #f6c89a; display: flex; gap: 7px; align-items: center; justify-content: center; padding: 3px 12px 4px; border-radius: 999px; border: 1.5px solid rgba(246, 200, 154, .45); }
 .dlg-title .s svg { width: 16px; height: 14px; }
@@ -152,7 +249,115 @@ const CSS = /* css */ `
 .hv-social .card .meta .box.on { background: #5fa83c; border-color: #3f7a2a; }
 .hv-social .card .meta .box.on::after { content: ''; width: 8px; height: 4px; border: solid #fff; border-width: 0 0 2.5px 2.5px; transform: rotate(-45deg) translate(1px, -1px); }
 .hv-social .card.bday { border-color: #e8674a; background: rgba(255, 236, 220, 0.8); }
+/* r7 co-op: a farmhand's unconfirmed gift — ghost hearts breathing until the host answers. */
+.hv-dialogue.dlg2 .dlg-hearts svg.ghost { animation: dlgGhost 0.9s ease-in-out infinite alternate; filter: drop-shadow(0 0 3px rgba(255, 150, 120, 0.8)); }
+@keyframes dlgGhost { from { opacity: 0.45; } to { opacity: 1; } }
+/* r7: heart-event insert card — a pinned, slightly tilted painted close-up of what the scene is about. */
+.dlg-insert { position: absolute; left: max(26px, 4.5vw); top: calc(4.6vh + 64px); width: 300px; z-index: 6; pointer-events: none; padding: 10px 10px 8px; border-radius: 6px;
+  background: linear-gradient(#fdf6e6, #f2e2c0); box-shadow: 0 0 0 3px #b07a42, 0 0 0 5px #5a2e14, 0 12px 26px rgba(30, 15, 5, 0.5); transform: rotate(-3.2deg); opacity: 0; visibility: hidden; }
+.dlg-insert.on { visibility: visible; animation: dlgInsIn 460ms var(--ease-back) both; }
+.dlg-insert.off { visibility: visible; animation: dlgInsOut 240ms ease-in both; }
+.dlg-insert .art svg { display: block; width: 280px; height: 210px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(90, 50, 20, 0.3); }
+.dlg-insert .cap { margin-top: 7px; text-align: center; font-family: var(--font-head); font-weight: 700; font-size: 19px; line-height: 23px; color: #5a2e14; }
+.dlg-insert .tape { position: absolute; left: 50%; top: -12px; width: 86px; height: 24px; margin-left: -43px; transform: rotate(4deg); background: rgba(246, 226, 170, 0.82); box-shadow: 0 1px 2px rgba(60, 30, 10, 0.25); }
+@keyframes dlgInsIn { from { opacity: 0; transform: rotate(-11deg) scale(0.6) translateY(18px); } to { opacity: 1; transform: rotate(-3.2deg) scale(1); } }
+@keyframes dlgInsOut { from { opacity: 1; transform: rotate(-3.2deg); } to { opacity: 0; transform: rotate(2deg) scale(0.9) translateY(10px); } }
+/* r7 box pass (critic: pale, low-contrast, two-thirds empty): a warmer amber parchment, darker ink,
+   bigger type; the gift ribbon rides under the name plaque at a readable size. */
+.hv-dialogue.dlg2 .dlg-box .hv-inner { background: var(--u-paper) 0 0 / 256px, radial-gradient(120% 140% at 30% 20%, #fbe3b4 0%, #f0cf92 55%, #e2b672 100%) !important; }
+.hv-dialogue.dlg2 .dlg-side > .hv-inner { background: var(--u-paper) 0 0 / 256px, radial-gradient(120% 90% at 50% 20%, #f8deae, #e8c184) !important; }
+.hv-dialogue.dlg2 .dlg-text { font-size: 34px; line-height: 47px; color: #3a1c0c; font-weight: 700; }
+.hv-dialogue.dlg2 .dlg-q { font-size: 26px; line-height: 34px; color: #3a1c0c; }
+.hv-dialogue.dlg2 .dlg-choice { font-size: 23px; }
+.hv-dialogue.dlg2 .dlg-ribbon { position: relative; top: auto; right: auto; order: 9; margin-top: 7px; max-width: 276px; font-size: 18px; line-height: 22px; padding: 4px 14px 4px 9px; transform: rotate(-1.5deg); }
+.hv-dialogue.dlg2 .dlg-ribbon svg { width: 22px; height: 22px; }
+/* r7: the text box hugs its text (min three lines) and the taller portrait card stands up out of the
+   frame's right end — no more two-thirds-empty parchment under a one-line remark. */
+.hv-dialogue.dlg2 { align-items: flex-end; }
+.hv-dialogue.dlg2 .dlg-box { align-self: flex-end; }
+.hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 205px; padding-top: 28px; padding-bottom: 26px; }
+.hv-dialogue.dlg2:not(.narr) .dlg-side { border-radius: 18px 18px 18px 0; border-left-width: 2px; margin-left: -2px; }
+.hv-dialogue.dlg2 .dlg-side::before { top: auto; height: 190px; bottom: 6px; }
+@media (max-width: 1100px), (max-height: 760px) { .hv-dialogue.dlg2 .dlg-text { font-size: 27px; line-height: 38px; } .hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 170px; } .dlg-insert { width: 236px; top: 19vh; } .dlg-insert .art svg { width: 216px; height: 162px; } }
+/* r10: the heart strip is pinned to the portrait's foot, not the column's — a gift ribbon under the
+   plaque grew the column and slid the strip down over the name plaque (only a stub peeked out). */
+.hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) .dlg-hearts { bottom: auto; top: 262px; }
+@media (max-width: 1100px), (max-height: 760px) { .hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) .dlg-hearts { top: 202px; } }
+/* r13 (critic: in the gift state the hearts + "Loved it!" badge buried the name plate and the card grew
+   taller than the box): the gift ribbon is pinned over the portrait's top edge like a rosette, so the
+   card keeps its one height in every state (the box's top stays at the line the event director frames
+   the actors above). */
+.hv-dialogue.dlg2 .dlg-ribbon { position: absolute !important; order: 0; top: 4px !important; left: 50%; right: auto !important; margin: 0; transform: translateX(-50%) rotate(-2deg); max-width: 250px; z-index: 6; }
+.hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) .dlg-hearts { top: auto; bottom: 50px; }
+@media (max-width: 1100px), (max-height: 760px) { .hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) .dlg-hearts { top: auto; bottom: 42px; } }
+/* (co-op: the roster sits top-left — the card drops below it) */
+body:has(.coop-roster:not(.hv-hidden)) .dlg-insert { top: max(19vh, 150px); }
+/* r15 (critic: "excessively tall for one- or two-line exchanges"): the parchment hugs its text — a
+   one-liner is a slim slab, two lines a little more; the portrait card keeps one size and placement,
+   so it stands up out of the frame's right end. Choices and long beats grow the box as they need. */
+.hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 0; padding-top: 26px; padding-bottom: 30px; }
+.hv-dialogue.dlg2 .dlg-text { min-height: 47px; }
+.hv-dialogue.dlg2:not(.narr) .dlg-box:has(.dlg-choices) .hv-inner { padding-top: 22px; padding-bottom: 20px; }
+.hv-dialogue.dlg2 .dlg-box { transition: height 220ms var(--ease-out); }
+@media (max-width: 1100px), (max-height: 760px) { .hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 0; } .hv-dialogue.dlg2 .dlg-text { min-height: 38px; } }
+/* r15 co-op (critic: "an apparently empty heart row … doesn't distinguish host friendship from the viewing
+   farmhand's"): a spectator's strip is two labelled rows — the host's hearts (it is their scene) and yours. */
+.hv-dialogue.dlg2 .dlg-hearts.spec2 { display: flex !important; flex-direction: column; gap: 3px !important; padding: 4px 8px 5px; bottom: 46px; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2::after { display: none; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .hr { display: flex; align-items: center; gap: 1.5px; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .who { flex: none; width: 58px; margin-right: 5px; font: 800 13.5px/15px Nunito, sans-serif; letter-spacing: .3px; color: #fff; text-align: center; border-radius: 6px; padding: 0 4px; background: #9a4a2a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .hr.mine .who { background: #3f6e8a; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .hr svg { width: 15px !important; height: 13.5px !important; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .hr.mine svg { opacity: .9; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 .n { flex: none; width: 22px; margin-left: 4px; font: 800 14px/1 Nunito, sans-serif; color: #5a2e14; text-align: right; }
+/* Host-owned choices are visibly locked for a spectator: a padlock on each, the host's name on the
+   note, and the host's pick lights up before the reply. */
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice { opacity: 0.7; filter: saturate(.7); }
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice .k { background: linear-gradient(180deg, #8a7a6a, #6a5a4a); border-color: #4a3a2a; }
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice .lk { margin-left: auto; width: 16px; height: 18px; flex: none; opacity: .75; }
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice.picked { opacity: 1; filter: none; background: #fff6dc; border-color: #c8573e; transform: translateX(6px); box-shadow: 0 3px 0 rgba(120,60,20,.25); }
+.hv-dialogue.dlg2 .dlg-choices.locked .dlg-choice.picked .k { background: linear-gradient(180deg, var(--wood-1), var(--wood-2)); border-color: var(--wood-3); }
+/* r17 (critic: the "Loved it!" rosette sat over the portrait's hat / brow): the gift ribbon is a tag
+   pinned to the card's top edge from outside — it hangs over the scene, never the face; the card and
+   the heart strip keep their one size and place. */
+.hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) { overflow: visible; }
+.hv-dialogue.dlg2 .dlg-ribbon { top: -35px !important; transform: translateX(-50%) rotate(-2.5deg); box-shadow: 0 3px 0 rgba(60,30,10,.35), 0 6px 14px rgba(30,15,5,.35); }
+/* r21 (critic: "the portrait frame is ~290 px on a 1080p screen and the heart strip lies over its chin,
+   beard and mouth"): the portrait is the star — a ~384 px bust in a thick carved frame (ink line, gilt
+   bead, wood moulding, outer bevel), and the heart meter leaves the face for the name-plate band under
+   it (plaque left, hearts right; a co-op spectator's two labelled rows stack under the plaque). */
+.hv-dialogue.dlg2 { width: min(1320px, calc(100vw - 40px)); }
+.hv-dialogue.dlg2 .dlg-side { width: 424px; }
+.hv-dialogue.dlg2 .dlg-side > .hv-inner { display: grid !important; grid-template-columns: auto 1fr; grid-template-areas: "p p" "n h"; align-items: center; justify-items: center; column-gap: 10px; row-gap: 12px; padding: 16px 16px 12px !important; }
+.hv-dialogue.dlg2 .dlg-side > .hv-inner:has(.dlg-hearts.spec2) { grid-template-columns: 1fr; grid-template-areas: "p" "n" "h"; row-gap: 8px; }
+.hv-dialogue.dlg2 .dlg-portrait { grid-area: p; width: 384px; height: 384px; border-radius: 6px;
+  box-shadow: 0 0 0 2px #2e1608, 0 0 0 5px #f0cf86, 0 0 0 6px #b5843e, 0 0 0 10px #7a4520, 0 0 0 11px #4a250e, 0 5px 14px 9px rgba(40, 20, 8, 0.42); }
+.hv-dialogue.dlg2 .dlg-portrait .layer svg { width: 384px; height: 384px; margin-top: -4px; }
+.hv-dialogue.dlg2 .dlg-portrait::after { background-size: 384px 384px; box-shadow: inset 0 0 28px rgba(70, 36, 12, 0.36), inset 0 3px 6px rgba(30, 15, 5, 0.45); }
+.hv-dialogue.dlg2 .dlg-name { grid-area: n; margin: 4px 0 0 2px !important; justify-self: start; white-space: nowrap; }
+.hv-dialogue.dlg2 .dlg-side > .hv-inner:has(.dlg-hearts.spec2) .dlg-name { justify-self: center; }
+.hv-dialogue.dlg2 .dlg-hearts { grid-area: h; position: relative !important; left: auto !important; top: auto !important; bottom: auto !important; transform: none !important; justify-self: end;
+  margin: 4px 2px 0 0 !important; background: rgba(90, 46, 18, 0.13) !important; border: 0 !important; box-shadow: inset 0 2px 3px rgba(60, 30, 10, 0.3), 0 1px 0 rgba(255, 240, 210, 0.6) !important; padding: 5px 7px !important; border-radius: 9px !important; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 { justify-self: center; margin: 0 !important; }
+.hv-dialogue.dlg2 .dlg-hearts.spec::after { top: -20px; }
+.hv-dialogue.dlg2 .dlg-side::before { height: 250px; }
+.hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 150px; }
+.hv-dialogue.dlg2 .dlg-hearts .tick { position: absolute; right: -6px; top: -24px; font: 900 16px/1 var(--font-head), sans-serif; color: #e8574a; text-shadow: 0 1px 0 #fff4dc, 0 0 6px rgba(255, 240, 210, .9); pointer-events: none; animation: dlgTick 1500ms var(--ease-out) both; }
+@keyframes dlgTick { 0% { opacity: 0; transform: translateY(8px) scale(.6); } 18% { opacity: 1; transform: translateY(0) scale(1.15); } 70% { opacity: 1; transform: translateY(-6px) scale(1); } 100% { opacity: 0; transform: translateY(-16px); } }
+@media (max-width: 1100px), (max-height: 760px) {
+  .hv-dialogue.dlg2 .dlg-side { width: 300px; }
+  .hv-dialogue.dlg2 .dlg-side > .hv-inner { grid-template-columns: 1fr; grid-template-areas: "p" "n" "h"; row-gap: 6px; padding: 12px 12px 8px !important; }
+  .hv-dialogue.dlg2 .dlg-name { justify-self: center; }
+  .hv-dialogue.dlg2 .dlg-hearts { justify-self: center; }
+  .hv-dialogue.dlg2 .dlg-portrait { width: 268px; height: 268px; }
+  .hv-dialogue.dlg2 .dlg-portrait .layer svg { width: 268px; height: 268px; }
+  .hv-dialogue.dlg2 .dlg-portrait::after { background-size: 268px 268px; }
+  .hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 120px; }
+}
 `;
+
+
+const LOCK = `<svg class="lk" viewBox="0 0 16 18"><path d="M4 8 V5.5 a4 4 0 0 1 8 0 V8" fill="none" stroke="#7a4a2a" stroke-width="2"/><rect x="2" y="8" width="12" height="9" rx="2" fill="#a8743e" stroke="#5a2e14" stroke-width="1.4"/><circle cx="8" cy="12.3" r="1.5" fill="#3a1c0c"/></svg>`;
 
 const HEART = (fill: number, key: string): string => {
   const f = Math.max(0, Math.min(1, fill));
@@ -172,7 +377,7 @@ const PER_HEART = 250;
 /** "Marigold", "Dr. Pell". */
 export const shortName = (name: string): string => (name.startsWith('Dr. ') ? `Dr. ${name.split(' ').pop()}` : name.split(' ')[0]!);
 
-type Step = { kind: 'line'; text: string; mood: Mood } | { kind: 'ask'; q: string; mood: Mood; options: { text: string; reply: string; mood?: Mood; delta: number }[] };
+type Step = { kind: 'line'; text: string; mood: Mood; delay?: number } | { kind: 'ask'; q: string; mood: Mood; options: { text: string; reply: string; mood?: Mood; delta: number }[] };
 
 /**
  * A painterly canvas texture (brush dabs + fine tooth), drawn once: laid over the portrait art in
@@ -287,7 +492,9 @@ export class DialoguePanel implements Panel {
     this.titleCard.className = 'dlg-title';
     this.toastEl = document.createElement('div');
     this.toastEl.className = 'hv-panel dlg-toast hv-hidden';
-    parent.append(this.letterbox, this.titleCard, this.toastEl);
+    this.insertEl = document.createElement('div');
+    this.insertEl.className = 'dlg-insert';
+    parent.append(this.letterbox, this.titleCard, this.toastEl, this.insertEl);
 
     this.el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
@@ -321,6 +528,9 @@ export class DialoguePanel implements Panel {
       this.hearts.classList.add(delta > 0 ? 'pulse' : 'shake');
       if (delta > 0) this.sprinkle(Math.min(6, 1 + Math.round(delta / 20)));
     });
+    game.events.on('relationship:pending', ({ npcId }) => {
+      if (npcId === this.npc && this.openFlag) this.renderHearts(npcId as NpcId);
+    });
     game.events.on('npc:birthday', ({ npcId }) => {
       const d = NPCS[npcId as NpcId];
       if (d) this.toast(d.look, d.portraitBg, `It’s ${d.name.split(' ')[0]}’s birthday today!`);
@@ -328,10 +538,15 @@ export class DialoguePanel implements Panel {
     game.provide('dialogueBox', {
       say: (id, text, mood) => this.scriptedSay(id, text, mood ?? 'neutral'),
       narrate: (text) => this.scriptedNarrate(text),
-      choose: (id, q, options, mood) => this.scriptedChoose(id, q, options, mood ?? 'thinking'),
+      choose: (id, q, options, mood, locked) => this.scriptedChoose(id, q, options, mood ?? 'thinking', locked),
       end: () => this.endScripted(),
       cinema: (on, title, sub) => this.cinema(on, title, sub),
       finishLine: () => this.finishLine(),
+      insert: (card) => this.insert(card),
+      spectatorHearts: (id, pts, who) => this.spectatorHearts(id, pts, who),
+      markChoice: (i) => this.markChoice(i),
+      clock: (on) => this.setManualClock(on),
+      pump: (dt) => this.pump(dt),
     });
   }
 
@@ -363,12 +578,21 @@ export class DialoguePanel implements Panel {
       if (moodOverride) {
         // Staging a mood (`&mood=sad`): say one of this villager's own lines written in that mood, so
         // the words and the face agree; only a villager with no such line gets the mood forced on.
-        const pool = [...def.dialogue.flatMap((g) => [...g.lines, ...(g.ask ? g.ask.options.map((o) => (o.mood ? `[${o.mood}] ${o.reply}` : o.reply)) : [])]), ...Object.values(def.giftLines)];
+        // (r13 critic: Hazel at 7 hearts greeted the farmer with her first-meeting line — only groups the
+        // relationship could actually reach right now: no first meeting once met, no birthday off the
+        // day, no heart tier above the current hearts, no memory the farmer hasn't made.)
+        const rel = this.game.services.relationships;
+        const hearts = Math.min(10, rel?.hearts(id) ?? 0);
+        const met = (rel?.talks(id) ?? 0) > 0 || (rel?.points(id) ?? 0) >= 250;
+        const reach = def.dialogue.filter((g) => !(g.first && met) && !(g.birthday && !(rel?.isBirthday(id) ?? false)) && !((g.minHearts ?? 0) > hearts) && !(g.flag && !(rel?.recalls(g.flag) ?? false)));
+        const pool = [...reach.flatMap((g) => [...g.lines, ...(g.ask ? g.ask.options.map((o) => (o.mood ? `[${o.mood}] ${o.reply}` : o.reply)) : [])]), ...Object.values(def.giftLines)];
         const hit = pool.map((l) => parseLine(l)).find((pl) => pl.mood === moodOverride && pl.text.length > 12);
         if (hit) steps.splice(0, steps.length, { kind: 'line', text: hit.text, mood: hit.mood });
         else if (steps[0]?.kind === 'line') steps[0].mood = moodOverride;
       }
-      const ask = conv?.ask;
+      // (r12 critic: `&ask=1` showed a plain line when the conversation picked for this hour carried no
+      // question — staging the ask goes straight to one of the villager's own questions, choices up)
+      const ask = conv?.ask ?? (mode === 'ask' ? def.dialogue.find((g) => g.ask)?.ask : undefined);
       if (ask) {
         const q = parseLine(ask.q, ask.mood ?? 'thinking');
         const askStep: Step = { kind: 'ask', q: q.text, mood: ask.mood ?? q.mood, options: ask.options };
@@ -394,7 +618,8 @@ export class DialoguePanel implements Panel {
     this.ribbon(REACT[reaction]![0], REACT[reaction]![1], `${name}`);
     const out: Step[] = [];
     const main = parseLine(def.giftLines[reaction]);
-    out.push({ kind: 'line', text: main.text, mood: main.mood });
+    // (the line waits for the gift's arc to land — r7 critic: every frame showed the finished line)
+    out.push({ kind: 'line', text: main.text, mood: main.mood, delay: 820 });
     if (birthday) {
       const b = parseLine(def.giftLines.birthday);
       out.push({ kind: 'line', text: b.text, mood: b.mood });
@@ -406,6 +631,10 @@ export class DialoguePanel implements Panel {
   private async runSteps(id: NpcId, steps: Step[], run: number): Promise<void> {
     for (const s of steps) {
       if (run !== this.runId || !this.openFlag) return;
+      if (s.kind === 'line' && s.delay) {
+        await new Promise<void>((r) => this.later(r, s.delay!));
+        if (run !== this.runId || !this.openFlag) return;
+      }
       if (s.kind === 'line') await this.line_(id, s.text, s.mood);
       else {
         const i = await this.choice_(id, s.q, s.options.map((o) => o.text), s.mood);
@@ -438,15 +667,35 @@ export class DialoguePanel implements Panel {
     return this.line_(null, text, 'neutral');
   }
 
-  private scriptedChoose(id: NpcId, q: string | undefined, options: string[], mood: Mood): Promise<number> {
+  private scriptedChoose(id: NpcId, q: string | undefined, options: string[], mood: Mood, locked?: string): Promise<number> {
     this.scripted = true;
     this.show(id, true);
-    return this.choice_(id, q ?? '', options, mood);
+    return this.choice_(id, q ?? '', options, mood, locked);
   }
 
   private endScripted(): void {
     this.scripted = false;
+    this.insert(null);
     this.hide();
+  }
+
+  private insertEl: HTMLElement;
+  private insertKey = '';
+  /** Pin / swap / take down the heart-event insert card (a re-pin of the same card keeps it still). */
+  insert(card: { kind: string; caption: string } | null): void {
+    const key = card ? `${card.kind}|${card.caption}` : '';
+    if (key === this.insertKey) return;
+    this.insertKey = key;
+    const art = card ? insertArt(card.kind) : null;
+    if (!card || !art) {
+      this.insertEl.classList.remove('on');
+      this.insertEl.classList.add('off');
+      return;
+    }
+    this.insertEl.innerHTML = `<div class="tape"></div><div class="art">${art}</div><div class="cap">${card.caption}</div>`;
+    this.insertEl.classList.remove('on', 'off');
+    void this.insertEl.offsetWidth;
+    this.insertEl.classList.add('on');
   }
 
   // ───────────────────────────────────────────── view
@@ -456,6 +705,7 @@ export class DialoguePanel implements Panel {
     this.openFlag = true;
     this.el.classList.toggle('narr', id === null);
     this.game.hud.root.classList.add('hv-talking');
+    document.body.classList.add('hv-dlg-open');
     if (id && id !== this.npc) {
       const def = NPCS[id];
       this.npc = id;
@@ -478,12 +728,13 @@ export class DialoguePanel implements Panel {
 
   private hide(): void {
     this.openFlag = false;
-    window.clearTimeout(this.timer);
+    this.clearTick();
     this.setSpeaking(false);
     this.waiter = null;
     this.choiceWaiter = null;
     this.npc = null;
     this.game.hud.root.classList.remove('hv-talking');
+    document.body.classList.remove('hv-dlg-open');
     this.el.classList.add('hv-hidden');
   }
 
@@ -491,6 +742,10 @@ export class DialoguePanel implements Panel {
     if (this.mood === mood && this.portrait.children.length) return;
     const def = NPCS[id];
     this.mood = mood;
+    // (r13: the card takes the scene's light — a night talk / heart event gets a blue-violet card with a
+    // warm lamp key; staged demos hold the clock paused, so the hour is read here, not per frame)
+    const hr = this.game.calendar.hour;
+    setPortraitLight(hr >= 19.5 || hr < 5.5 ? 'night' : hr >= 17.75 ? 'dusk' : 'day');
     const old = [...this.portrait.children];
     const layer = document.createElement('div');
     layer.className = old.length ? 'layer in' : 'layer';
@@ -504,10 +759,38 @@ export class DialoguePanel implements Panel {
   }
 
   private heartPts = -1;
+  private specHearts: { id: NpcId; pts: number; who: string } | null = null;
+  spectatorHearts(id: NpcId, pts: number | null, who = 'Host'): void {
+    this.specHearts = pts === null ? null : { id, pts, who };
+    if (this.npc === id) this.renderHearts(id);
+  }
   private renderHearts(id: NpcId, prev = -1): void {
-    const pts = this.game.services.relationships?.points(id) ?? 0;
-    this.hearts.innerHTML = Array.from({ length: 10 }, (_, i) => HEART((pts - i * PER_HEART) / PER_HEART, `${id}${i}`)).join('');
+    const spec = this.specHearts && this.specHearts.id === id ? this.specHearts : null;
+    const pts = spec ? spec.pts : (this.game.services.relationships?.points(id) ?? 0);
+    // Co-op farmhand: a gift the host hasn't confirmed yet shows as a breathing ghost past the fill.
+    const pend = spec ? null : (this.game.services.relationships?.pendingGift?.(id) ?? null);
+    const shown = pts + Math.max(0, pend?.points ?? 0);
+    this.hearts.innerHTML = Array.from({ length: 10 }, (_, i) => HEART((shown - i * PER_HEART) / PER_HEART, `${id}${i}`)).join('');
     this.hearts.title = `${Math.floor(pts / PER_HEART)} / 10 hearts`;
+    if (pend && pend.points > 0) {
+      const svgs = this.hearts.querySelectorAll('svg');
+      const i0 = Math.floor(pts / PER_HEART);
+      const i1 = Math.min(9, Math.floor((pts + pend.points - 1) / PER_HEART));
+      for (let i = i0; i <= i1; i++) svgs[i]?.classList.add('ghost');
+    }
+    // (r9: a spectator sees whose friendship the row is — the host's, it's their scene — beside their own;
+    // r15: as two labelled rows, the host's on top, "Yours" under it, each with its count)
+    const minePts = spec ? (this.game.services.relationships?.points(id) ?? 0) : 0;
+    if (spec) {
+      const row = (cls: string, who: string, p: number, key: string): string =>
+        `<div class="hr ${cls}"><span class="who">${who.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>${Array.from({ length: 10 }, (_, i) => HEART((p - i * PER_HEART) / PER_HEART, `${key}${id}${i}`)).join('')}<span class="n">${Math.floor(p / PER_HEART)}</span></div>`;
+      this.hearts.innerHTML = row('host', spec.who, pts, 'h') + row('mine', 'Yours', minePts, 'm');
+      this.hearts.title = `${spec.who}: ${Math.floor(pts / PER_HEART)} hearts · yours: ${Math.floor(minePts / PER_HEART)} hearts`;
+    }
+    this.hearts.dataset.spec = pend ? 'Gift on its way to the host…' : '';
+    this.hearts.classList.toggle('spec2', !!spec);
+    this.hearts.classList.toggle('spec', !!pend);
+    this.hearts.classList.toggle('pending', !!pend);
     if (prev >= 0 && pts > prev) {
       // Pop the hearts whose fill changed (the newest last, a beat later).
       const svgs = this.hearts.querySelectorAll('svg');
@@ -519,18 +802,52 @@ export class DialoguePanel implements Panel {
         el.classList.add('pop');
         (el as SVGElement).style.animationDelay = `${(i - i0) * 90}ms`;
       }
+      // (r21 critic: "the heart meter shows no visible tick-up") — the fill pours in from the old value
+      // to the new one over ~0.9 s, heart by heart, with a "+N" tick over the strip.
+      if (!spec) {
+        const rects: { r: SVGRectElement; a: number; b: number }[] = [];
+        for (let i = i0; i <= i1; i++) {
+          const r = svgs[i]?.querySelector('clipPath rect') as SVGRectElement | null;
+          if (!r) continue;
+          const a = Math.max(0, Math.min(1, (prev - i * PER_HEART) / PER_HEART));
+          const b = Math.max(0, Math.min(1, (pts - i * PER_HEART) / PER_HEART));
+          r.setAttribute('width', String(24 * a));
+          rects.push({ r, a, b });
+        }
+        const t0 = performance.now();
+        const dur = 900;
+        const step = (now: number): void => {
+          const k = Math.min(1, (now - t0) / dur);
+          const n = rects.length;
+          rects.forEach(({ r, a, b }, j) => {
+            const kk = Math.max(0, Math.min(1, k * n - j));
+            const e = 1 - Math.pow(1 - kk, 3);
+            r.setAttribute('width', String(24 * (a + (b - a) * e)));
+          });
+          if (k < 1 && this.hearts.isConnected) requestAnimationFrame(step);
+        };
+        if (rects.length) requestAnimationFrame(step);
+        const tick = document.createElement('span');
+        tick.className = 'tick';
+        const d = pts - prev;
+        tick.textContent = d >= PER_HEART * 0.95 ? `+${Math.round(d / PER_HEART)} ♥` : '+♥';
+        this.hearts.appendChild(tick);
+      }
     }
     this.heartPts = pts;
   }
 
+  private sprinkleN = 0;
   private sprinkle(n: number): void {
     const host = this.ribbonHost;
     for (let i = 0; i < n; i++) {
       const h = document.createElement('div');
       h.className = 'dlg-float';
       h.innerHTML = HEART(1, `f${i}${Date.now()}`);
-      h.style.left = `${40 + Math.random() * 140}px`;
-      h.style.top = `${250 + Math.random() * 20}px`;
+      // (r15 determinism: a golden-ratio scatter instead of Math.random)
+      const u = (this.sprinkleN++ * 0.618034) % 1;
+      h.style.left = `${40 + u * 140}px`;
+      h.style.top = `${250 + ((u * 7.3) % 1) * 20}px`;
       h.style.animationDelay = `${i * 90}ms`;
       host.appendChild(h);
       window.setTimeout(() => h.remove(), 1400 + i * 90);
@@ -556,8 +873,10 @@ export class DialoguePanel implements Panel {
   }
 
   cinema(on: boolean, title?: string, sub?: string): void {
+    if (!on) this.insert(null);
     this.letterbox.classList.toggle('on', on);
     this.game.hud.root.classList.toggle('hv-heartcine', on);
+    document.body.classList.toggle('hv-cine', on);
     this.el.classList.toggle('cine', on);
     if (on && title) {
       // The title sits in the top letterbox band (never over the actors) and stays, dimmed, for the scene.
@@ -565,7 +884,8 @@ export class DialoguePanel implements Panel {
       this.titleCard.classList.remove('dim');
       this.titleCard.classList.add('on');
       window.clearTimeout(this.titleTimer);
-      this.titleTimer = window.setTimeout(() => this.titleCard.classList.add('dim'), 4200);
+      // Full brightness while it is read (≥ 2.5 s after the fade-in), then a gentle dim — never grey.
+      this.titleTimer = window.setTimeout(() => this.titleCard.classList.add('dim'), 5200);
     } else if (!on) this.titleCard.classList.remove('on', 'dim');
   }
 
@@ -587,7 +907,7 @@ export class DialoguePanel implements Panel {
     this.text.textContent = '';
     this.text.classList.remove('dlg-q');
     this.next.classList.add('hv-hidden');
-    window.clearTimeout(this.timer);
+    this.clearTick();
     this.setSpeaking(!!id);
     this.tick();
     return new Promise((r) => (this.waiter = r));
@@ -603,13 +923,85 @@ export class DialoguePanel implements Panel {
     const ch = this.line[this.shown]!;
     this.shown++;
     this.paintText();
-    if (ch === ' ' && this.npc) this.game.events.emit('ui:blip', { id: this.npc });
+    // Voice each word as its first letter appears (the last word of the line too).
+    if (this.npc && ch !== ' ' && (this.shown === 1 || this.line[this.shown - 2] === ' ')) {
+      const word = /^\S+/.exec(this.line.slice(this.shown - 1))?.[0] ?? ch;
+      const index = this.line.slice(0, this.shown - 1).split(/\s+/).filter(Boolean).length;
+      const last = !/\S/.test(this.line.slice(this.shown - 1 + word.length));
+      this.game.events.emit('ui:blip', { id: this.npc, word, index, last });
+    }
     const delay = /[.!?]/.test(ch) && this.line[this.shown] === ' ' ? 190 : /[,—…]/.test(ch) ? 90 : 17;
-    this.timer = window.setTimeout(this.tick, delay);
+    this.timer = this.later(this.tick, delay);
   };
 
-  finishLine(): void {
+  // ───────────────────────────────────────────── r15 sim-clock mode (deterministic captures)
+
+  private manual = false;
+  private mClock = 0;
+  private mFire: number | null = null;
+  private autoT = 0;
+  private sleepers: { t: number; r: () => void }[] = [];
+  private setManualClock(on: boolean): void {
+    this.manual = on;
+    this.mClock = 0;
+    this.autoT = 0;
+    // (r18: a capture sequence's first frame caught the box and portrait mid pop-in on the wall clock —
+    // an empty card; in sim-clock mode the CSS entrances land at once)
+    if (on && !document.getElementById('hv-dlg-seq')) {
+      const st = document.createElement('style');
+      st.id = 'hv-dlg-seq';
+      st.textContent = '.hv-dialogue.hv-seq, .hv-dialogue.hv-seq *, .hv-dialogue.hv-seq *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; }';
+      document.head.appendChild(st);
+    }
+    this.el.classList.toggle('hv-seq', on);
+  }
+  /** setTimeout, or (sim-clock mode) a wake-up on the stepped clock. */
+  private later(fn: () => void, ms: number): number {
+    if (!this.manual) return window.setTimeout(fn, ms);
+    this.sleepers.push({ t: (this.mFire ?? this.mClock) + ms / 1000, r: fn });
+    return -1;
+  }
+  private clearTick(): void {
     window.clearTimeout(this.timer);
+    this.sleepers = this.sleepers.filter((s) => s.r !== this.tick);
+  }
+  /** Sim-clock mode: run due typewriter ticks; a finished line holds for a reading beat then advances, an open choice takes the highlighted option. */
+  private pump(dt: number): void {
+    if (!this.manual) return;
+    this.mClock += dt;
+    for (let guard = 0; guard < 400; guard++) {
+      let k = -1;
+      for (let i = 0; i < this.sleepers.length; i++) if (this.sleepers[i]!.t <= this.mClock && (k < 0 || this.sleepers[i]!.t < this.sleepers[k]!.t)) k = i;
+      if (k < 0) break;
+      const sl = this.sleepers.splice(k, 1)[0]!;
+      // (a tick re-arms from its own due time, not the frame's end: the type speed holds at any step)
+      this.mFire = sl.t;
+      sl.r();
+      this.mFire = null;
+    }
+    if (!this.openFlag) {
+      this.autoT = 0;
+      return;
+    }
+    if (this.choiceWaiter) {
+      this.autoT += dt;
+      if (this.autoT > 2.0) {
+        this.autoT = 0;
+        this.pickChoice(this.choiceSel);
+      }
+      return;
+    }
+    if (this.waiter && this.shown >= this.line.length) {
+      this.autoT += dt;
+      if (this.autoT > 0.9 + this.line.length * 0.016) {
+        this.autoT = 0;
+        this.advance();
+      }
+    } else this.autoT = 0;
+  }
+
+  finishLine(): void {
+    this.clearTick();
     this.shown = this.line.length;
     this.paintText();
     this.next.classList.remove('hv-hidden');
@@ -635,10 +1027,10 @@ export class DialoguePanel implements Panel {
     w?.();
   }
 
-  private choice_(id: NpcId, q: string, options: string[], mood: Mood): Promise<number> {
+  private choice_(id: NpcId, q: string, options: string[], mood: Mood, locked?: string): Promise<number> {
     this.setPortrait(id, mood);
     this.game.events.emit('npc:line', { id, mood });
-    window.clearTimeout(this.timer);
+    this.clearTick();
     this.setSpeaking(false);
     this.line = q;
     this.shown = q.length;
@@ -652,7 +1044,7 @@ export class DialoguePanel implements Panel {
       const b = document.createElement('div');
       b.className = 'dlg-choice';
       b.style.animationDelay = `${60 + i * 60}ms`;
-      b.innerHTML = `<span class="k">${i + 1}</span><span>${o}</span>`;
+      b.innerHTML = `<span class="k">${i + 1}</span><span>${o}</span>${locked ? LOCK : ''}`;
       b.addEventListener('pointerenter', () => this.selectChoice(i));
       b.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
@@ -661,6 +1053,16 @@ export class DialoguePanel implements Panel {
       box.appendChild(b);
     });
     this.text.after(box);
+    if (locked) {
+      // Spectating (co-op): the options are the host's to pick; a soft pulsing note says so.
+      box.classList.add('locked');
+      const note = document.createElement('div');
+      note.className = 'dlg-wait';
+      note.textContent = locked;
+      box.appendChild(note);
+      this.choiceCount = 0;
+      return new Promise(() => undefined);
+    }
     this.choiceCount = options.length;
     this.selectChoice(0);
     return new Promise((r) => (this.choiceWaiter = r));
@@ -669,6 +1071,13 @@ export class DialoguePanel implements Panel {
   private selectChoice(i: number): void {
     this.choiceSel = i;
     this.el.querySelectorAll('.dlg-choice').forEach((c, k) => c.classList.toggle('sel', k === i));
+  }
+
+  /** Co-op spectator: light up the option the host picked (the reply follows a beat later). */
+  markChoice(i: number): void {
+    this.el.querySelectorAll('.dlg-choices.locked .dlg-choice').forEach((c, k) => c.classList.toggle('picked', k === i));
+    const note = this.el.querySelector('.dlg-choices.locked .dlg-wait');
+    if (note) note.remove();
   }
 
   private pickChoice(i: number): void {
@@ -758,7 +1167,7 @@ export class PortraitSheetPanel implements Panel {
 
   open(arg?: string): void {
     const one = arg && NPCS[arg as NpcId] ? (arg as NpcId) : null;
-    const moods: Mood[] = one ? ['neutral', 'happy', 'laugh', 'blush', 'thinking', 'surprised', 'worried', 'sad', 'angry'] : ['happy', 'laugh', 'surprised', 'sad', 'angry'];
+    const moods: Mood[] = one ? ['neutral', 'happy', 'laugh', 'blush', 'thinking', 'surprised', 'worried', 'wistful', 'sad', 'angry'] : ['happy', 'laugh', 'surprised', 'sad', 'angry'];
     const ids = one ? [one] : NPC_IDS;
     const rows = ids.map((id) => {
       const d = NPCS[id];

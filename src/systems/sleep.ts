@@ -16,6 +16,8 @@ import * as THREE from 'three';
 import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { AnimalPops } from '../entities/animals';
+import { animalPortraits } from '../world/buildings/icons';
+import type { Species } from '../entities/animals-models';
 
 export interface SleepApi {
   canSleep(): boolean;
@@ -25,7 +27,11 @@ export interface SleepApi {
   goToBed(): Promise<void>;
   /** The "Go to bed for the night?" prompt (resolves true on yes). */
   ask(): Promise<boolean>;
+  /** r18: where the bedtime is (milestone captures): 'awake' | 'tucking' | 'tucked' | 'fading' | 'night' | 'waking'. */
+  readonly phase: SleepPhase;
 }
+
+export type SleepPhase = 'awake' | 'tucking' | 'tucked' | 'fading' | 'night' | 'waking';
 
 /** The herd's night, as the end-of-day card shows it (from `animals:summary`). */
 export interface SleepAnimals {
@@ -34,10 +40,15 @@ export interface SleepAnimals {
   hungry: number;
   hungryNames: string[];
   petted: number;
-  produce: { item: string; q: number }[];
+  produce: { item: string; q: number; from?: string }[];
   pet?: { name: string; species: string; bowl: boolean };
   /** Tomorrow's chores (ready to milk / shear, eggs in the nests, empty troughs...). */
   chores?: { icon: string; text: string }[];
+  /** Eggs left in the nests from earlier days (shown apart from tonight's produce). */
+  leftover?: number;
+  /** (r9) Per-animal recap for the card's left panel: portrait (3D model render, data URL), care marks,
+   *  hearts and the overnight friendship change; the happiest animal comes first. */
+  herd?: { name: string; species: string; portrait?: string; fed: boolean; petted: boolean; hearts: number; delta: number; best?: boolean }[];
 }
 
 declare module '../core/game' {
@@ -64,6 +75,11 @@ interface BedSpec {
   wakeZ: number;
 }
 
+/** Bed-lie pitch: on the back, propped ~20° on the pillow (face tipped towards the lens). */
+const LIE_TILT = -Math.PI / 2 + 0.35;
+/** Chin tucked a little on the pillow (the face, not the crown of hair, turns up to the camera). */
+const LIE_NOD = 0.3;
+
 /** What the farmhouse offers the bedtime (house.ts). */
 interface HouseBed {
   bed?: BedSpec;
@@ -77,6 +93,23 @@ const HOUSE = 'house';
 /** Fallback wake spot if the house map doesn't publish its bed. */
 const WAKE = { x: 9.6, z: 2.9 };
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * r19: a bedtime beat in SIM time while a milestone sequence capture holds the loop (`game.holdLoop`,
+ * shot.mjs --frames): with wall-clock waits the whole tuck → Zzz → fade ran out while the harness was
+ * busy writing the previous PNG, and the sheet jumped from the bedside straight to the next morning.
+ */
+function beat(game: Game, ms: number): Promise<void> {
+  if (!game.holdLoop) return wait(ms);
+  const until = game.time + ms / 1000;
+  return new Promise((r) => {
+    const tick = (): void => {
+      if (game.time >= until || !game.holdLoop) r();
+      else setTimeout(tick, 8);
+    };
+    tick();
+  });
+}
 
 const PROMPT_CSS = `
 .hv-bedask{position:absolute;left:50%;bottom:150px;translate:-50% 0;z-index:40;min-width:380px;padding:18px 26px 20px;border-radius:20px;
@@ -98,6 +131,7 @@ export class SleepSystem implements System, SleepApi {
   private shipped = 0;
   private animals: SleepAnimals | undefined;
   private busy = false;
+  phase: SleepPhase = 'awake';
   private asking = false;
   private carryHome = false;
   /** Lying in the farmhouse bed (root transform held here after the player's own update). */
@@ -120,9 +154,11 @@ export class SleepSystem implements System, SleepApi {
         hungry: s.hungry,
         hungryNames: s.animals.filter((a) => !a.fed).map((a) => a.name),
         petted: s.animals.length - s.unpetted,
-        produce: s.produce.map((p) => ({ item: p.item, q: p.q })),
+        produce: s.produce.map((p) => ({ item: p.item, q: p.q, from: p.from })),
         pet: s.pet ? { name: s.pet.name, species: s.pet.species, bowl: s.pet.bowl } : undefined,
         chores: s.chores?.slice(0, 5),
+        leftover: s.leftover,
+        herd: herdRecap(s.animals),
       };
     });
     game.events.on('player:interact', ({ x, z }) => {
@@ -280,30 +316,36 @@ export class SleepSystem implements System, SleepApi {
     this.busy = true;
     const g = this.game;
     g.player.controllable = false;
+    this.phase = 'tucking';
     if (this.bed()) {
       if (!this.lying) {
         await g.hud.fade(true);
         this.lieDown(true);
-        await wait(120);
+        await beat(g, 120);
         await g.hud.fade(false);
       }
+      this.phase = 'tucked';
       // Lamps and fire ease down, a few sleepy Zzz, then the night.
       this.dimTarget = 1;
       this.zzz = true;
       this.zT = 0.25;
       g.services.audio?.play('sleep');
-      await wait(1500);
+      await beat(g, 1500);
     }
+    this.phase = 'fading';
     await g.hud.fade(true);
-    await wait(300);
+    await beat(g, 300);
     this.zzz = false;
+    this.phase = 'night';
     this.sleep();
     if (this.lying) this.lieDown(false);
     this.dimTarget = 0;
     const house = this.house();
     if (house) house.dim = 0;
+    this.phase = 'waking';
     await this.wakeAtHome(false);
     this.busy = false;
+    this.phase = 'awake';
   }
 
   /** Lie the farmer on the quilt, head on the pillow (or get up again). */
@@ -327,12 +369,16 @@ export class SleepSystem implements System, SleepApi {
     const pillow = house!.pillow ?? new THREE.Vector3((bed.x0 + bed.x1) / 2, 0.86, bed.z0 + 0.5);
     g.player.teleport((bed.x0 + bed.x1) / 2, Math.min(bed.z1 - 0.3, pillow.z + 1.4));
     g.player.setFacing('down');
-    // On its back, feet towards the foot of the bed, face up; then slide so the head rests on the pillow.
-    root.rotation.set(-Math.PI / 2, 0, 0);
+    // On its back, feet towards the foot of the bed, propped ~20° on the pillow so the face tips towards
+    // the lens; then slide so the head's CENTRE (not its neck pivot) sinks into the pillow in front of the
+    // headboard (r10: the old neck-on-pillow fit left the big chibi head up on the headboard).
+    root.rotation.set(LIE_TILT, 0, 0);
+    rig.head.rotation.set(LIE_NOD, 0, 0);
     root.position.set(pillow.x, pillow.y, pillow.z + 1.5);
     root.updateMatrixWorld(true);
-    const head = rig.head.getWorldPosition(new THREE.Vector3());
-    this.lieAt.copy(root.position).add(new THREE.Vector3(pillow.x - head.x, pillow.y + 0.08 - head.y, pillow.z + 0.12 - head.z));
+    const head = rig.head.localToWorld(new THREE.Vector3(0, 0.3, 0));
+    // (r13: 0.15 m further towards the foot — the head sat past the pillow against the window)
+    this.lieAt.copy(root.position).add(new THREE.Vector3(pillow.x - head.x, pillow.y + 0.22 - head.y, pillow.z + 0.35 - head.z));
     root.position.copy(this.lieAt);
     g.followPlayer(false);
   }
@@ -347,8 +393,10 @@ export class SleepSystem implements System, SleepApi {
   update(dt: number, game: Game): void {
     if (this.lying) {
       const r = game.player.root;
-      r.rotation.set(-Math.PI / 2, 0, 0);
+      r.rotation.set(LIE_TILT, 0, 0);
       r.position.copy(this.lieAt);
+      if (game.player.rig.hat) game.player.rig.hat.visible = false;
+      game.player.rig.head.rotation.set(LIE_NOD, 0, 0);
       // Eyes shut (the rig's blink groups hold a mesh named 'eye'; the player re-opens them every frame).
       for (const c of game.player.rig.head.children) if (c.children.some((m) => m.name === 'eye')) c.scale.y = 0.12;
     }
@@ -385,4 +433,33 @@ export class SleepSystem implements System, SleepApi {
     g.player.controllable = true;
     g.events.emit('sleep:wake', { passedOut });
   }
+}
+
+/** Day-end herd recap: happiest first, then the ones who missed out (unfed / unpetted), then the rest. */
+function herdRecap(list: { name: string; species: string; variant?: number; fed: boolean; petted: boolean; delta: number; friendship: number }[]): SleepAnimals['herd'] {
+  if (!list.length) return undefined;
+  let shots: Map<string, string> | null = null;
+  try {
+    shots = animalPortraits(list.map((a) => ({ species: a.species as Species, variant: a.variant ?? 0 })));
+  } catch {
+    shots = null;
+  }
+  // (r11: the ribbon only goes to an animal that was fed — a "happiest" chip tagged hungry contradicted
+  // itself; fed + petted wins over fed alone, then friendship)
+  const score = (a: (typeof list)[number]): number => (a.fed ? 2000 : -1e9) + (a.petted ? 1000 : 0) + a.friendship;
+  const best = list.reduce((b, a) => (score(a) > score(b) ? a : b), list[0]!);
+  const top = best.fed ? best : null;
+  const rank = (a: (typeof list)[number]): number => (a === top ? 0 : !a.fed || !a.petted ? 1 : 2);
+  return [...list]
+    .sort((a, b) => rank(a) - rank(b) || b.friendship - a.friendship)
+    .map((a) => ({
+      name: a.name,
+      species: a.species,
+      portrait: shots?.get(`${a.species}:${a.variant ?? 0}`),
+      fed: a.fed,
+      petted: a.petted,
+      hearts: Math.round(a.friendship / 100) / 2,
+      delta: a.delta,
+      best: a === top,
+    }));
 }

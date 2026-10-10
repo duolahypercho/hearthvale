@@ -2,6 +2,7 @@
  * Crop table (pure data). Six visual growth stages:
  *   0 seeded mound · 1 sprout (seed leaves) · 2 seedling · 3 young plant · 4 mature / flowering · 5 ripe
  * `stageDays[i]` = days spent in stage i (0..4); after the last one the crop is harvestable (RIPE_STAGE).
+ * Every entry is ≥ 1 so all six stage meshes show while a crop grows (no skipped stage).
  * `regrow` = days from harvest back to ripe for multi-harvest crops (the plant drops back to stage 4).
  * `trellis` crops grow on a wooden frame and block movement; `giant` crops can fuse 3×3 blocks of
  * ripe plants into one giant crop overnight. Every crop grows year-round under glass (`greenhouse`).
@@ -57,10 +58,10 @@ const G = 0x5a9a3c;
 
 export const CROPS: Record<CropId, CropDef> = {
   // ── spring
-  parsnip: { id: 'parsnip', name: 'Parsnip', seeds: 'parsnipSeeds', produce: 'parsnip', seasons: ['spring'], stageDays: [1, 1, 1, 1, 0], sell: 35, seedPrice: 20, color: 0xf2dfa8, leaf: G, blurb: 'A sweet, pale root. Quick and forgiving.' },
+  parsnip: { id: 'parsnip', name: 'Parsnip', seeds: 'parsnipSeeds', produce: 'parsnip', seasons: ['spring'], stageDays: [1, 1, 1, 1, 1], sell: 35, seedPrice: 20, color: 0xf2dfa8, leaf: G, blurb: 'A sweet, pale root. Quick and forgiving.' },
   potato: { id: 'potato', name: 'Potato', seeds: 'potatoSeeds', produce: 'potato', seasons: ['spring'], stageDays: [1, 1, 1, 2, 1], yield: [1, 3], sell: 80, seedPrice: 50, color: 0xc8955a, leaf: 0x4f8a34, blurb: 'Dig deep — sometimes the plant gives more than one.' },
   cauliflower: { id: 'cauliflower', name: 'Cauliflower', seeds: 'cauliflowerSeeds', produce: 'cauliflower', seasons: ['spring'], stageDays: [1, 2, 3, 3, 3], giant: true, sell: 175, seedPrice: 80, color: 0xf3efe0, leaf: 0x3f7a62, blurb: 'Slow and valuable. Grown side by side, they may fuse into a giant.' },
-  kale: { id: 'kale', name: 'Kale', seeds: 'kaleSeeds', produce: 'kale', seasons: ['spring'], stageDays: [1, 1, 2, 2, 0], sell: 110, seedPrice: 70, color: 0x3f7a5a, leaf: 0x3f7a4a, blurb: 'Frilly, hardy greens.' },
+  kale: { id: 'kale', name: 'Kale', seeds: 'kaleSeeds', produce: 'kale', seasons: ['spring'], stageDays: [1, 1, 2, 1, 1], sell: 110, seedPrice: 70, color: 0x3f7a5a, leaf: 0x3f7a4a, blurb: 'Frilly, hardy greens.' },
   strawberry: { id: 'strawberry', name: 'Strawberry', seeds: 'strawberrySeeds', produce: 'strawberry', seasons: ['spring'], stageDays: [1, 1, 2, 2, 2], regrow: 4, yield: [1, 2], sell: 120, seedPrice: 100, color: 0xe0303c, leaf: 0x3f7a34, blurb: 'Runners keep fruiting every few days.' },
   greenBean: { id: 'greenBean', name: 'Runner Bean', seeds: 'greenBeanSeeds', produce: 'greenBean', seasons: ['spring'], stageDays: [1, 1, 2, 3, 3], regrow: 3, trellis: true, sell: 40, seedPrice: 60, color: 0x7cbf4a, leaf: 0x4f9a3a, blurb: 'Climbs a trellis. Keeps giving until the season ends.' },
   // ── summer
@@ -75,8 +76,8 @@ export const CROPS: Record<CropId, CropDef> = {
   pumpkin: { id: 'pumpkin', name: 'Pumpkin', seeds: 'pumpkinSeeds', produce: 'pumpkin', seasons: ['fall'], stageDays: [1, 2, 3, 4, 3], giant: true, sell: 320, seedPrice: 100, color: 0xe8812e, leaf: 0x4f8a34, blurb: 'The pride of the harvest fair. May grow giant.' },
   eggplant: { id: 'eggplant', name: 'Eggplant', seeds: 'eggplantSeeds', produce: 'eggplant', seasons: ['fall'], stageDays: [1, 1, 1, 1, 1], regrow: 5, sell: 60, seedPrice: 20, color: 0x5a2a6e, leaf: 0x4a7a3a, blurb: 'Glossy purple fruit under velvet leaves.' },
   grape: { id: 'grape', name: 'Grape', seeds: 'grapeSeeds', produce: 'grape', seasons: ['fall'], stageDays: [1, 1, 2, 3, 3], regrow: 3, trellis: true, sell: 80, seedPrice: 60, color: 0x7a3a8e, leaf: 0x5a8a34, blurb: 'Vines on a trellis, heavy with clusters.' },
-  beet: { id: 'beet', name: 'Beet', seeds: 'beetSeeds', produce: 'beet', seasons: ['fall'], stageDays: [1, 1, 2, 2, 0], sell: 100, seedPrice: 20, color: 0x9a1e3e, leaf: 0x4a8a3a, blurb: 'Ruby roots under red-veined leaves.' },
-  yam: { id: 'yam', name: 'Yam', seeds: 'yamSeeds', produce: 'yam', seasons: ['fall'], stageDays: [1, 3, 3, 3, 0], sell: 160, seedPrice: 60, color: 0xb85a3a, leaf: 0x4f8a34, blurb: 'Heart-leaved vines over earthy tubers.' },
+  beet: { id: 'beet', name: 'Beet', seeds: 'beetSeeds', produce: 'beet', seasons: ['fall'], stageDays: [1, 1, 2, 1, 1], sell: 100, seedPrice: 20, color: 0x9a1e3e, leaf: 0x4a8a3a, blurb: 'Ruby roots under red-veined leaves.' },
+  yam: { id: 'yam', name: 'Yam', seeds: 'yamSeeds', produce: 'yam', seasons: ['fall'], stageDays: [1, 2, 3, 3, 1], sell: 160, seedPrice: 60, color: 0xb85a3a, leaf: 0x4f8a34, blurb: 'Heart-leaved vines over earthy tubers.' },
 };
 
 export const CROP_IDS = Object.keys(CROPS) as CropId[];

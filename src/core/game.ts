@@ -6,7 +6,6 @@
  * 1. Create src/systems/<name>.ts exporting a class implementing `System` (core/system.ts).
  * 2. Add ONE line to SYSTEMS below.
  */
-import { setBustRenderer } from '../ui/bust';
 import * as THREE from 'three';
 import { EventBus, type Quality } from './events';
 import { Rng } from './rng';
@@ -53,6 +52,7 @@ import { StoryWorldSystem } from '../systems/story-world';
 import { NetSystem } from '../net/system';
 import { DropsSystem } from '../systems/drops';
 import { ForestCoopSystem } from '../world/forest/coop';
+import { KintaraSystem } from '../systems/kintara';
 
 // ── System registry: one line per system ───────────────────────────
 const SYSTEMS: (() => System)[] = [
@@ -84,6 +84,7 @@ const SYSTEMS: (() => System)[] = [
   () => new StorySystem(),
   () => new NetSystem(),
   () => new ForestCoopSystem(),
+  () => new KintaraSystem(),
 ];
 
 /**
@@ -130,7 +131,15 @@ export class Game {
   toolbarSlot = 0;
   frame = 0;
   private acc = 0;
+  /** Seconds the fixed-step sim (player position) trails this frame's clock (co-op sample stamps). */
+  get simLag(): number {
+    return this.acc;
+  }
+  /** Seconds the current pausing menu has been open (backdrop refresh policy in step()). */
+  private menuOpenT = 0;
   private last = 0;
+  /** rAF timestamp (ms) of the frame being stepped by the loop; NaN otherwise. */
+  frameTs = NaN;
   private readyResolve!: () => void;
   readonly readyPromise: Promise<void>;
   private started = false;
@@ -139,7 +148,6 @@ export class Game {
     this.rng = new Rng(opts.seed);
     this.calendar = new Calendar(this.events);
     this.rc = new RenderContext(opts.container, opts.quality);
-    setBustRenderer(this.rc.renderer);
     this.input = new Input(this.events, this.rc.renderer.domElement);
     this.saves = new SaveManager(this.events);
     this.lighting = new DayNight(this.rc);
@@ -241,16 +249,31 @@ export class Game {
    * Return true when it drew the frame itself; false to render the world as usual.
    */
   renderOverride: ((dt: number) => boolean) | null = null;
+  /**
+   * Frame-sequence capture (shot.mjs `--frames`): a staged demo may install a hook the harness calls
+   * before each frame (`__game.seqFrame(i, n)`); it steps the sim by hand to an exact action time
+   * while `holdLoop` stops the rAF loop advancing anything (every frame belongs to one swing / pour).
+   */
+  seqHook: ((i: number, n: number) => string | void) | null = null;
+  holdLoop = false;
   /** Called after every frame's render: screen-space overlays that must match this frame's camera. */
   readonly afterRender: (() => void)[] = [];
 
   private loop = (now: number): void => {
     requestAnimationFrame(this.loop);
+    if (this.holdLoop) {
+      this.last = now;
+      return;
+    }
     if (!this.rc.governor.pace(now)) return;
     // rAF timestamps can precede the performance.now() taken when the loop started: never step backwards.
     const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000) || 0);
     this.last = now;
+    // The rAF timestamp of the frame being stepped (co-op playout / stamps run on it however long the
+    // frame's work takes); NaN outside the loop (tests stepping by hand).
+    this.frameTs = now;
     this.step(dt);
+    this.frameTs = NaN;
   };
 
   /** Advance one rendered frame by dt seconds (also used by tests / frame capture). */
@@ -267,6 +290,7 @@ export class Game {
         for (const s of this.systems) s.fixedUpdate?.(FIXED_DT, this);
       }
       if (steps === 5) this.acc = 0;
+      if (steps > 0) this.input.endFixed();
       this.calendar.advance(dt);
     }
     this.player.update(dt);
@@ -276,10 +300,14 @@ export class Game {
     this.lighting.update(dt, this.calendar.hour);
     this.hud.update(dt);
     // Pausing menus (inventory, map, options, shop, day end…) sit on a blurred backdrop over a
-    // frozen sim: refresh the world behind them at 20 Hz instead of every frame (pillar 14).
-    this.rc.backdropHz = this.hud.root.classList.contains('h-menu-open') ? 20 : 0;
+    // frozen sim: refresh the world behind them at 20 Hz while the panel opens, then hold that frame
+    // (a live world keeps going in co-op: 5 Hz). Pillar 14 — the ui-map p99 (r5).
+    const menu = this.hud.root.classList.contains('h-menu-open');
+    this.menuOpenT = menu ? this.menuOpenT + dt : 0;
+    this.rc.backdropHz = !menu ? 0 : this.menuOpenT < 0.4 ? 20 : this.paused ? -1 : 5;
     if (!this.renderOverride?.(dt)) this.rc.render(dt, this.time);
     for (const f of this.afterRender) f();
+    if (this.paused) this.input.endFixed();
     this.input.endFrame();
     this.frame++;
   }

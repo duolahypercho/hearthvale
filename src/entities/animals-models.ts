@@ -12,7 +12,7 @@
  */
 import * as THREE from 'three';
 import { mat } from '../world/geom';
-import { RigBuilder, ellipsoid, capsuleZ, limb, noise3, animalMaterial, type CoatPatch } from './animals-rig';
+import { RigBuilder, ellipsoid, capsuleZ, limb, noise3, animalMaterial, RIG_DETAIL, loft, leaf, type CoatPatch, type LoftStation } from './animals-rig';
 
 export type Species = 'chicken' | 'duck' | 'cow' | 'goat' | 'sheep' | 'pig' | 'dog' | 'cat';
 
@@ -38,6 +38,10 @@ export interface Gait {
   sleepDrop: number;
   /** Leg fold scale when lying. */
   fold: number;
+  /** r13: crown of the head ([y, z], rest model space, after chibi) — where a petting hand lands. */
+  crown?: [number, number];
+  /** r13: head radius (m, model units) — the petting farmer keeps clear of it. */
+  headR?: number;
 }
 
 export interface AnimalModel {
@@ -55,24 +59,41 @@ interface EyeOpts {
   rim?: number;
   /** Coloured iris with a horizontal bar pupil (goats). */
   iris?: number;
+  /** Tilt the eye up onto the brow (rad): it faces up-and-forward, readable from the high camera. */
+  pitch?: number;
 }
 
 /** Big glossy chibi eyes: a dark lens, a large upper catchlight and a small lower one (+ optional rim / goat iris). */
 function eyes(r: RigBuilder, x: number, y: number, z: number, size: number, ry = 0.25, o: EyeOpts = {}): void {
+  // r19: happy shut eyes — a dark "∩" arc per eye on its own bone, scaled in (and the eyes bone collapsed)
+  // while the animal is petted / content. The old squash of the whole eye to 10 % left a slanted white
+  // slit under the brow that read as a scowl (the critic's petted goat "glaring" at the farmer).
+  if (!r.has('lids') && r.has('eyes')) r.bone('lids', 'head', r.at('eyes').toArray() as [number, number, number]);
   for (const s of [-1, 1]) {
+    const piv = o.pitch ? new THREE.Matrix4().makeTranslation(s * x, y, z).multiply(new THREE.Matrix4().makeRotationX(-o.pitch)).multiply(new THREE.Matrix4().makeTranslation(-s * x, -y, -z)) : null;
+    const P = (m: THREE.Matrix4): THREE.Matrix4 => (piv ? m.premultiply(piv) : m);
     const rot = mat(s * x, y, z, 0, s * ry, 0);
-    if (o.rim != null) r.part('eyes', ellipsoid(size * 1.28, size * 1.34, size * 0.6, 12, 10), mat(s * x, y, z - size * 0.12, 0, s * ry, 0), o.rim, { flat: true });
+    // (r18: one eye recipe for the whole herd — a thin warm rim, the same lens + two catchlights, sized
+    // ~0.17-0.18 of the head radius and tipped up to the lens; the cow's wide white rim read as a cartoon
+    // calf beside the pig's bare dots)
+    if (o.rim != null) r.part('eyes', ellipsoid(size * 1.17, size * 1.22, size * 0.6, 12, 10), P(mat(s * x, y, z - size * 0.12, 0, s * ry, 0)), o.rim, { flat: true });
     if (o.iris != null) {
-      r.part('eyes', ellipsoid(size, size * 1.05, size * 0.66, 14, 10), rot, o.iris, { flat: true });
+      r.part('eyes', ellipsoid(size, size * 1.05, size * 0.66, 14, 10), P(rot), o.iris, { flat: true });
       // Horizontal bar pupil, sitting just proud of the iris.
       const pupil = ellipsoid(size * 0.78, size * 0.26, size * 0.2, 12, 6);
-      r.part('eyes', pupil, new THREE.Matrix4().makeRotationY(s * ry).premultiply(new THREE.Matrix4().makeTranslation(s * x + s * Math.sin(ry) * size * 0.55, y, z + Math.cos(ry) * size * 0.55)), EYE, { flat: true });
-    } else r.part('eyes', ellipsoid(size, size * 1.14, size * 0.7, 14, 10), rot, EYE, { flat: true });
+      r.part('eyes', pupil, P(new THREE.Matrix4().makeRotationY(s * ry).premultiply(new THREE.Matrix4().makeTranslation(s * x + s * Math.sin(ry) * size * 0.55, y, z + Math.cos(ry) * size * 0.55))), EYE, { flat: true });
+    } else r.part('eyes', ellipsoid(size, size * 1.14, size * 0.7, 14, 10), P(rot), EYE, { flat: true });
     // Catchlights: big one up-and-out, a small one low-and-in (reads "alive" at any zoom).
     const fx = Math.sin(ry) * s;
     const fz = Math.cos(ry);
-    r.part('eyes', ellipsoid(size * 0.42, size * 0.42, size * 0.22, 10, 8), mat(s * x + fx * size * 0.62 + s * size * 0.22, y + size * 0.42, z + fz * size * 0.62), HI, { flat: true });
-    r.part('eyes', ellipsoid(size * 0.18, size * 0.18, size * 0.12, 8, 6), mat(s * x + fx * size * 0.64 - s * size * 0.2, y - size * 0.38, z + fz * size * 0.6), HI, { flat: true });
+    r.part('eyes', ellipsoid(size * 0.42, size * 0.42, size * 0.22, 10, 8), P(mat(s * x + fx * size * 0.62 + s * size * 0.22, y + size * 0.42, z + fz * size * 0.62)), HI, { flat: true });
+    r.part('eyes', ellipsoid(size * 0.18, size * 0.18, size * 0.12, 8, 6), P(mat(s * x + fx * size * 0.64 - s * size * 0.2, y - size * 0.38, z + fz * size * 0.6)), HI, { flat: true });
+    if (r.has('lids')) {
+      const arc = new THREE.TorusGeometry(size * 0.92, size * 0.2, 6, 14, Math.PI);
+      // (a touch flattened: a soft smile-crease, not a croquet hoop)
+      arc.scale(1, 0.78, 1);
+      r.part('lids', arc, P(mat(s * x + fx * size * 0.45, y - size * 0.32, z + fz * size * 0.45, 0, s * ry, 0)), EYE, { flat: true });
+    }
   }
 }
 
@@ -88,6 +109,12 @@ function chibiGait(r: RigBuilder, bodyZ: number, head: number, mouthY: number, r
   return [m.z, t.y];
 }
 
+/** Crown point [y, z] after chibi (petting hand target). */
+function crownAt(r: RigBuilder, y: number, z: number): [number, number] {
+  const p = r.chibiPoint(new THREE.Vector3(0, y, z), true);
+  return [p.y, p.z];
+}
+
 /** Pure height threshold patch (socks, blazes): colour below (yK < 0) / above (yK > 0) `y0`. */
 function band(color: THREE.ColorRepresentation, y0: number, below = true): CoatPatch {
   return { color, freq: [0, 0, 0], seed: 0, edge: 0, yK: below ? -1 : 1, y0 };
@@ -97,6 +124,7 @@ function band(color: THREE.ColorRepresentation, y0: number, below = true): CoatP
 
 function chicken(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 3;
   const brown = variant === 1;
   const body = brown ? 0xc9773c : 0xeae4d8;
   const tail = brown ? 0xa4542a : 0xe8e0d0;
@@ -119,14 +147,42 @@ function chicken(variant: number): AnimalModel {
   r.part('body', ellipsoid(0.16, 0.165, 0.135), mat(0, 0.335, 0.09), body, { paint: speck });
   // Fluffy bottom
   r.part('body', ellipsoid(0.14, 0.08, 0.15), mat(0, 0.18, -0.03), brown ? 0xe0a06a : 0xf4f0e6);
-  // Tail: a cocked fan of rounded feathers (tips darker on the red hen)
-  // Fanned wide and cocked up over the back so it reads as a plume from behind, never as a dark hole.
-  for (const [a, h, z] of [[-0.75, 0.15, -0.19], [-0.25, 0.19, -0.21], [0.25, 0.19, -0.21], [0.75, 0.15, -0.19]] as const) {
-    r.part('tail', ellipsoid(0.05, h, 0.07, 10, 8), mat(a * 0.1, 0.47, z, -0.38, 0, a * 0.55), tail, { patch: band(tailTip, 0.6, false) });
+  // r14 feathers that read in silhouette: a cocked tail of separate cupped sickle feathers (vertical
+  // plates in an inverted V, the long ones arching over), a hackle ruff of pointed neck feathers lying
+  // back over the shoulders, and (below) folded primaries fanned off each wing.
+  const featherM = (x: number, y: number, z: number, fan: number, elev: number, roll = 0): THREE.Matrix4 =>
+    mat(x, y, z)
+      .multiply(new THREE.Matrix4().makeRotationY(fan))
+      .multiply(new THREE.Matrix4().makeRotationX(elev))
+      .multiply(new THREE.Matrix4().makeRotationZ(roll))
+      .multiply(new THREE.Matrix4().makeRotationY(Math.PI / 2))
+      .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  // (r25: the fan ~35 % smaller and cupped — a narrower spread, the outer feathers rolled in so the tail
+  // reads as one arched plume, not a "picket crown" of spikes over a white hen)
+  for (const [fan, elev, len, wid, c] of [
+    [-0.32, 0.46, 0.11, 0.07, tail],
+    [0.32, 0.46, 0.11, 0.07, tail],
+    [-0.16, 0.56, 0.13, 0.075, tail],
+    [0.16, 0.56, 0.13, 0.075, tail],
+    [-0.05, 0.66, 0.145, 0.07, tailTip],
+    [0.05, 0.66, 0.145, 0.07, tailTip],
+  ] as const) {
+    r.part('tail', leaf(len, wid, 0.022, 0.4, 0.4, 12, 8), featherM(-fan * 0.1, 0.4, -0.165, fan, elev, fan * 1.1), c, { coat: 0, patch: brown ? band(tailTip, 0.6, false) : undefined });
+  }
+  // Hackles: a ruff of rounded neck feathers lying back over the shoulders (sides + back of the neck).
+  for (let i = 0; i < 7; i++) {
+    const a = Math.PI * (0.42 + (i / 6) * 1.16);
+    r.part('body', leaf(0.1, 0.065, 0.016, 0.45, 0.45, 10, 6), featherM(Math.sin(a) * 0.085, 0.44, 0.1 + Math.cos(a) * 0.06, Math.PI + a, -1.05), brown ? (i % 2 ? 0xd88a36 : 0xcc7c2c) : i % 2 ? 0xf4efe4 : 0xebe4d6, { coat: 0 });
   }
   for (const s of [-1, 1]) {
     const w = s < 0 ? 'wingL' : 'wingR';
-    r.part(w, ellipsoid(0.045, 0.11, 0.16), mat(s * 0.175, 0.31, -0.03, -0.25, 0, s * 0.12), brown ? 0xb0622e : 0xefe8da);
+    // (r10: darker primaries at the wing tip — the folded wing reads as a silhouette at gameplay zoom)
+    r.part(w, ellipsoid(0.045, 0.11, 0.16), mat(s * 0.175, 0.31, -0.03, -0.25, 0, s * 0.12), brown ? 0xb0622e : 0xefe8da, { patch: band(brown ? 0x5a2a14 : 0xa89c88, 0.255) });
+    // Folded primaries: four long feathers fanned back off the wing, tips darker, crossing over the rump.
+    for (let i = 0; i < 4; i++) {
+      const pc = brown ? (i % 2 ? 0x8a4420 : 0x7a3a1a) : i % 2 ? 0xe2dacb : 0xd6cebe;
+      r.part(w, leaf(0.15 + i * 0.012, 0.05, 0.014, 0.25, 0.6, 10, 6), featherM(s * (0.19 - i * 0.004), 0.33 - i * 0.022, -0.02 - i * 0.012, -s * (0.1 + i * 0.03), -0.3 - i * 0.05, s * 0.2), pc, { coat: 0 });
+    }
     const legB = s < 0 ? 'legL' : 'legR';
     r.part(legB, limb(0.02, 0.017, 0.18, 0.02, 8), mat(s * 0.06, 0, 0), leg, { flat: true });
     for (const a of [-0.45, 0, 0.45]) {
@@ -136,20 +192,25 @@ function chicken(variant: number): AnimalModel {
     }
   }
   // Head: round, big red comb + wattle, stubby beak
-  r.part('head', ellipsoid(0.12, 0.125, 0.12), mat(0, 0.53, 0.15), body);
-  for (const [z, y, s] of [[0.09, 0.65, 0.04], [0.145, 0.675, 0.048], [0.2, 0.65, 0.04]] as const) r.part('head', ellipsoid(s * 0.55, s, s), mat(0, y, z), 0xf03a2e);
-  for (const s of [-1, 1]) r.part('head', ellipsoid(0.02, 0.036, 0.02), mat(s * 0.014, 0.455, 0.235), 0xf03a2e);
-  const beak = new THREE.ConeGeometry(0.034, 0.078, 10);
+  // (r10: head ~20 % larger with a brighter, taller comb + fuller wattles — the face reads from the
+  // gameplay camera instead of a blob)
+  r.part('head', ellipsoid(0.142, 0.148, 0.142), mat(0, 0.54, 0.155), body);
+  // (r21: the comb set back + up on the crown and the wattles slimmer, lower and a deeper red, the beak
+  // bigger between them — from the pasture lens comb and wattle merged into one red smear; bigger eyes)
+  for (const [z, y, s] of [[0.06, 0.69, 0.05], [0.125, 0.725, 0.062], [0.19, 0.695, 0.046]] as const) r.part('head', ellipsoid(s * 0.6, s, s), mat(0, y, z), 0xff3a2a);
+  for (const s of [-1, 1]) r.part('head', ellipsoid(0.021, 0.042, 0.02), mat(s * 0.017, 0.428, 0.255), 0xc81c22);
+  const beak = new THREE.ConeGeometry(0.039, 0.088, 10);
   beak.rotateX(Math.PI / 2);
-  r.part('head', beak, mat(0, 0.515, 0.29), 0xf5b43a, { flat: true });
-  eyes(r, 0.078, 0.56, 0.22, 0.031, 0.72);
-  cheeks(r, 0.095, 0.505, 0.2, 0.022, 0xff7a70);
+  r.part('head', beak, mat(0, 0.515, 0.31), 0xf7a82a, { flat: true });
+  eyes(r, 0.092, 0.575, 0.232, 0.045, 0.72);
+  cheeks(r, 0.108, 0.51, 0.215, 0.025, 0xff7a70);
   const { mesh, bones } = r.build(animalMaterial(), 'chicken');
-  return { mesh, bones, species: 'chicken', gait: { biped: true, speed: 0.55, freq: 3.2, legAmp: 0.55, bob: 0.025, eatPitch: 0.9, radius: 0.19, len: 0.05, reach: 0.3, top: 0.74, sleepDrop: 0.1, fold: 0.25 } };
+  return { mesh, bones, species: 'chicken', gait: { biped: true, speed: 0.55, freq: 3.2, legAmp: 0.55, bob: 0.025, eatPitch: 0.7, radius: 0.19, len: 0.05, reach: 0.3, top: 0.74, sleepDrop: 0.1, fold: 0.25 } };
 }
 
 function duck(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 3;
   const mallard = variant === 1;
   // (white duck a touch off-white: pure white bloomed into a glowing blob in full sun)
   const body = mallard ? 0xb4aca0 : 0xe2dccf;
@@ -177,10 +238,12 @@ function duck(variant: number): AnimalModel {
   if (mallard) r.part('tail', new THREE.TorusGeometry(0.025, 0.009, 5, 10, Math.PI * 1.4), mat(0, 0.37, -0.3, 0, Math.PI / 2, 0), 0x26282a, { flat: true });
   for (const s of [-1, 1]) {
     const w = s < 0 ? 'wingL' : 'wingR';
-    r.part(w, ellipsoid(0.04, 0.085, 0.2), mat(s * 0.15, 0.29, -0.06, -0.1, 0, s * 0.1), mallard ? 0x9a8a74 : 0xf0ebe0);
+    // (r25: folded flush — the wing root inside the body loft, the leading edge rolled in against the flank
+    // and the tips angled in to cross over the tail; the old flat paddles stood off the flanks as flaps)
+    r.part(w, ellipsoid(0.034, 0.08, 0.21), mat(s * 0.132, 0.3, -0.08, -0.14, s * 0.13, -s * 0.14), mallard ? 0x9a8a74 : 0xeae4d8);
     if (mallard) {
       // Speculum: a thin dark-blue stripe along the trailing edge of the folded wing.
-      r.part(w, ellipsoid(0.01, 0.014, 0.1, 10, 6), mat(s * 0.184, 0.262, -0.1, -0.1, 0, s * 0.1), 0x34489a, { flat: true });
+      r.part(w, ellipsoid(0.01, 0.014, 0.1, 10, 6), mat(s * 0.158, 0.27, -0.12, -0.14, s * 0.13, -s * 0.14), 0x34489a, { flat: true });
     }
     const legB = s < 0 ? 'legL' : 'legR';
     r.part(legB, limb(0.02, 0.017, 0.14, 0.02, 8), mat(s * 0.065, 0, 0), feet, { flat: true });
@@ -218,22 +281,79 @@ function legGeo(R: number, top: number, hoof: number): THREE.BufferGeometry {
   const h = top - hoof;
   const pts = [
     [R * 0.2, h + 0.05],
-    [R * 1.15, h - 0.02],
-    [R * 1.18, h * 0.78],
-    [R * 0.9, h * 0.58],
-    [R * 1.0, h * 0.48],
-    [R * 0.78, h * 0.36],
-    [R * 0.72, h * 0.14],
-    [R * 0.86, h * 0.05],
+    [R * 1.2, h - 0.02],
+    [R * 1.24, h * 0.8],
+    [R * 0.86, h * 0.6],
+    // (r9: a rounder knee + a slimmer cannon: the legs taper instead of reading as straight sticks)
+    [R * 1.08, h * 0.49],
+    [R * 0.74, h * 0.36],
+    [R * 0.66, h * 0.15],
+    [R * 0.84, h * 0.05],
     [R * 0.9, 0],
   ].map(([x, y]) => new THREE.Vector2(x!, y! + hoof));
-  return new THREE.LatheGeometry(pts, 10);
+  return new THREE.LatheGeometry(pts, Math.max(6, Math.round(10 * RIG_DETAIL.k)));
 }
 
-function legs(r: RigBuilder, d: QuadDims, coat: THREE.ColorRepresentation, hoofTint: number, patch?: CoatPatch): void {
+/**
+ * r13 anatomical leg (a loft down a bent spine): the fore leg a broad forearm → knob knee → slim cannon →
+ * fetlock; the hind leg a wide flat gaskin running back to a pointed hock, then a straight cannon. Built
+ * in leg-local space (x = 0, z = 0 at the hoof), from `top` down to the hoof top.
+ */
+function anatLeg(R: number, top: number, hoof: number, hind: boolean, thick = 1): THREE.BufferGeometry {
+  const h = top - hoof;
+  const y = (k: number): number => hoof + h * k;
+  const T = thick;
+  const st: LoftStation[] = hind
+    ? [
+        { p: [0, top + 0.07, 0.01], w: R * 1.2 * T, up: R * 1.2 * T, dn: R * 1.5 * T },
+        { p: [0, y(0.9), 0.0], w: R * 1.25 * T, up: R * 1.25 * T, dn: R * 1.75 * T },
+        // (r16: a deeper gaskin + a pointed hock angled back, the cannon slimmer below it)
+        { p: [0, y(0.68), -R * 0.45], w: R * 1.0 * T, up: R * 0.92 * T, dn: R * 1.45 * T },
+        { p: [0, y(0.47), -R * 1.0], w: R * 0.78, up: R * 0.7, dn: R * 1.12 },
+        { p: [0, y(0.37), -R * 0.62], w: R * 0.62, up: R * 0.62, dn: R * 0.66 },
+        { p: [0, y(0.18), -R * 0.14], w: R * 0.6, up: R * 0.6, dn: R * 0.6 },
+        { p: [0, y(0.07), 0], w: R * 0.84, up: R * 0.82, dn: R * 0.92 },
+        { p: [0, hoof - 0.005, R * 0.04], w: R * 0.86, up: R * 0.88, dn: R * 0.84 },
+      ]
+    : [
+        // (r16: a muscled forearm tapering into a knobbly knee, then a slim cannon — "straight sticks" before)
+        { p: [0, top + 0.07, 0], w: R * 1.22 * T, up: R * 1.4 * T, dn: R * 1.3 * T },
+        { p: [0, y(0.86), 0], w: R * 1.26 * T, up: R * 1.45 * T, dn: R * 1.3 * T },
+        { p: [0, y(0.64), 0.01], w: R * 0.88, up: R * 0.95, dn: R * 0.86 },
+        { p: [0, y(0.5), R * 0.12], w: R * 0.98, up: R * 1.05, dn: R * 0.95 },
+        { p: [0, y(0.4), R * 0.04], w: R * 0.64, up: R * 0.64, dn: R * 0.66 },
+        { p: [0, y(0.2), 0], w: R * 0.6, up: R * 0.6, dn: R * 0.62 },
+        { p: [0, y(0.07), -R * 0.02], w: R * 0.84, up: R * 0.82, dn: R * 0.92 },
+        { p: [0, hoof - 0.005, R * 0.04], w: R * 0.86, up: R * 0.88, dn: R * 0.84 },
+      ];
+  return loft(st, 16, 3);
+}
+
+/** Cloven hoof: a flared, bevelled lathe with a dark cleft groove down the front. */
+function hoofGeo(R: number, hoof: number): THREE.BufferGeometry {
+  const pts = [
+    [0, 0],
+    [R * 1.0, 0],
+    [R * 1.1, hoof * 0.12],
+    [R * 1.04, hoof * 0.6],
+    [R * 0.92, hoof * 0.98],
+    [R * 0.6, hoof * 1.04],
+    [0, hoof * 1.05],
+  ].map(([a, b]) => new THREE.Vector2(a!, b!));
+  return new THREE.LatheGeometry(pts, Math.max(8, Math.round(16 * RIG_DETAIL.k)));
+}
+
+function legs(r: RigBuilder, d: QuadDims, coat: THREE.ColorRepresentation, hoofTint: number, patch?: CoatPatch, anat = false, thick = 1): void {
   const top = d.bodyY - d.bodyR * 0.35;
   for (const [nm, x, z] of [['legFL', -d.hipX, d.frontZ], ['legFR', d.hipX, d.frontZ], ['legBL', -d.hipX, d.backZ], ['legBR', d.hipX, d.backZ]] as const) {
     r.bone(nm, 'body', [x, top, z]);
+    if (anat) {
+      r.part(nm, anatLeg(d.legR, top + 0.04, d.hoof, z < 0, thick), mat(x, 0, z), coat, { patch, ground: true });
+      r.part(nm, hoofGeo(d.legR, d.hoof), mat(x, 0, z + d.legR * 0.05), hoofTint, { flat: true });
+      // The cleft: a thin dark wedge down the front of the hoof.
+      r.part(nm, ellipsoid(d.legR * 0.12, d.hoof * 0.5, d.legR * 0.2, 6, 5), mat(x, d.hoof * 0.5, z + d.legR * 1.05), 0x1a1210, { flat: true });
+      continue;
+    }
     r.part(nm, legGeo(d.legR, top + 0.04, d.hoof), mat(x, 0, z), coat, { patch, ground: true });
     // Rounded hoof: a squat bevelled cylinder with a darker sole
     const hoofG = new THREE.CylinderGeometry(d.legR * 0.92, d.legR * 1.08, d.hoof, 10, 1);
@@ -242,83 +362,237 @@ function legs(r: RigBuilder, d: QuadDims, coat: THREE.ColorRepresentation, hoofT
   }
 }
 
+/** A tapered tail hanging down a curve, ending in a long hair switch (strands from a ridged bump). */
+function switchTail(r: RigBuilder, pts: [number, number, number][], r0: number, r1: number, coat: THREE.ColorRepresentation, tuftC: THREE.ColorRepresentation, tuftLen: number, tuftR: number, patch?: CoatPatch): void {
+  const n = pts.length;
+  const st: LoftStation[] = pts.map((p, i) => {
+    const k = i / (n - 1);
+    const rr = r0 + (r1 - r0) * k;
+    return { p, w: rr, up: rr, dn: rr };
+  });
+  r.part('tail', loft(st, 10, 3), null, coat, { patch });
+  const e = pts[n - 1]!;
+  const prev = pts[n - 2]!;
+  const dx = e[0] - prev[0];
+  const dy = e[1] - prev[1];
+  const dz = e[2] - prev[2];
+  const dl = Math.hypot(dx, dy, dz) || 1;
+  const at = (k: number): [number, number, number] => [e[0] + (dx / dl) * tuftLen * k, e[1] + (dy / dl) * tuftLen * k, e[2] + (dz / dl) * tuftLen * k];
+  const tuft: LoftStation[] = [
+    { p: at(-0.12), w: r1 * 0.9, up: r1 * 0.9, dn: r1 * 0.9 },
+    { p: at(0.12), w: tuftR * 0.75, up: tuftR * 0.75, dn: tuftR * 0.75 },
+    { p: at(0.42), w: tuftR, up: tuftR, dn: tuftR },
+    { p: at(0.75), w: tuftR * 0.72, up: tuftR * 0.72, dn: tuftR * 0.72 },
+    { p: at(1.0), w: tuftR * 0.12, up: tuftR * 0.12, dn: tuftR * 0.12 },
+  ];
+  // r17: the switch core is short and slim; the hair is a brush of tapered locks that splay out of it
+  // and come back to wisp points at different lengths (the critic: "a stick tail ending in a blob").
+  const core = tuft.map((t, i) => ({ ...t, w: t.w * (i ? 0.62 : 1), up: t.up * (i ? 0.62 : 1), dn: t.dn * (i ? 0.62 : 1) }));
+  r.part('tail', loft(core, 10, 3), null, tuftC, { coat: 1 });
+  const ux = Math.abs(dy / dl) > 0.7 ? 1 : 0;
+  const uy = ux ? 0 : 1;
+  // basis across the switch: a = up/x minus its tangent part, b = dir x a
+  const tx = dx / dl, ty = dy / dl, tz = dz / dl;
+  const dot = ux * tx + uy * ty;
+  let ax = ux - dot * tx, ay = uy - dot * ty, az = -dot * tz;
+  const al = Math.hypot(ax, ay, az) || 1;
+  ax /= al; ay /= al; az /= al;
+  const bx = ty * az - tz * ay, by = tz * ax - tx * az, bz = tx * ay - ty * ax;
+  const LOCKS = 7;
+  for (let i = 0; i < LOCKS; i++) {
+    const th = (i / LOCKS) * Math.PI * 2 + 0.4;
+    const len = 0.86 + 0.32 * ((i * 0.618) % 1);
+    const curl = (i % 2 ? 1 : -1) * 0.25;
+    const st2: LoftStation[] = [];
+    for (const k of [0.05, 0.3, 0.58, 0.82, 1.0]) {
+      const kk = k * len;
+      const spread = tuftR * 0.75 * Math.sin(Math.PI * Math.min(1, k * 0.95)) + tuftR * 0.12;
+      const t2 = th + curl * k;
+      const c = at(kk);
+      const ox = (Math.cos(t2) * ax + Math.sin(t2) * bx) * spread;
+      const oy = (Math.cos(t2) * ay + Math.sin(t2) * by) * spread;
+      const oz = (Math.cos(t2) * az + Math.sin(t2) * bz) * spread;
+      const rr = tuftR * 0.42 * Math.pow(1 - k * 0.96, 0.8);
+      st2.push({ p: [c[0] + ox, c[1] + oy, c[2] + oz], w: rr, up: rr, dn: rr });
+    }
+    r.part('tail', loft(st2, 6, 2), null, tuftC, { coat: 1 });
+  }
+}
+
 /**
  * One smooth sculpted barrel along +Z (a lathe through `[z, radius]` stations, back → front): chest,
  * waist tuck and rump in a single surface — no overlapping-capsule seams catching the light.
  */
 function barrel(profile: [number, number][], seg = 22): THREE.BufferGeometry {
-  const g = new THREE.LatheGeometry(profile.map(([z, rr]) => new THREE.Vector2(rr, z)), seg);
+  const g = new THREE.LatheGeometry(profile.map(([z, rr]) => new THREE.Vector2(rr, z)), Math.max(12, Math.round(seg * RIG_DETAIL.k)));
   g.rotateX(Math.PI / 2);
   return g;
 }
 
 function cow(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 1;
   const jersey = variant === 1;
   const base = jersey ? 0xcb8d58 : 0xdfd9cc;
   const spots: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [3.4, 3.0, 3.2], seed: 4.3, edge: 0.24, sinAmp: 0.25 };
   // Jersey: fawn, shading darker over the hindquarters and down the legs (a smooth gradient, no patches).
-  const shade = jersey ? (p: THREE.Vector3, _n: THREE.Vector3, c: THREE.Color) => c.multiplyScalar(1 - 0.16 * THREE.MathUtils.smoothstep(-p.z, 0.0, 0.6)) : undefined;
-  const d: QuadDims = { bodyY: 0.74, bodyR: 0.36, bodyLen: 0.5, hipX: 0.2, frontZ: 0.26, backZ: -0.32, legR: 0.085, hoof: 0.09 };
+  // (r7: from the gameplay pitch a plain fawn barrel read as a featureless loaf — a cream belly + inner
+  // flank and a darker dorsal line along the spine give it a top, a bottom and a direction)
+  const cream = new THREE.Color(0xf2e2c6);
+  const shade = jersey
+    ? (p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color) => {
+        // (r22: the fawn shades deeper over the haunch and the shoulder top — a true Jersey's darker
+        // saddle points — so the smooth barrel has form instead of reading as one plush tone)
+        c.multiplyScalar(1 - 0.22 * THREE.MathUtils.smoothstep(-p.z, 0.05, 0.62));
+        c.multiplyScalar(1 - 0.12 * THREE.MathUtils.smoothstep(p.z, 0.08, 0.3) * THREE.MathUtils.smoothstep(n.y, 0.3, 0.8));
+        c.lerp(cream, 0.85 * THREE.MathUtils.smoothstep(-n.y, 0.2, 0.62));
+        c.multiplyScalar(1 - 0.3 * THREE.MathUtils.smoothstep(n.y, 0.8, 0.97) * (1 - THREE.MathUtils.smoothstep(Math.abs(p.x), 0.05, 0.13)));
+      }
+    : undefined;
+  // (hips set a touch wider than the belly: from the high camera the legs show either side, so the cow
+  // stands on four legs instead of reading as a loaf)
+  const d: QuadDims = { bodyY: 0.74, bodyR: 0.36, bodyLen: 0.5, hipX: 0.235, frontZ: 0.27, backZ: -0.33, legR: 0.085, hoof: 0.09 };
+  // (r7: legs ~12 % longer — everything above them is lifted at the end — so they show below the barrel
+  // from the gameplay pitch instead of vanishing into the grass)
+  const LIFT = 0.065;
   r.bone('body', 'root', [0, d.bodyY, 0]);
   r.bone('head', 'body', [0, 0.92, 0.42]);
   r.bone('eyes', 'head', [0, 1.09, 0.78]);
   r.bone('earL', 'head', [-0.23, 1.12, 0.55]);
   r.bone('earR', 'head', [0.23, 1.12, 0.55]);
-  r.bone('tail', 'body', [0, 0.96, -0.6]);
-  // One sculpted barrel: square rump, a slight waist, deep brisket (no capsule seams).
-  const cowBody = barrel([[-0.66, 0], [-0.648, 0.14], [-0.61, 0.26], [-0.53, 0.34], [-0.41, 0.372], [-0.26, 0.362], [-0.1, 0.352], [0.05, 0.356], [0.2, 0.372], [0.33, 0.366], [0.45, 0.318], [0.53, 0.23], [0.572, 0.12], [0.584, 0]], 24);
-  r.part('body', cowBody, mat(0, d.bodyY + 0.01, 0, 0, 0, 0, 1, 0.97, 1), base, { patch: spots, paint: shade });
-  r.part('body', ellipsoid(d.bodyR * 0.9, d.bodyR * 0.72, 0.4), mat(0, d.bodyY - d.bodyR * 0.26, -0.02), base, { patch: spots, paint: shade });
-  // Udder + teats
-  r.part('body', ellipsoid(0.14, 0.085, 0.15), mat(0, 0.44, -0.24), 0xf4b0aa);
-  for (const [x, z] of [[-0.05, -0.2], [0.05, -0.2], [-0.05, -0.29], [0.05, -0.29]] as const) r.part('body', limb(0.018, 0.015, 0.4, 0.34, 6), mat(x, 0, z), 0xe8908c, { flat: true });
+  r.bone('tail', 'body', [0, 0.97, -0.66]);
+  // r13: one sculpted loft from rump to poll — square pin bones and hook corners (boxy superellipse at
+  // the rump), a round deep barrel, withers, a brisket keel running up into a dewlap under the neck.
+  // Smooth normals, no lathe bands, no bolted-on bumps (the old hook-bone and spine ellipsoids read as
+  // warts at the 11 m petting camera).
+  const cowBody = loft(
+    [
+      { p: [0, 0.86, -0.715], w: 0.04, up: 0.04, dn: 0.05 },
+      // (r22: rounder — the rump corners softened (n 2.45 -> 2.2) and the belly swelling into a barrel
+      // below a gently dipped back: from the side the fawn Jersey read as a rectangle on four legs)
+      { p: [0, 0.84, -0.68], w: 0.17, up: 0.15, dn: 0.24, n: 2.15, nb: 2.0 },
+      { p: [0, 0.812, -0.58], w: 0.262, up: 0.255, dn: 0.345, n: 2.2, nb: 2.0 },
+      { p: [0, 0.795, -0.43], w: 0.305, up: 0.29, dn: 0.4, n: 2.15, nb: 2.0 },
+      { p: [0, 0.77, -0.22], w: 0.348, up: 0.295, dn: 0.43, n: 2.05, nb: 2.0 },
+      { p: [0, 0.765, 0.0], w: 0.352, up: 0.298, dn: 0.44, n: 2.05, nb: 2.0 },
+      { p: [0, 0.79, 0.19], w: 0.305, up: 0.32, dn: 0.39, n: 2.1, nb: 1.85 },
+      { p: [0, 0.84, 0.34], w: 0.245, up: 0.28, dn: 0.39, n: 2.1, nb: 1.55 },
+      { p: [0, 0.9, 0.45], w: 0.19, up: 0.22, dn: 0.34, n: 2.0, nb: 1.45 },
+      { p: [0, 0.96, 0.54], w: 0.15, up: 0.17, dn: 0.25, nb: 1.6 },
+      { p: [0, 1.0, 0.61], w: 0.1, up: 0.11, dn: 0.14 },
+      { p: [0, 1.01, 0.65], w: 0.03, up: 0.03, dn: 0.04 },
+    ],
+    40,
+    4,
+  );
+  r.part('body', cowBody, null, base, { patch: spots, paint: shade });
+  // r16 neck + shoulder bridge (critic: "the head is a separate ball pushed into the body"): a thick
+  // crested neck bound to the HEAD bone, its root buried in the shoulders round the head pivot (so it
+  // never pulls out when the head dips to graze or turns), flaring into the back of the skull and the
+  // jowls — the head now grows out of the body instead of sitting on it. A dewlap keel underneath.
+  const neck = loft(
+    [
+      { p: [0, 0.83, 0.3], w: 0.2, up: 0.22, dn: 0.26, n: 2.1, nb: 1.7 },
+      { p: [0, 0.9, 0.41], w: 0.215, up: 0.235, dn: 0.3, n: 2.1, nb: 1.5 },
+      { p: [0, 0.97, 0.5], w: 0.215, up: 0.23, dn: 0.27, n: 2.1, nb: 1.55 },
+      { p: [0, 1.03, 0.58], w: 0.2, up: 0.2, dn: 0.2, n: 2.0, nb: 1.8 },
+      { p: [0, 1.07, 0.64], w: 0.12, up: 0.12, dn: 0.12 },
+    ],
+    32,
+    4,
+  );
+  // (r17: the holstein spots on the neck kept off the throat — a black spot under the muzzle read as a
+  // gaping mouth from the front; a height ramp keeps them to the crest, where they join the head cap)
+  r.part('head', neck, null, base, { patch: spots ? { ...spots, yK: 8, y0: 1.02 + LIFT } : undefined, paint: shade });
+  // Udder + teats (tucked up under the flank between the hind legs)
+  // (r22: 2.5 cm lower under the deeper belly)
+  r.part('body', ellipsoid(0.15, 0.09, 0.16), mat(0, 0.375, -0.27), 0xf4b0aa);
+  for (const [x, z] of [[-0.055, -0.22], [0.055, -0.22], [-0.055, -0.32], [0.055, -0.32]] as const) r.part('body', limb(0.02, 0.015, 0.34, 0.265, 8), mat(x, 0, z), 0xe8908c, { flat: true });
   // Leather collar + brass bell
-  r.part('body', new THREE.TorusGeometry(0.205, 0.03, 8, 22), mat(0, 0.86, 0.43, Math.PI / 2 - 0.55, 0, 0), 0x8e3526);
-  r.part('body', new THREE.CylinderGeometry(0.045, 0.07, 0.1, 14), mat(0, 0.69, 0.56), 0xe8b840, { flat: true });
-  r.part('body', new THREE.SphereGeometry(0.02, 8, 6), mat(0, 0.635, 0.56), 0x5a4020, { flat: true });
-  legs(r, d, base, 0x3e302a, jersey ? band(0x86583a, 0.17) : spots);
-  // Tail with a tuft
-  r.part('tail', limb(0.022, 0.018, 0.97, 0.5, 6), mat(0, 0, -0.63), base);
-  r.part('tail', ellipsoid(0.045, 0.085, 0.045, 10, 8), mat(0, 0.47, -0.63), jersey ? 0x3a2418 : 0x26221f);
+  r.part('body', new THREE.TorusGeometry(0.205, 0.03, 10, 28), mat(0, 0.88, 0.47, Math.PI / 2 - 0.55, 0, 0), 0x8e3526);
+  r.part('body', new THREE.CylinderGeometry(0.045, 0.07, 0.1, 16), mat(0, 0.69, 0.6), 0xe8b840, { flat: true });
+  r.part('body', new THREE.SphereGeometry(0.02, 8, 6), mat(0, 0.635, 0.6), 0x5a4020, { flat: true });
+  // (r22: thick 1.12 — a little more forearm / gaskin into the rounder barrel; 1.3 pushed the leg tops
+  // out through the flank as pillow-like blocks)
+  legs(r, { ...d, bodyY: d.bodyY + LIFT }, base, 0x3e302a, jersey ? band(0xf0dcc0, 0.2) : spots, true, 1.12);
+  // r13: a rope tail swinging down from the tail head behind the pins to a long hair switch at the hocks.
+  switchTail(
+    r,
+    [
+      [0, 0.97, -0.69],
+      [0, 0.92, -0.75],
+      [0, 0.8, -0.77],
+      [0, 0.64, -0.765],
+      [0, 0.52, -0.76],
+    ],
+    0.042,
+    0.024,
+    base,
+    jersey ? 0x3a2418 : 0x2a2522,
+    0.27,
+    0.06,
+    spots,
+  );
   // Big chibi head (holstein: a black patch over the left eye + ear), rounded pink muzzle with nostrils
-  const headPatch: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [4.2, 3.6, 3.0], seed: 1.7, edge: 0.3 };
+  // (a ragged crown cap, held up off the eye line by a height ramp: an eye inside a black patch lost its
+  // lens and only the white catchlights showed — they read as teeth from the high camera)
+  const headPatch: CoatPatch | undefined = jersey ? undefined : { color: 0x26221f, freq: [4.2, 3.6, 3.0], seed: 1.7, edge: 0.3, yK: 9, y0: 1.24 + LIFT };
   // Jersey: the face darkens softly around the eyes (a gradient, not a patch)
   const faceShade = jersey ? (p: THREE.Vector3, _n: THREE.Vector3, c: THREE.Color) => c.multiplyScalar(1 - 0.22 * THREE.MathUtils.smoothstep(Math.abs(p.x), 0.02, 0.2) * THREE.MathUtils.smoothstep(p.y, 0.98, 1.12)) : undefined;
   r.part('head', ellipsoid(0.27, 0.25, 0.26), mat(0, 1.07, 0.6), base, { patch: headPatch, paint: faceShade });
   // Muzzle: jersey's pale "mealy" ring around a dark nose; holstein pink
   // (jersey's mealy ring kept close to the coat's value: a bright ring read as a mask from behind)
-  const muzzle = jersey ? 0xdcbc98 : 0xf6c0b4;
-  r.part('head', ellipsoid(jersey ? 0.195 : 0.215, 0.15, 0.15), mat(0, 0.94, 0.8), muzzle);
-  r.part('head', ellipsoid(jersey ? 0.13 : 0.17, jersey ? 0.075 : 0.1, 0.07), mat(0, 0.95, 0.9), jersey ? 0x4a3830 : 0xf09a94);
-  for (const s of [-1, 1]) r.part('head', ellipsoid(0.03, 0.022, 0.012, 8, 6), mat(s * 0.07, 0.955, 0.965, 0, s * 0.3, 0), jersey ? 0x140e0c : 0x3a2418, { flat: true });
-  r.part('head', ellipsoid(0.07, 0.014, 0.012, 8, 6), mat(0, 0.865, 0.92), 0x4a2a1e, { flat: true });
+  const muzzle = jersey ? 0xe8d0ac : 0xf6c0b4;
+  // (r17: the holstein's broader muzzle 3 cm proud of the skull — the white head shell cut through its top
+  // as a pale film from the front)
+  const mz = jersey ? 0 : 0.03;
+  r.part('head', ellipsoid(jersey ? 0.195 : 0.215, 0.15, 0.15), mat(0, 0.94, 0.8 + mz), muzzle);
+  // (r9: a darker nose pad, its nostrils on the upward-facing front so they read from the high camera)
+  r.part('head', ellipsoid(jersey ? 0.14 : 0.165, jersey ? 0.08 : 0.095, 0.075), mat(0, 0.955, 0.895 + mz), jersey ? 0x3e2e28 : 0xd9807e);
+  for (const s of [-1, 1]) r.part('head', ellipsoid(0.038, 0.03, 0.014, 8, 6), mat(s * 0.068, 0.985, 0.952 + mz, -0.5, s * 0.3, 0), jersey ? 0x120c0a : 0x5a2622, { flat: true });
+  r.part('head', ellipsoid(0.07, 0.014, 0.012, 8, 6), mat(0, 0.865, 0.92 + mz), 0x4a2a1e, { flat: true });
   for (const s of [-1, 1]) {
     const horn = new THREE.ConeGeometry(0.04, 0.12, 10);
-    r.part('head', horn, mat(s * 0.15, 1.31, 0.55, 0, 0, -s * 0.55), 0xf2e6c8, { flat: true });
+    // (r25: swept back + out — pointing up-out at the high lens, the near horn was seen down its axis as a
+    // pale grey square on the Jersey's brow)
+    // (the Jersey is polled — no horn buds at all: the near one still read as a grey chip on her brow)
+    if (!jersey) r.part('head', horn, mat(s * 0.16, 1.29, 0.52, -0.5, 0, -s * 0.42), 0xf2e6c8, { flat: true });
     const ear = s < 0 ? 'earL' : 'earR';
     const earPatch = !jersey && s < 0 ? band(0x26221f, -9, false) : undefined;
-    r.part(ear, ellipsoid(0.12, 0.05, 0.075), mat(s * 0.33, 1.11, 0.54, 0, 0, s * 0.3), base, { patch: earPatch });
-    r.part(ear, ellipsoid(0.08, 0.02, 0.05), mat(s * 0.34, 1.12, 0.575, 0, 0, s * 0.3), 0xf0a8a0, { flat: true });
+    // (r25: ears set higher on the skull and a touch shorter — the far ear hung at chest height beside the
+    // foreleg in the 3/4 view)
+    r.part(ear, ellipsoid(0.105, 0.048, 0.07), mat(s * 0.3, 1.2, 0.5, 0, 0, s * 0.4), base, { patch: earPatch });
+    r.part(ear, ellipsoid(0.07, 0.02, 0.046), mat(s * 0.306, 1.21, 0.532, 0, 0, s * 0.4), 0xf0a8a0, { flat: true });
   }
   // Forelock tuft
-  for (let i = 0; i < 3; i++) r.part('head', ellipsoid(0.05, 0.04, 0.05, 8, 6), mat(-0.04 + i * 0.04, 1.3, 0.6 + (i % 2) * 0.03), jersey ? 0x9a6238 : base);
-  eyes(r, 0.125, 1.1, 0.79, 0.05, 0.36, { rim: 0xf6efe4 });
+  // (r19: smooth curls, a tone off the coat — the 8 x 6 balls read as a stack of hexagonal coins on the brow)
+  // (r25: three flat overlapping tufts combed forward onto the brow — the four round curls read as stacked
+  // bread rolls)
+  for (let i = 0; i < 3; i++) r.part('head', ellipsoid(0.072, 0.022, 0.07, 16, 9), mat((i - 1) * 0.048, 1.302 - Math.abs(i - 1) * 0.012, 0.6 + (i === 1 ? 0.035 : 0), 0.55, (i - 1) * 0.35, (i - 1) * 0.28), jersey ? 0xb27446 : base);
+  // (r9: bigger eyes up on the brow, tilted to face up-and-forward: from the 42-50° gameplay pitch the
+  // old ones sat under the brow line and the face read as an eyeless lump)
+  eyes(r, 0.13, 1.145, 0.79, 0.053, 0.36, { rim: 0xf6efe4, pitch: 0.42 });
   cheeks(r, 0.2, 0.98, 0.74, 0.036, 0xf2b0a6);
+  r.lift(LIFT, ['legFL', 'legFR', 'legBL', 'legBR']);
   // Chibi: a shorter barrel and a bigger head read as "cow" (not "capsule") from the high camera.
-  const [reach, top] = chibiGait(r, 0.82, 1.18, 0.94, 0.98, 1.55, 0.6);
+  // (r21: the jersey's head ~0.85x the holstein's — side by side hers read as a plush calf's)
+  const [reach, top] = chibiGait(r, 0.82, jersey ? 1.0 : 1.18, 0.94 + LIFT, 0.98, 1.55 + LIFT, 0.6);
+  const crown = crownAt(r, 1.3 + LIFT, 0.55);
   const { mesh, bones } = r.build(animalMaterial(), 'cow');
-  return { mesh, bones, species: 'cow', gait: { biped: false, speed: 0.55, freq: 1.55, legAmp: 0.38, bob: 0.02, eatPitch: 0.95, radius: 0.36, len: 0.42 * 0.82, reach, top, sleepDrop: 0.36, fold: 0.3 } };
+  // (eatPitch capped: grazing head-down at 0.95 rad flattened the big head against the chest — the
+  // poll and ears now stay above the shoulder line)
+  return { mesh, bones, species: 'cow', gait: { biped: false, speed: 0.55, freq: 1.55, legAmp: 0.38, bob: 0.02, eatPitch: 0.62, radius: 0.36, len: 0.42 * 0.82, reach, top, sleepDrop: 0.36, fold: 0.3, crown, headR: 0.32 } };
 }
 
 function goat(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 1;
   const togg = variant === 1;
   // 0: snowy Saanen · 1: Toggenburg (cocoa coat, cream muzzle, ear rims and socks)
   const base = togg ? 0x8e5c38 : 0xeee8dc;
   const cream = 0xf4e8d4;
   const socks = togg ? band(cream, 0.26) : undefined;
-  const d: QuadDims = { bodyY: 0.64, bodyR: 0.21, bodyLen: 0.34, hipX: 0.12, frontZ: 0.2, backZ: -0.2, legR: 0.042, hoof: 0.07 };
+  const d: QuadDims = { bodyY: 0.64, bodyR: 0.21, bodyLen: 0.34, hipX: 0.12, frontZ: 0.2, backZ: -0.2, legR: 0.05, hoof: 0.07 };
   r.bone('body', 'root', [0, d.bodyY, 0]);
   r.bone('head', 'body', [0, 0.86, 0.34]);
   r.bone('eyes', 'head', [0, 1.06, 0.5]);
@@ -326,19 +600,56 @@ function goat(variant: number): AnimalModel {
   r.bone('earR', 'head', [0.12, 1.04, 0.42]);
   r.bone('tail', 'body', [0, 0.78, -0.36]);
   // Barrel: deep chest tapering to a tucked flank and a neat rump
-  const goatBody = barrel([[-0.43, 0], [-0.415, 0.08], [-0.37, 0.155], [-0.29, 0.2], [-0.17, 0.208], [-0.04, 0.2], [0.09, 0.205], [0.2, 0.222], [0.3, 0.215], [0.37, 0.17], [0.415, 0.09], [0.43, 0]]);
-  r.part('body', goatBody, mat(0, d.bodyY + 0.01, 0, 0, 0, 0, 1, 1.1, 1), base);
-  // Neck rising from the chest
-  r.part('body', ellipsoid(0.1, 0.19, 0.11), mat(0, 0.83, 0.3, 0.45, 0, 0), base);
+  // (r10: a lean dairy goat, not a brick — narrower, the round barrel tapering to a bony haunch and a
+  // slim chest, a long neck rising clear of the shoulders)
+  // r14: one sculpted loft from the pin bones to the poll — a lean dairy barrel with a ridged topline
+  // (keel-topped sections along the spine), boxy hook / pin corners at the haunch, a slim brisket and a
+  // long neck swept up into the head. Countershaded: a darker dorsal line, paler belly + inner flank.
+  const goatShade = (p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color): void => {
+    const ridge = THREE.MathUtils.smoothstep(n.y, 0.86, 0.98) * (1 - THREE.MathUtils.smoothstep(Math.abs(p.x), 0.015, 0.06));
+    c.multiplyScalar(1 - (togg ? 0.32 : 0.06) * ridge);
+    c.lerp(new THREE.Color(togg ? 0xc89c74 : 0xfaf6ee), 0.55 * THREE.MathUtils.smoothstep(-n.y, 0.35, 0.8));
+    // the haunch a touch darker than the barrel (reads the hip from the high camera)
+    if (togg) c.multiplyScalar(1 - 0.1 * THREE.MathUtils.smoothstep(-p.z, 0.2, 0.42));
+  };
+  const goatBody = loft(
+    [
+      { p: [0, 0.8, -0.465], w: 0.03, up: 0.03, dn: 0.04 },
+      { p: [0, 0.79, -0.43], w: 0.1, up: 0.08, dn: 0.17, n: 2.2 },
+      { p: [0, 0.765, -0.35], w: 0.148, up: 0.12, dn: 0.25, n: 2.5, nb: 2.0 },
+      { p: [0, 0.74, -0.22], w: 0.162, up: 0.145, dn: 0.29, n: 1.85, nb: 2.0 },
+      { p: [0, 0.725, -0.05], w: 0.176, up: 0.16, dn: 0.3, n: 1.75, nb: 2.1 },
+      { p: [0, 0.73, 0.12], w: 0.166, up: 0.168, dn: 0.29, n: 1.75, nb: 1.9 },
+      { p: [0, 0.755, 0.25], w: 0.128, up: 0.165, dn: 0.25, n: 1.85, nb: 1.6 },
+      { p: [0, 0.81, 0.33], w: 0.094, up: 0.12, dn: 0.15, nb: 1.6 },
+      { p: [0, 0.9, 0.37], w: 0.075, up: 0.08, dn: 0.09 },
+      { p: [0, 0.99, 0.4], w: 0.066, up: 0.066, dn: 0.072 },
+      { p: [0, 1.035, 0.42], w: 0.02, up: 0.02, dn: 0.02 },
+    ],
+    36,
+    4,
+  );
+  r.part('body', goatBody, null, base, { paint: goatShade });
+  // Britches: the long hair fringing the back of the thighs, a little skirt of tufts.
+  for (const sx of [-1, 1])
+    for (let i = 0; i < 3; i++) {
+      const tf = new THREE.ConeGeometry(0.03, 0.12, 6);
+      r.part('body', tf, mat(sx * (0.09 + i * 0.02), 0.6 - i * 0.03, -0.36 + i * 0.03, Math.PI - 0.5, 0, sx * 0.25), togg ? 0x7a4c2c : 0xf2ece0);
+    }
   // Red leather collar + brass bell
   r.part('body', new THREE.TorusGeometry(0.092, 0.017, 7, 18), mat(0, 0.8, 0.33, Math.PI / 2 - 0.3, 0, 0), 0x8e3526);
   r.part('body', new THREE.CylinderGeometry(0.03, 0.05, 0.07, 12), mat(0, 0.735, 0.4), 0xe8b840, { flat: true });
   r.part('body', new THREE.SphereGeometry(0.014, 8, 6), mat(0, 0.698, 0.4), 0x5a4020, { flat: true });
-  legs(r, d, base, 0x3a2e28, socks);
+  legs(r, d, base, 0x3a2e28, socks, true);
   // Perky flag tail
   // (coat-coloured with a pale underside: a dark disc here read as a hole from the high camera)
   r.part('tail', ellipsoid(0.04, 0.09, 0.034, 10, 8), mat(0, 0.85, -0.38, -0.85, 0, 0), base);
   r.part('tail', ellipsoid(0.026, 0.06, 0.02, 8, 6), mat(0, 0.838, -0.365, -0.85, 0, 0), togg ? cream : 0xf6f0e6);
+  // Tufted tip: a little brush of hair flicking up off the flag.
+  for (let i = 0; i < 4; i++) {
+    const tuft = new THREE.ConeGeometry(0.011, 0.06, 5);
+    r.part('tail', tuft, mat((i - 1.5) * 0.01, 0.905 + (i % 2) * 0.008, -0.44 - (i % 2) * 0.008, -1.35 + (i - 1.5) * 0.1, 0, (i - 1.5) * 0.3), togg ? 0x7a4c2c : 0xf6f0e6);
+  }
   // Head: domed skull, long tapering muzzle angled down, beard, floppy-flat ears, swept horns
   r.part('head', ellipsoid(0.145, 0.15, 0.16), mat(0, 1.04, 0.43), base);
   r.part('head', ellipsoid(0.09, 0.09, 0.14), mat(0, 0.96, 0.58, 0.35, 0, 0), togg ? cream : base);
@@ -346,53 +657,68 @@ function goat(variant: number): AnimalModel {
   for (const s of [-1, 1]) r.part('head', ellipsoid(0.016, 0.011, 0.008, 6, 5), mat(s * 0.028, 0.93, 0.738, 0, s * 0.3, 0), 0x4a2e2a, { flat: true });
   r.part('head', ellipsoid(0.03, 0.006, 0.01, 6, 4), mat(0, 0.885, 0.715), 0x6a4040, { flat: true });
   if (togg) for (const s of [-1, 1]) r.part('head', ellipsoid(0.028, 0.1, 0.02, 8, 6), mat(s * 0.06, 1.02, 0.555, 0.45, s * 0.35, 0), cream);
-  const beard = new THREE.ConeGeometry(0.045, 0.17, 9);
+  const beard = new THREE.ConeGeometry(0.05, 0.22, 9);
   beard.rotateX(Math.PI);
-  r.part('head', beard, mat(0, 0.82, 0.62, 0.3, 0, 0), togg ? 0x5a3a24 : 0xece2d2);
+  r.part('head', beard, mat(0, 0.8, 0.62, 0.3, 0, 0), togg ? 0x3e2818 : 0xf6f0e6);
   for (const s of [-1, 1]) {
     // Horns: a tapered tube arcing up, back and out over the crown
-    const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(s * 0.02, 0.1, -0.02), new THREE.Vector3(s * 0.055, 0.17, -0.1), new THREE.Vector3(s * 0.09, 0.17, -0.2), new THREE.Vector3(s * 0.11, 0.12, -0.26)]);
-    const horn = new THREE.TubeGeometry(curve, 14, 0.03, 8, false);
+    // (r23: a third shorter — the long swept horns crossed the farmer's face on screen in every pat)
+    const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(s * 0.016, 0.075, -0.012), new THREE.Vector3(s * 0.042, 0.125, -0.07), new THREE.Vector3(s * 0.068, 0.128, -0.14), new THREE.Vector3(s * 0.082, 0.098, -0.185)]);
+    // (r17: a stouter root + growth ridges ringing the horn, so it reads as horn, not an antenna)
+    const horn = new THREE.TubeGeometry(curve, 24, 0.036, 8, false);
     const hp = horn.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < hp.count; i++) {
-      const t = Math.floor(i / 9) / 14;
+      const t = Math.floor(i / 9) / 24;
       const cp = curve.getPoint(Math.min(1, t));
-      const k = 1 - t * 0.8;
+      const k = (1 - t * 0.84) * (1 + 0.09 * (1 - t) * Math.cos(t * 24 * Math.PI));
       hp.setXYZ(i, cp.x + (hp.getX(i) - cp.x) * k, cp.y + (hp.getY(i) - cp.y) * k, cp.z + (hp.getZ(i) - cp.z) * k);
     }
     horn.computeVertexNormals();
     r.part('head', horn, mat(s * 0.06, 1.15, 0.44), 0xd8c8a4, { patch: band(0x9a8a70, 1.3, false) });
     const ear = s < 0 ? 'earL' : 'earR';
-    r.part(ear, ellipsoid(0.12, 0.034, 0.055), mat(s * 0.19, 0.99, 0.39, 0, s * 0.35, s * -0.62), togg ? 0x6a4228 : base);
-    r.part(ear, ellipsoid(0.085, 0.016, 0.036), mat(s * 0.195, 0.994, 0.41, 0, s * 0.35, s * -0.62), togg ? cream : 0xe0b0a8, { flat: true });
+    // (r10: longer, droopier ears flopping down beside the face)
+    r.part(ear, ellipsoid(0.135, 0.034, 0.06), mat(s * 0.19, 0.97, 0.4, 0, s * 0.3, s * -0.95), togg ? 0x6a4228 : base);
+    r.part(ear, ellipsoid(0.095, 0.016, 0.04), mat(s * 0.196, 0.974, 0.42, 0, s * 0.3, s * -0.95), togg ? cream : 0xe0b0a8, { flat: true });
   }
-  eyes(r, 0.105, 1.06, 0.52, 0.042, 0.55, { rim: togg ? 0xf4e8d4 : 0xe8dcc8 });
+  eyes(r, 0.105, 1.06, 0.52, 0.045, 0.47, { rim: togg ? 0xf4e8d4 : 0xe8dcc8, pitch: 0.3 });
   cheeks(r, 0.12, 0.97, 0.53, 0.03);
-  const [reach, top] = chibiGait(r, 0.84, 1.16, 0.925, 0.72, 1.3, 0.44);
+  // (r18: the herd's one proportion set — goat and pig heads up to the cow's chibi scale)
+  const [reach, top] = chibiGait(r, 0.84, 1.22, 0.925, 0.72, 1.3, 0.44);
+  const crown = crownAt(r, 1.18, 0.42);
   const { mesh, bones } = r.build(animalMaterial(), 'goat');
-  return { mesh, bones, species: 'goat', gait: { biped: false, speed: 0.65, freq: 2.1, legAmp: 0.42, bob: 0.025, eatPitch: 0.9, radius: 0.25, len: 0.2 * 0.84, reach, top, sleepDrop: 0.3, fold: 0.3 } };
+  return { mesh, bones, species: 'goat', gait: { biped: false, speed: 0.65, freq: 2.1, legAmp: 0.42, bob: 0.025, eatPitch: 0.9, radius: 0.25, len: 0.2 * 0.84, reach, top, sleepDrop: 0.3, fold: 0.3, crown, headR: 0.21 } };
 }
 
 function sheep(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 1;
   // 0: cream fleece, soft taupe face · 1: black-faced (Suffolk-ish). Both: dark legs + face under white wool.
   const blackFace = variant === 1;
   const wool = blackFace ? 0xebe4d6 : 0xede6d8;
-  const face = blackFace ? 0x2e2826 : 0x6e5a50;
+  // (r10: a big cream face on the plain sheep — the taupe one vanished at gameplay distance)
+  // (r13: a warm caramel face, legs and ears on the plain sheep — a cream face was lost against the
+  // fleece side-on in the barn stall: the head has to read as a head)
+  // (r21: the plain sheep's face a deeper taupe — a light caramel face melted into the fleece at the
+  // pasture lens)
+  const face = blackFace ? 0x2e2826 : 0x95694e;
+  // r21 (critic: "the sheep's heads disappear into their wool"): the head + ears + topknot lifted 6 cm and
+  // 3 cm forward, out of the fleece, on a short neck.
+  const HY = 0.06;
+  const HZ = 0.03;
   // Short, sturdy legs (chibi): long thin ones read as sticks under the fleece from the high camera.
-  const d: QuadDims = { bodyY: 0.53, bodyR: 0.23, bodyLen: 0.28, hipX: 0.12, frontZ: 0.16, backZ: -0.18, legR: 0.056, hoof: 0.068 };
+  const d: QuadDims = { bodyY: 0.53, bodyR: 0.23, bodyLen: 0.28, hipX: 0.12, frontZ: 0.16, backZ: -0.18, legR: 0.07, hoof: 0.075 };
   r.bone('body', 'root', [0, d.bodyY, 0]);
   r.bone('wool', 'body', [0, d.bodyY + 0.04, -0.02]);
   r.bone('head', 'body', [0, 0.69, 0.3]);
-  r.bone('eyes', 'head', [0, 0.8, 0.575]);
-  r.bone('earL', 'head', [-0.12, 0.81, 0.45]);
-  r.bone('earR', 'head', [0.12, 0.81, 0.45]);
+  r.bone('eyes', 'head', [0, 0.8 + HY, 0.575 + HZ]);
+  r.bone('earL', 'head', [-0.12, 0.81 + HY, 0.45 + HZ]);
+  r.bone('earR', 'head', [0.12, 0.81 + HY, 0.45 + HZ]);
   r.bone('tail', 'body', [0, 0.59, -0.42]);
   // Shorn body underneath
-  r.part('body', capsuleZ(d.bodyR, d.bodyLen, 8, 16), mat(0, d.bodyY, -0.02), 0xe8dcc8);
+  r.part('body', capsuleZ(d.bodyR, d.bodyLen, 8, 16), mat(0, d.bodyY, -0.02), 0xe8dcc8, { coat: 2 });
   // Fleece: an overlapping cloud of puffs over the back and flanks — kept above the knees so the legs read
   const puff = (x: number, y: number, z: number, s: number) =>
-    r.part('wool', new THREE.IcosahedronGeometry(s, s > 0.15 ? 2 : 1), mat(x, y, z), wool, { paint: (p, _n, c) => c.multiplyScalar(0.92 + 0.08 * noise3(p.x * 22, p.y * 22, p.z * 22, 3)) });
+    r.part('wool', new THREE.IcosahedronGeometry(s, s > 0.15 ? 2 : 1), mat(x, y, z), wool, { coat: 2, paint: (p, _n, c) => c.multiplyScalar(0.92 + 0.08 * noise3(p.x * 22, p.y * 22, p.z * 22, 3)) });
   let k = 0;
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI + 0.02;
@@ -409,30 +735,34 @@ function sheep(variant: number): AnimalModel {
   puff(0, d.bodyY + 0.03, -0.3, 0.16);
   puff(0, d.bodyY + 0.07, 0.24, 0.17);
   for (const s of [-1, 1]) puff(s * 0.2, d.bodyY - 0.05, 0.0, 0.15);
-  legs(r, d, face, 0x221c1a);
-  r.part('tail', new THREE.IcosahedronGeometry(0.07, 1), mat(0, 0.59, -0.43), wool);
+  legs(r, d, blackFace ? face : 0x8e6c56, 0x3a2c26);
+  r.part('tail', new THREE.IcosahedronGeometry(0.07, 1), mat(0, 0.59, -0.43), wool, { coat: 2 });
   // Head poking forward out of the fleece: long face, dark nose, ears sticking straight out sideways
-  r.part('head', ellipsoid(0.125, 0.14, 0.16), mat(0, 0.79, 0.48), face);
-  r.part('head', ellipsoid(0.09, 0.085, 0.1), mat(0, 0.72, 0.59, 0.25, 0, 0), blackFace ? 0x3a3230 : 0x7e6a60);
-  r.part('head', ellipsoid(0.034, 0.014, 0.01, 6, 5), mat(0, 0.73, 0.685), 0x1a1414, { flat: true });
-  r.part('head', ellipsoid(0.028, 0.005, 0.01, 6, 4), mat(0, 0.695, 0.675), 0x1a1414, { flat: true });
+  r.part('head', ellipsoid(0.105, 0.13, 0.13), mat(0, 0.72 + HY * 0.5, 0.4 + HZ * 0.5, 0.5, 0, 0), face);
+  r.part('head', ellipsoid(0.15, 0.16, 0.17), mat(0, 0.79 + HY, 0.49 + HZ), face);
+  r.part('head', ellipsoid(0.1, 0.09, 0.105), mat(0, 0.72 + HY, 0.6 + HZ, 0.25, 0, 0), blackFace ? 0x3a3230 : 0xb89276);
+  r.part('head', ellipsoid(0.04, 0.016, 0.01, 6, 5), mat(0, 0.735 + HY, 0.7 + HZ), blackFace ? 0x1a1414 : 0x4a2e28, { flat: true });
+  r.part('head', ellipsoid(0.03, 0.005, 0.01, 6, 4), mat(0, 0.695 + HY, 0.69 + HZ), blackFace ? 0x1a1414 : 0x6a3e38, { flat: true });
   // Wool topknot
   for (const [x, y, z, s] of [[0, 0.93, 0.43, 0.095], [-0.075, 0.9, 0.46, 0.07], [0.075, 0.9, 0.46, 0.07], [0, 0.9, 0.36, 0.1]] as const) {
-    r.part('head', new THREE.IcosahedronGeometry(s, 1), mat(x, y, z), wool);
+    r.part('head', new THREE.IcosahedronGeometry(s, 1), mat(x, y + HY, z + HZ), wool, { coat: 2 });
   }
   for (const s of [-1, 1]) {
     const ear = s < 0 ? 'earL' : 'earR';
-    r.part(ear, ellipsoid(0.11, 0.032, 0.05), mat(s * 0.2, 0.81, 0.45, 0, 0.3 * s, s * -0.12), face);
-    r.part(ear, ellipsoid(0.075, 0.015, 0.03), mat(s * 0.205, 0.815, 0.47, 0, 0.3 * s, s * -0.12), 0xe8a098, { flat: true });
+    r.part(ear, ellipsoid(0.12, 0.034, 0.055), mat(s * 0.22, 0.81 + HY, 0.46 + HZ, 0, 0.3 * s, s * -0.12), face);
+    r.part(ear, ellipsoid(0.08, 0.016, 0.034), mat(s * 0.225, 0.815 + HY, 0.48 + HZ, 0, 0.3 * s, s * -0.12), 0xe8a098, { flat: true });
+    // Ear tuft: a little curl of fleece where the ear pokes out of the wool
+    r.part(ear, new THREE.IcosahedronGeometry(0.05, 1), mat(s * 0.15, 0.85 + HY, 0.44 + HZ), wool, { coat: 2 });
   }
-  eyes(r, 0.085, 0.805, 0.585, 0.036, 0.48, { rim: 0xf6f0e6 });
-  cheeks(r, 0.11, 0.73, 0.56, 0.026, 0xe88a86);
+  eyes(r, 0.095, 0.81 + HY, 0.6 + HZ, 0.045, 0.45, { rim: blackFace ? 0xf6f0e6 : 0xf3e6d6, pitch: 0.25 });
+  cheeks(r, 0.12, 0.735 + HY, 0.575 + HZ, 0.03, 0xf08a86);
   const { mesh, bones } = r.build(animalMaterial(), 'sheep');
-  return { mesh, bones, species: 'sheep', gait: { biped: false, speed: 0.5, freq: 2.0, legAmp: 0.4, bob: 0.02, eatPitch: 0.95, radius: 0.3, len: 0.18, reach: 0.64, top: 1.13, sleepDrop: 0.24, fold: 0.3 } };
+  return { mesh, bones, species: 'sheep', gait: { biped: false, speed: 0.5, freq: 2.0, legAmp: 0.4, bob: 0.02, eatPitch: 0.95, radius: 0.3, len: 0.18, reach: 0.67, top: 1.18, sleepDrop: 0.24, fold: 0.3, crown: [1.04, 0.48], headR: 0.18 } };
 }
 
 function pig(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 4;
   const spotted = variant === 1;
   const base = 0xf8b8ae;
   const spots: CoatPatch | undefined = spotted ? { color: 0x4a302c, freq: [4, 4, 4], seed: 9, edge: 0.52 } : undefined;
@@ -443,32 +773,123 @@ function pig(variant: number): AnimalModel {
   r.bone('earL', 'head', [-0.12, 0.74, 0.4]);
   r.bone('earR', 'head', [0.12, 0.74, 0.4]);
   r.bone('tail', 'body', [0, 0.52, -0.46]);
-  // Pear-shaped: a big round ham, a gently dipped back and deep shoulders under the head.
-  const pigBody = barrel([[-0.5, 0], [-0.485, 0.11], [-0.44, 0.215], [-0.35, 0.285], [-0.22, 0.308], [-0.07, 0.3], [0.07, 0.29], [0.19, 0.282], [0.29, 0.25], [0.36, 0.17], [0.39, 0.07], [0.395, 0]], 24);
-  r.part('body', pigBody, mat(0, d.bodyY, 0, 0, 0, 0, 1, 0.95, 1), base, { patch: spots });
-  legs(r, d, base, 0x7a4a44, spots);
-  r.part('tail', new THREE.TorusGeometry(0.04, 0.013, 6, 14, 5.4), mat(0, 0.54, -0.47, 0, Math.PI / 2, 0), base);
-  r.part('head', ellipsoid(0.22, 0.21, 0.2), mat(0, 0.58, 0.42), base, { patch: spots });
-  const snout = new THREE.CylinderGeometry(0.1, 0.105, 0.09, 18);
-  snout.rotateX(Math.PI / 2);
-  r.part('head', snout, mat(0, 0.53, 0.6), 0xf29890);
-  r.part('head', new THREE.CylinderGeometry(0.095, 0.095, 0.005, 18).rotateX(Math.PI / 2), mat(0, 0.53, 0.647), 0xf7aaa2, { flat: true });
-  for (const s of [-1, 1]) r.part('head', ellipsoid(0.02, 0.03, 0.01, 6, 5), mat(s * 0.036, 0.53, 0.652), 0x7a3a38, { flat: true });
+  // r13: one sculpted loft — a big round ham, a gently dipped back, deep shoulders running into heavy
+  // jowls under the head (the old lathe barrel read as a boxy capsule at the petting camera).
+  // (r19: the critic still read a "boxy capsule" from the 11-14 m camera — one width end to end. Now a
+  // pear in plan: round hams swelling past the shoulders, a soft waist, a shoulder hump behind the jowls,
+  // a sagging belly and an arched loin; no two stations share a width.)
+  const pigBody = loft(
+    [
+      // (r22: from the high lens the old rump closed in 3.5 cm — a flat disc end on a straight pink tube.
+      // Now the rump rounds over ~12 cm into big hams, a clear waist, then the shoulders: an egg-and-
+      // peanut plan instead of parallel sides.)
+      // (r23: the waist 0.275 between 0.34 hams and 0.298 shoulders + a dipped back read from the barn
+      // lens as three stacked rolls — a caterpillar. One continuous pear now: the hams the widest, the
+      // flank easing in monotonically to the shoulders, a level topline.)
+      { p: [0, 0.465, -0.545], w: 0.03, up: 0.03, dn: 0.03 },
+      { p: [0, 0.475, -0.525], w: 0.14, up: 0.125, dn: 0.13, n: 2.0 },
+      { p: [0, 0.485, -0.485], w: 0.235, up: 0.21, dn: 0.22, n: 2.0 },
+      { p: [0, 0.492, -0.42], w: 0.305, up: 0.272, dn: 0.285, n: 2.05 },
+      { p: [0, 0.495, -0.29], w: 0.335, up: 0.296, dn: 0.31, n: 2.05 },
+      { p: [0, 0.49, -0.13], w: 0.32, up: 0.29, dn: 0.33, n: 2.0 },
+      { p: [0, 0.486, 0.03], w: 0.306, up: 0.286, dn: 0.325, n: 2.0 },
+      { p: [0, 0.488, 0.17], w: 0.298, up: 0.288, dn: 0.3, n: 2.0 },
+      { p: [0, 0.495, 0.29], w: 0.262, up: 0.278, dn: 0.285, n: 2.0, nb: 1.9 },
+      { p: [0, 0.51, 0.38], w: 0.2, up: 0.22, dn: 0.25 },
+      { p: [0, 0.525, 0.45], w: 0.11, up: 0.12, dn: 0.14 },
+      { p: [0, 0.53, 0.485], w: 0.03, up: 0.03, dn: 0.04 },
+    ],
+    40,
+    4,
+  );
+  // Skin tone: a peachier back with a faint darker spine line, a cream-pink belly, blush on the hams
+  // and the shoulder (the flat single pink read as plastic in the sun).
+  const belly = new THREE.Color(0xfde2d6);
+  const blush = new THREE.Color(0xf09a90);
+  const skin = (q: THREE.Vector3, n: THREE.Vector3, c: THREE.Color): void => {
+    c.lerp(belly, 0.7 * THREE.MathUtils.smoothstep(-n.y, 0.15, 0.7));
+    c.lerp(blush, 0.28 * THREE.MathUtils.smoothstep(Math.abs(n.x), 0.55, 0.95) * (THREE.MathUtils.smoothstep(-q.z, 0.18, 0.4) + THREE.MathUtils.smoothstep(q.z, 0.12, 0.3)));
+    c.multiplyScalar(1 - 0.09 * THREE.MathUtils.smoothstep(n.y, 0.86, 0.99));
+  };
+  r.part('body', pigBody, null, base, { patch: spots, paint: spotted ? undefined : skin });
+  legs(r, d, base, 0x7a4a44, spots, true, 1.1);
+  // Curly tail: a tapered corkscrew springing off the rump.
+  {
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24;
+      const a = t * Math.PI * 3.2;
+      pts.push(new THREE.Vector3(Math.sin(a) * 0.038 * (1 - t * 0.3), 0.535 + t * 0.06 + (1 - Math.cos(a)) * 0.03 * (1 - t * 0.3), -0.52 - t * 0.07));
+    }
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const tube = new THREE.TubeGeometry(curve, Math.max(16, Math.round(40 * RIG_DETAIL.k)), 0.016, 8, false);
+    const tp = tube.attributes.position as THREE.BufferAttribute;
+    const segs = Math.max(16, Math.round(40 * RIG_DETAIL.k));
+    for (let i = 0; i < tp.count; i++) {
+      const t = Math.floor(i / 9) / segs;
+      const cp = curve.getPoint(Math.min(1, t));
+      const k = 1 - t * 0.55;
+      tp.setXYZ(i, cp.x + (tp.getX(i) - cp.x) * k, cp.y + (tp.getY(i) - cp.y) * k, cp.z + (tp.getZ(i) - cp.z) * k);
+    }
+    tube.computeVertexNormals();
+    r.part('tail', tube, null, base);
+  }
+  // Head: a round skull with heavy jowls swelling down either side of the snout.
+  r.part('head', ellipsoid(0.22, 0.205, 0.2), mat(0, 0.585, 0.42), base, { patch: spots });
+  for (const s of [-1, 1]) r.part('head', ellipsoid(0.105, 0.1, 0.12), mat(s * 0.115, 0.5, 0.47, 0, s * 0.25, 0), base, { patch: spots });
+  r.part('head', ellipsoid(0.13, 0.08, 0.13), mat(0, 0.47, 0.47), base);
+  // Snout: a rounded tube flaring to a soft rim, tipped up a little so its disc faces the high camera.
+  const snoutTilt = -0.28;
+  const sn = new THREE.LatheGeometry(
+    [
+      [0.0, -0.04],
+      [0.095, -0.04],
+      [0.1, 0.02],
+      [0.104, 0.07],
+      [0.108, 0.095],
+      [0.1, 0.112],
+      [0.082, 0.118],
+    ].map(([a, b]) => new THREE.Vector2(a!, b!)),
+    Math.max(12, Math.round(28 * RIG_DETAIL.k)),
+  );
+  sn.rotateX(Math.PI / 2);
+  r.part('head', sn, mat(0, 0.525, 0.55, snoutTilt, 0, 0), 0xf29a92);
+  // The disc: a domed lighter pad with two deep oval nostrils.
+  r.part('head', ellipsoid(0.088, 0.075, 0.018, 24, 10), mat(0, 0.525 + Math.sin(-snoutTilt) * 0.117, 0.55 + Math.cos(snoutTilt) * 0.117, snoutTilt, 0, 0), 0xf8b4ac, { flat: true });
+  for (const s of [-1, 1]) {
+    const nz = 0.55 + Math.cos(snoutTilt) * 0.132;
+    const ny = 0.525 + Math.sin(-snoutTilt) * 0.132;
+    r.part('head', ellipsoid(0.017, 0.03, 0.01, 10, 8), mat(s * 0.035, ny, nz, snoutTilt, 0, 0), 0x6a3030, { flat: true });
+  }
+  // Mouth: a soft smile line under the snout.
+  r.part('head', ellipsoid(0.06, 0.012, 0.02, 10, 6), mat(0, 0.45, 0.6, 0.2, 0, 0), 0xb86a66, { flat: true });
   for (const s of [-1, 1]) {
     const ear = s < 0 ? 'earL' : 'earR';
-    const e = new THREE.ConeGeometry(0.09, 0.17, 4);
-    e.scale(1, 1, 0.35);
-    r.part(ear, e, mat(s * 0.13, 0.8, 0.45, 0.85, 0, s * -0.35), 0xf4a49c);
+    // (r19: the ears were 20 cm flaps stood up edge-on to the lens — thin pink slivers from above. Now
+    // broad leaves flopped forward and out over the brow, their backs to the sky, so from the gameplay
+    // pitch each one reads as a soft triangle framing the face, with the pink lining in the cup.)
+    // (out to the sides more than forward: flopped straight ahead the ear hid the eye)
+    const e = leaf(0.25, 0.19, 0.035, 0.6, 0.78, 18, 12);
+    const m = mat(s * 0.145, 0.765, 0.42, 0, 0, 0)
+      .multiply(new THREE.Matrix4().makeRotationY(s < 0 ? -2.5 : -0.64))
+      .multiply(new THREE.Matrix4().makeRotationZ(-0.42))
+      .multiply(new THREE.Matrix4().makeRotationX(s * 0.35));
+    r.part(ear, e, m, spotted ? 0x4a302c : 0xf4a89e);
+    const inner = leaf(0.185, 0.125, 0.014, 0.6, 0.8, 16, 10);
+    const mi = m.clone().multiply(new THREE.Matrix4().makeTranslation(0.025, -0.016, 0));
+    r.part(ear, inner, mi, 0xffc2b8, { flat: true });
   }
-  eyes(r, 0.1, 0.65, 0.575, 0.037, 0.42);
+  eyes(r, 0.1, 0.655, 0.57, 0.045, 0.42, { rim: spotted ? 0xf6e2d6 : 0xfbe6dc, pitch: 0.3 });
   cheeks(r, 0.145, 0.57, 0.55, 0.036, 0xff8a8a);
-  const [reach, top] = chibiGait(r, 0.86, 1.14, 0.53, 0.66, 1.0, 0.42);
+  const [reach, top] = chibiGait(r, 0.86, 1.22, 0.53, 0.66, 1.0, 0.42);
+  const crown = crownAt(r, 0.78, 0.4);
   const { mesh, bones } = r.build(animalMaterial(), 'pig');
-  return { mesh, bones, species: 'pig', gait: { biped: false, speed: 0.5, freq: 2.5, legAmp: 0.45, bob: 0.02, eatPitch: 0.7, radius: 0.3, len: 0.2 * 0.86, reach, top, sleepDrop: 0.2, fold: 0.35 } };
+  return { mesh, bones, species: 'pig', gait: { biped: false, speed: 0.5, freq: 2.5, legAmp: 0.45, bob: 0.02, eatPitch: 0.7, radius: 0.3, len: 0.2 * 0.86, reach, top, sleepDrop: 0.2, fold: 0.35, crown, headR: 0.26 } };
 }
 
 function dog(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 1;
   const collie = variant === 1;
   const base = collie ? 0x3a2e2a : 0xd88a3c;
   const cream = 0xf6ead4;
@@ -512,6 +933,7 @@ function dog(variant: number): AnimalModel {
 
 function cat(variant: number): AnimalModel {
   const r = new RigBuilder();
+  r.coat = 1;
   const grey = variant === 1;
   const base = grey ? 0x8a8a92 : 0xe89a4a;
   const stripe = grey ? 0x55555e : 0xb8662a;
@@ -554,4 +976,191 @@ const BUILDERS: Record<Species, (v: number) => AnimalModel> = { chicken, duck, c
 
 export function buildAnimal(species: Species, variant = 0): AnimalModel {
   return BUILDERS[species](variant);
+}
+
+// ───────────────────────────────────────────── r16 curled sleeping pets
+
+/** A tube swept along a spine with horizontal side axes (no twist on curled, planar spines). */
+function curlTube(pts: { p: [number, number, number]; w: number; up: number; dn: number }[], ring = 20, sub = 4): THREE.BufferGeometry {
+  const N = pts.length;
+  const at = (i: number) => pts[Math.max(0, Math.min(N - 1, i))]!;
+  const R = Math.max(10, Math.round((ring * RIG_DETAIL.k) / 2) * 2);
+  const secs: { p: THREE.Vector3; w: number; up: number; dn: number }[] = [];
+  const crs = (a: number, b: number, c: number, d: number, t: number): number => {
+    const t2 = t * t;
+    return 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t2 * t);
+  };
+  for (let i = 0; i < N - 1; i++) {
+    for (let j = 0; j < (i === N - 2 ? sub + 1 : sub); j++) {
+      const t = j / sub;
+      const a = at(i - 1), b = at(i), c = at(i + 1), d = at(i + 2);
+      const f = (k: (s: (typeof pts)[number]) => number): number => crs(k(a), k(b), k(c), k(d), t);
+      secs.push({ p: new THREE.Vector3(f((s) => s.p[0]), f((s) => s.p[1]), f((s) => s.p[2])), w: Math.max(0.002, f((s) => s.w)), up: Math.max(0.002, f((s) => s.up)), dn: Math.max(0.002, f((s) => s.dn)) });
+    }
+  }
+  const M = secs.length;
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const T = new THREE.Vector3();
+  const X = new THREE.Vector3();
+  const U = new THREE.Vector3();
+  const Y = new THREE.Vector3(0, 1, 0);
+  const frame = (i: number): void => {
+    T.subVectors(secs[Math.min(M - 1, i + 1)]!.p, secs[Math.max(0, i - 1)]!.p).normalize();
+    X.crossVectors(T, Y).normalize();
+    U.crossVectors(X, T).normalize();
+  };
+  frame(0);
+  const s0 = secs[0]!;
+  pos.push(s0.p.x - T.x * s0.w * 0.7, s0.p.y - T.y * s0.w * 0.7, s0.p.z - T.z * s0.w * 0.7);
+  for (let i = 0; i < M; i++) {
+    frame(i);
+    const s = secs[i]!;
+    for (let k = 0; k < R; k++) {
+      const th = (k / R) * Math.PI * 2;
+      const x = Math.cos(th) * s.w;
+      const sn = Math.sin(th);
+      const y = sn * (sn >= 0 ? s.up : s.dn);
+      pos.push(s.p.x + X.x * x + U.x * y, s.p.y + X.y * x + U.y * y, s.p.z + X.z * x + U.z * y);
+    }
+  }
+  frame(M - 1);
+  const sl = secs[M - 1]!;
+  pos.push(sl.p.x + T.x * sl.w * 0.7, sl.p.y + T.y * sl.w * 0.7, sl.p.z + T.z * sl.w * 0.7);
+  const end = 1 + M * R;
+  for (let k = 0; k < R; k++) idx.push(0, 1 + k, 1 + ((k + 1) % R));
+  for (let i = 0; i < M - 1; i++) {
+    const a0 = 1 + i * R;
+    const b0 = 1 + (i + 1) * R;
+    for (let k = 0; k < R; k++) {
+      const k1 = (k + 1) % R;
+      idx.push(a0 + k, b0 + k, a0 + k1);
+      idx.push(a0 + k1, b0 + k, b0 + k1);
+    }
+  }
+  const l0 = 1 + (M - 1) * R;
+  for (let k = 0; k < R; k++) idx.push(end, l0 + ((k + 1) % R), l0 + k);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * r16 (critic: "the sleeping dog floats half out of its bed with a squashed face"): a dedicated curled
+ * sleeping pose for the pets — the rigged standing model can't bend its one-bone spine. The body is a
+ * fat "C" coiled round the bed (haunch thick at the front-right, the shoulders coming round the back to
+ * the front-left), the head laid on the haunch with the chin on the front paws, eyes shut as little
+ * arcs, ears folded back, the tail wrapped round under the nose. Model space: floor at y = 0, the face
+ * looks along +z (towards the lens when the actor faces it). Bones: root → body (breathing) → head.
+ */
+export function buildCurl(species: 'dog' | 'cat', variant = 0): { mesh: THREE.SkinnedMesh; bones: Record<string, THREE.Bone>; radius: number } {
+  const dog = species === 'dog';
+  const r = new RigBuilder();
+  r.coat = 1;
+  const k = dog ? 1 : 0.78;
+  const collie = dog && variant === 1;
+  const grey = !dog && variant === 1;
+  const base = dog ? (collie ? 0x3a2e2a : 0xd88a3c) : grey ? 0x8a8a92 : 0xe89a4a;
+  const stripe = grey ? 0x55555e : 0xb8662a;
+  const cream = dog ? 0xf6ead4 : 0xf6ecde;
+  const R = 0.13 * k;
+  r.bone('body', 'root', [0, 0.1 * k, 0]);
+  // Spine: from the rump (front-right) back round the far side to the shoulders (front-left).
+  const spine: { p: [number, number, number]; w: number; up: number; dn: number }[] = [];
+  const a0 = 0.22 * Math.PI;
+  const a1 = -1.12 * Math.PI;
+  const n = 9;
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const th = a0 + (a1 - a0) * t;
+    // haunch (thick) → loin → ribs (thick) → neck (slim)
+    const w = (0.118 + 0.022 * Math.sin(Math.min(1, t * 1.6) * Math.PI) - 0.03 * Math.max(0, t - 0.75) * 4) * k;
+    const up = (0.105 + 0.02 * Math.sin(t * Math.PI)) * k;
+    spine.push({ p: [Math.cos(th) * R, 0.1 * k + 0.012 * Math.sin(t * Math.PI) * k, Math.sin(th) * R], w, up, dn: 0.092 * k });
+  }
+  const paint = (p: THREE.Vector3, nn: THREE.Vector3, c: THREE.Color): void => {
+    // Cream belly / inner curl (the side facing the ring's centre, low down); tabby stripes for the cat.
+    const inward = -(p.x * nn.x + p.z * nn.z) / Math.max(1e-4, Math.hypot(p.x, p.z));
+    if (inward > 0.35 && p.y < 0.12 * k) c.set(cream);
+    else if (!dog && nn.y > -0.1 && Math.sin(Math.atan2(p.z, p.x) * 9) > 0.45) c.set(stripe);
+  };
+  r.part('body', curlTube(spine, 22, 4), null, base, { paint });
+  // Haunch bulge over the hind leg, a folded hind paw peeking out at the front.
+  const hx = Math.cos(a0 + 0.12) * R;
+  const hz = Math.sin(a0 + 0.12) * R;
+  r.part('body', ellipsoid(0.105 * k, 0.09 * k, 0.1 * k), mat(hx + 0.035 * k, 0.12 * k, hz - 0.01 * k), base, { paint });
+  r.part('body', ellipsoid(0.04 * k, 0.03 * k, 0.055 * k), mat(hx + 0.07 * k, 0.03 * k, hz + 0.08 * k, 0, 0.5, 0), cream);
+  // Front paws reaching forward under the chin.
+  const nx = Math.cos(a1) * R;
+  const nz = Math.sin(a1) * R;
+  for (const s of [0, 1]) {
+    const px = nx + (0.06 + s * 0.075) * k;
+    const pz = nz + (0.09 + s * 0.015) * k;
+    r.part('body', capsuleZ(0.03 * k, 0.07 * k, 5, 10), mat(px, 0.03 * k, pz, 0, 0.35, 0), base);
+    r.part('body', ellipsoid(0.036 * k, 0.026 * k, 0.04 * k), mat(px + 0.02 * k, 0.026 * k, pz + 0.06 * k, 0, 0.35, 0), cream);
+  }
+  // Tail wrapped round the front under the nose.
+  const tail: { p: [number, number, number]; w: number; up: number; dn: number }[] = [];
+  for (let i = 0; i < 6; i++) {
+    const t = i / 5;
+    const th = a0 - 0.05 + t * 0.62 * Math.PI;
+    const rr = R + (0.075 + 0.03 * t) * k;
+    const w = (dog ? 0.05 - 0.012 * t : 0.028 - 0.006 * t) * k;
+    tail.push({ p: [Math.cos(th) * rr, (0.05 + 0.02 * Math.sin(t * Math.PI)) * k, Math.sin(th) * rr], w, up: w * 0.85, dn: w * 0.85 });
+  }
+  r.part('body', curlTube(tail, 12, 3), null, base, {
+    paint: (p, _n, c) => {
+      const th = Math.atan2(p.z, p.x);
+      if (dog && th > a0 + 0.45 * Math.PI) c.set(cream);
+      else if (!dog && Math.sin(th * 14) > 0.3) c.set(stripe);
+    },
+  });
+  // Head: laid on the haunch, chin on the paws, turned a little to the lens, a slight cosy roll.
+  const hc = new THREE.Vector3(nx + 0.13 * k, (dog ? 0.215 : 0.2) * k, nz + 0.17 * k);
+  r.bone('head', 'body', [hc.x, hc.y, hc.z]);
+  // (r21: the dog's nose tipped down into its tail — level, the cream muzzle disc with the black nose
+  // centred in it read as one huge staring eyeball from the high lens)
+  const H = new THREE.Matrix4().compose(hc, new THREE.Quaternion().setFromEuler(new THREE.Euler(dog ? 0.12 : -0.14, 0.3, -0.14, 'YXZ')), new THREE.Vector3(k, k, k));
+  const hp = (geo: THREE.BufferGeometry, m: THREE.Matrix4, tint: THREE.ColorRepresentation, o: Parameters<RigBuilder['part']>[4] = {}): void => {
+    r.part('head', geo, m.premultiply(H), tint, o);
+  };
+  if (dog) {
+    // r21: a coat-coloured muzzle (a shade lighter), only a slim cream blaze up the forehead and a small
+    // nose tucked low at the muzzle tip — the closed-eye arcs are the face's read now.
+    const muzzle = new THREE.Color(base).lerp(new THREE.Color(cream), 0.14).getHex();
+    const blaze = new THREE.Color(base).lerp(new THREE.Color(cream), 0.55).getHex();
+    hp(ellipsoid(0.15, 0.128, 0.14), mat(0, 0, 0), base);
+    hp(ellipsoid(0.07, 0.052, 0.082), mat(0, -0.052, 0.11), muzzle);
+    hp(ellipsoid(0.016, 0.042, 0.024), mat(0, 0.045, 0.118, -0.5, 0, 0), blaze);
+    hp(ellipsoid(0.018, 0.013, 0.014, 10, 8), mat(0, -0.05, 0.188), 0x2a1c16, { flat: true });
+    for (const s of [-1, 1]) {
+      // Ears folded back flat against the head.
+      const e = new THREE.ConeGeometry(0.052, 0.12, 8);
+      e.scale(1, 1, 0.5);
+      hp(e, mat(s * 0.085, 0.085, -0.045, -1.15, 0, -s * 0.45), base);
+    }
+  } else {
+    hp(ellipsoid(0.125, 0.105, 0.11), mat(0, 0, 0), base, { paint: (p, _n, c) => { if (p.y > hc.y + 0.05 * k && Math.sin(p.x * 60) > 0.4) c.set(stripe); } });
+    hp(ellipsoid(0.06, 0.042, 0.05), mat(0, -0.04, 0.085), cream);
+    hp(ellipsoid(0.014, 0.01, 0.008, 6, 5), mat(0, -0.022, 0.132), 0xe07a86, { flat: true });
+    for (const s of [-1, 1]) {
+      const e = new THREE.ConeGeometry(0.045, 0.085, 4);
+      e.scale(1, 1, 0.5);
+      hp(e, mat(s * 0.07, 0.1, -0.01, -0.35, 0, -s * 0.3), base);
+    }
+  }
+  // Eyes shut: two soft dark smile-arcs (︶), a pink blush under each.
+  const ey = dog ? 0.034 : 0.025;
+  const ez = dog ? 0.12 : 0.098;
+  const ex = dog ? 0.066 : 0.05;
+  for (const s of [-1, 1]) {
+    // (r21: the dog's arcs bigger + bolder: the dominant facial read of the sleeping pet)
+    const arc = new THREE.TorusGeometry(dog ? 0.036 : 0.025, dog ? 0.0115 : 0.0085, 5, 12, Math.PI);
+    hp(arc, mat(s * ex, ey + 0.012, ez, -0.25, s * 0.38, Math.PI), 0x221814, { flat: true });
+    hp(ellipsoid(0.024, 0.014, 0.008, 8, 6), mat(s * (ex + 0.022), ey - 0.03, ez - 0.012, 0, s * 0.6, 0), 0xff9a8a, { flat: true });
+  }
+  const { mesh, bones } = r.build(animalMaterial(), `${species}:curl`);
+  return { mesh, bones, radius: (R + 0.15 * k) };
 }

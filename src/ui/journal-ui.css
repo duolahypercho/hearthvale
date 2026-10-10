@@ -204,7 +204,7 @@
 }
 .jn-h.small {
   font-size: 30px;
-  margin-top: 20px;
+  margin-top: 10px;
 }
 .jn-sub {
   font-weight: 800;
@@ -214,8 +214,8 @@
 }
 .jn-list {
   display: grid;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 2px;
+  margin-top: 6px;
 }
 .jn-row,
 .jn-mail {
@@ -245,9 +245,12 @@
 }
 .jn-row .t {
   flex: 1;
-  font-family: var(--font-head);
-  font-weight: 600;
-  font-size: 19px;
+  /* One face for every entry (done, current, locked): the serif body, so the page reads as two
+     treatments — the hand-lettered heads and the written list. */
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 21px;
+  line-height: 1.15;
 }
 .jn-row small {
   font-size: 14px;
@@ -260,6 +263,8 @@
   opacity: 0.5;
 }
 .jn-row.done .t {
+  font-style: italic;
+  font-weight: 600;
   text-decoration: line-through;
   text-decoration-color: rgba(120, 60, 20, 0.45);
   text-decoration-thickness: 2px;
@@ -838,7 +843,7 @@
 }
 .jb-ledger .row {
   display: grid;
-  grid-template-columns: 14px 1fr auto;
+  grid-template-columns: 14px max-content minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
@@ -855,7 +860,7 @@
 }
 .jb-ledger .nm {
   font-weight: 800;
-  font-size: 14px;
+  font-size: 13.5px;
   color: #f6e6c8;
   white-space: nowrap;
   overflow: hidden;
@@ -863,13 +868,28 @@
 }
 .jb-ledger .rw {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 13.5px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: rgba(246, 230, 200, 0.62);
   white-space: nowrap;
 }
 .jb-ledger .rw svg {
   width: 16px;
   height: 16px;
+}
+.jb-ledger .rw {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+}
+.jb-ledger .rw .u-ic {
+  width: 22px;
+  height: 22px;
+  margin: -3px 0;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
 }
 .jb-ledger .row.done {
   background: color-mix(in srgb, var(--room) 18%, transparent);
@@ -968,6 +988,25 @@
   font-size: 18px;
   color: #4a2410;
   align-self: end;
+  /* Tab labels stay on one line: long names step down a size instead of wrapping. */
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+.jb-sack.long .nm {
+  font-size: 15.5px;
+  letter-spacing: -0.025em;
+}
+.jb-sack.long {
+  grid-template-columns: 50px 1fr;
+}
+.jb-sack.long > .js-wrap {
+  width: 50px;
+}
+.jb-sack {
+  min-width: 0;
 }
 .jb-sack .pr {
   font-weight: 800;
@@ -2259,4 +2298,88 @@
   font-size: 14px;
   letter-spacing: 0.04em;
   color: #9a6a3a;
+}
+
+/* ── Journal r3: the Hall's six lanterns along the foot of the quests page ── */
+.jn-hallstrip {
+  all: unset;
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 12px 2px;
+  border-top: 2px dashed rgba(140, 95, 45, 0.35);
+  cursor: pointer;
+  border-radius: 10px;
+  transition: background 160ms;
+}
+.jn-hallstrip:hover,
+.jn-hallstrip:focus-visible {
+  background: rgba(255, 220, 150, 0.28);
+}
+.jn-hallstrip .hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.jn-hallstrip .hd b {
+  font-family: var(--hand);
+  font-size: 24px;
+  font-weight: 700;
+  color: #6a3c18;
+}
+.jn-hallstrip .hd em {
+  font-style: normal;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9a6a38;
+}
+.jn-hallstrip .row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+.jn-hallstrip .cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+}
+.jn-hallstrip .cell::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 46px;
+  height: 46px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--rc) 55%, transparent), transparent);
+  opacity: 0;
+}
+.jn-hallstrip .cell.lit::before {
+  opacity: 0.75;
+}
+.jn-hallstrip .jl-strip {
+  width: 28px;
+  height: 40px;
+  position: relative;
+  filter: drop-shadow(0 2px 2px rgba(80, 40, 10, 0.25));
+}
+.jn-hallstrip .cell:not(.lit) .jl-strip {
+  opacity: 0.62;
+  filter: grayscale(0.55) drop-shadow(0 2px 2px rgba(80, 40, 10, 0.2));
+}
+.jn-hallstrip .cell small {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #7a5430;
+  white-space: nowrap;
+}
+.jn-hallstrip .cell:not(.lit) small {
+  color: #a88a64;
 }

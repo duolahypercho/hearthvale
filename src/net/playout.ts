@@ -22,6 +22,19 @@ const EXTRAP_MS = 140;
 const SOFT_MS = 35;
 /** Fastest an extrapolation error is walked off (m/s, added to the farmer's own speed). */
 const CORRECT_MS = 2.8;
+/** Rendered speed never exceeds this multiple of the path's own speed (the rest is absorbed later). */
+const VCAP = 1.32;
+/** Floor of that cap (m/s) so a standing farmer can still settle a small error. */
+const VCAP_MIN = 1.6;
+/** Error the limiter may carry before it gives up and lets the farmer catch up (m). */
+const VCAP_SLACK = 1.2;
+/**
+ * Ceiling of the pace the cap follows, by the sample's anim code (idle, walk, run, fish, hidden): no
+ * farmer outruns the player controller (walk 4.2 m/s, run 6.4 m/s — energy / combat only ever slow them),
+ * so however a lagged sender's stamps bunch up, the pace estimate can't lift the cap past ~1.45× a walk
+ * (r6 mp-adv: Cole at 150±40 ms one way rendered at 6.8 m/s = 1.62× because the window pace read high).
+ */
+const PACE_CEIL = [4.6, 4.6, 6.9, 4.6, Infinity];
 /** Samples further apart than this (m) are a teleport: snap instead of sliding. */
 const TELEPORT_M = 4;
 
@@ -60,6 +73,22 @@ export class Playout {
   private ez = 0;
   private es = 0;
   private ec: Sample | null = null;
+  /** Last rendered position (speed limiter); NaN = none (snap). */
+  private ox = NaN;
+  private oz = NaN;
+  /** Path speed envelope (m/s): the cap follows a farmer that just slowed for a few frames. */
+  private vEnv = 0;
+  /** Previous frame's raw path position + the last non-zero raw motion (offset bleed direction). */
+  private pex = NaN;
+  private pez = NaN;
+  private vx = 0;
+  private vz = 0;
+  /** Diagnostics: frames the speed limiter clamped. */
+  limited = 0;
+  /** Receiver frame interval (ms, EMA): the limiter's frame clock (one hitch can't release a surge). */
+  private fEma = 16.7;
+  /** Sender's sample spacing (ms, EMA): sizes the pace window. */
+  private gap = 50;
 
   get empty(): boolean {
     return this.buf.length === 0;
@@ -71,6 +100,8 @@ export class Playout {
     this.rt = NaN;
     this.offX = this.offZ = 0;
     this.extrap = false;
+    this.ox = this.oz = NaN;
+    this.pex = this.pez = NaN;
     if (clock) {
       this.base = NaN;
       this.jitter = 0;
@@ -92,6 +123,7 @@ export class Playout {
     this.interp = Math.min(INTERP_MAX, Math.max(INTERP_MS, this.jitter * 1.25 + 35));
     const last = this.buf[this.buf.length - 1];
     if (last && t <= last.t) return;
+    if (last && t - last.t < 400) this.gap += (t - last.t - this.gap) * 0.1;
     if (last && Math.hypot(x - last.x, z - last.z) > TELEPORT_M) {
       this.reset();
       this.snaps++;
@@ -104,6 +136,9 @@ export class Playout {
       this.eval(this.rt);
       this.offX += this.rawX - this.ex;
       this.offZ += this.rawZ - this.ez;
+      // (the path under us moved, not the farmer: keep last frame's raw point on the new path too)
+      this.pex += this.ex - this.rawX;
+      this.pez += this.ez - this.rawZ;
       this.rawX = this.ex;
       this.rawZ = this.ez;
       this.extrap = this.rt > t;
@@ -116,17 +151,27 @@ export class Playout {
     if (!b.length) return false;
     const target = now - this.base - this.interp;
     const newest = b[b.length - 1]!.t;
-    if (!Number.isFinite(this.rt) || Math.abs(target - this.rt) > 900) {
-      // First sample / long stall / hidden tab: start the clock at the target.
-      if (Number.isFinite(this.rt)) this.snaps++;
+    const first = !Number.isFinite(this.rt);
+    // Restart the clock on the first sample, or when it is > 0.9 s off the target AND there is path to
+    // restart onto (a hidden tab, a sender that froze for seconds). While we're simply starved (holding
+    // at the end of the path, nothing newer yet) the clock waits instead of re-snapping every frame.
+    // (A clock that ran > 0.9 s AHEAD of the target is never restarted backwards — that walked the
+    // farmer back along his path: it holds instead, see below.)
+    if (first || (target - this.rt > 900 && newest > this.rt + 1)) {
+      if (!first) this.snaps++;
       this.rt = Math.min(target, newest + EXTRAP_MS);
       this.offX = this.offZ = 0;
+      // The speed limiter stays on across a restart (r6: a sender tab frozen for 2.5 s on a saturated
+      // box popped every observer forward): the jump is walked off at ≤ VCAP like any other error.
+      if (first) this.ox = this.oz = NaN;
     } else {
       const fdt = Math.min(250, Math.max(0, now - this.rtAt));
       const err = target - this.rt;
       // ±6 % for small drifts (invisible), up to +20 % to catch up after a stall.
       const hi = err > 60 ? Math.min(0.2, 0.06 + (err - 60) / 1500) : 0.06;
       let rate = 1 + Math.max(-0.1, Math.min(hi, err / 1000));
+      // Far ahead of the target (the offset estimate dropped a lot): pause until it catches up.
+      if (err < -900) rate = 0;
       // Running out of path (a late packet): ease the clock down as the headroom shrinks so the farmer
       // decelerates on real data instead of coasting on a guess that later has to be bled back.
       const head = newest - this.rt;
@@ -135,6 +180,11 @@ export class Playout {
     }
     const fdt = Math.min(0.1, Math.max(0, (now - (this.rtAt || now)) / 1000));
     this.rtAt = now;
+    // The limiter runs on the receiver's own frame clock: a frame may move the farmer at most what a
+    // typical frame here would (2.5x the frame-interval EMA), so a late / stale frame stamp can't let a
+    // catch-up surge through in one presented frame (r6 mp-adv: lagged Cole at 1.62x).
+    if (fdt > 0) this.fEma += (Math.min(100, fdt * 1000) - this.fEma) * 0.08;
+    const capDt = Math.min(fdt, Math.max(0.008, (this.fEma * 2.5) / 1000));
     this.eval(this.rt);
     this.extrap = this.rt > newest;
     if (this.extrap) this.extrapFrames++;
@@ -144,17 +194,82 @@ export class Playout {
       // ~100 ms exponential bleed, but never faster than CORRECT_MS m/s on top of the walk (a big
       // wrong guess at a corner is walked off over a few frames instead of snapping).
       const len = Math.hypot(this.offX, this.offZ);
-      const cut = Math.min(len * (1 - Math.exp(-fdt / 0.1)), CORRECT_MS * fdt);
+      let cut = Math.min(len * (1 - Math.exp(-fdt / 0.1)), CORRECT_MS * fdt);
+      // A guess that ran AHEAD along the way we're walking (the sender stalled / slowed) is absorbed by
+      // letting the real path catch up under it — the farmer pauses instead of stepping backwards.
+      // A farmer who has stopped settles it slowly (≤ 0.3 m/s, half a cm a frame).
+      if (Number.isFinite(this.pex) && len > 1e-3) {
+        const ahead = (this.offX * (this.ex - this.pex) + this.offZ * (this.ez - this.pez)) / len;
+        const dot = this.offX * this.vx + this.offZ * this.vz;
+        if (dot > 0) cut = Math.min(cut, Math.max(0, ahead) + 0.3 * fdt);
+      }
       const k = len > 1e-3 ? (len - cut) / len : 0;
       this.offX *= k;
       this.offZ *= k;
     }
-    this.x = this.ex + this.offX;
-    this.z = this.ez + this.offZ;
+    let x = this.ex + this.offX;
+    let z = this.ez + this.offZ;
+    // Speed limiter: whatever the clock dilation, a late corner or a correction adds up to, the
+    // rendered farmer never moves faster than VCAP× its own pace this frame; the excess becomes
+    // offset that later frames walk off (also capped). A walk start can't render at 2× (mp-adv).
+    // The cap follows the path's pace over a ~300 ms window, not the current segment's speed: a short
+    // segment carries the sender's sim-step quantisation (0 or 2 steps in one 17 ms frame = 0x / 2x),
+    // which lifted the r5 cap along with the surge it was meant to stop (mp-adv walk at 1.6-2x).
+    this.vEnv = Math.max(this.pace(this.rt), this.vEnv * Math.exp(-fdt / 0.25));
+    if (Number.isFinite(this.ox) && fdt > 0) {
+      const dx = x - this.ox;
+      const dz = z - this.oz;
+      const step = Math.hypot(dx, dz);
+      const cap = Math.max(VCAP_MIN, VCAP * this.vEnv) * capDt;
+      if (step > cap && step - cap < VCAP_SLACK + cap) {
+        const k = cap / step;
+        x = this.ox + dx * k;
+        z = this.oz + dz * k;
+        this.offX = x - this.ex;
+        this.offZ = z - this.ez;
+        this.limited++;
+      }
+    }
+    this.ox = x;
+    this.oz = z;
+    // Raw path motion this frame (direction of travel for the offset bleed above).
+    if (Number.isFinite(this.pex)) {
+      const mx = this.ex - this.pex;
+      const mz = this.ez - this.pez;
+      if (mx * mx + mz * mz > 1e-8) {
+        this.vx = mx;
+        this.vz = mz;
+      }
+    }
+    this.pex = this.ex;
+    this.pez = this.ez;
+    this.x = x;
+    this.z = z;
     this.speed = this.es;
     this.yaw = this.ec!.yaw;
     this.anim = this.ec!.anim;
     return true;
+  }
+
+  /**
+   * Mean path speed (m/s) over the buffered samples around sender time `rt`: a window of
+   * max(300 ms, 3 send intervals + 2x the measured jitter), so a lagged / busy sender's uneven stamps
+   * average out instead of reading as a surge (or a stall) the cap then follows.
+   */
+  private pace(rt: number): number {
+    const b = this.buf;
+    const n = b.length;
+    if (n < 2) return 0;
+    const h = Math.max(150, 1.5 * this.gap + this.jitter);
+    let i = 0;
+    while (i < n - 2 && b[i + 1]!.t < rt - h) i++;
+    let j = n - 1;
+    while (j > i + 1 && b[j - 1]!.t > rt + h) j--;
+    let len = 0;
+    for (let k = i; k < j; k++) len += Math.hypot(b[k + 1]!.x - b[k]!.x, b[k + 1]!.z - b[k]!.z);
+    const span = b[j]!.t - b[i]!.t;
+    const ceil = PACE_CEIL[this.ec?.anim ?? 4] ?? Infinity;
+    return span > 0 ? Math.min(ceil, (len / span) * 1000) : 0;
   }
 
   /** Position on the buffered path at sender time `rt` (coasts ≤ EXTRAP_MS past the tail). */

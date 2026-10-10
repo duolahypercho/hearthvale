@@ -16,9 +16,9 @@ import type { System } from '../core/system';
 import type { Game } from '../core/game';
 import { MineMap, setPendingMineFloor, OPENED_CHESTS } from '../world/mine';
 import { MineEntranceMap, MOUTH, LIFT, ENTRANCE_SPAWN } from '../world/mine/entrance';
-import { BIOMES, ELEVATOR_EVERY, MAX_FLOOR, biomeForFloor } from '../world/mine/biomes';
+import { BIOMES, ELEVATOR_EVERY, MAX_FLOOR, ORE_STYLE, biomeForFloor } from '../world/mine/biomes';
 import { FLOOR_W, FLOOR_D } from '../world/mine/gen';
-import { FloorPlaque, ElevatorPanel, DamageNumbers } from '../world/mine/hud';
+import { FloorPlaque, ElevatorPanel, DamageNumbers, setUnderground, syncToolbar } from '../world/mine/hud';
 import { mineActions } from '../world/mine/actions';
 import { registerMineIcons } from '../world/mine/icons';
 import { MineCoop } from '../world/mine/coop';
@@ -44,7 +44,7 @@ declare module '../core/game' {
 }
 
 /** Demo floors (URL `&floor=N` overrides). */
-const DEMO_FLOORS: Record<string, number> = { 'mine-coop': 4, 'mine-floor': 3, 'mine-ice': 14, 'mine-lava': 24, 'mine-combat': 2, 'mine-chest': 10, mine: 1 };
+const DEMO_FLOORS: Record<string, number> = { 'audio-mine': 2, 'mine-coop': 4, 'mine-floor': 3, 'mine-ice': 14, 'mine-lava': 24, 'mine-combat': 2, 'mine-chest': 10, mine: 1 };
 
 export class MiningSystem implements System, MiningApi {
   readonly name = 'mining';
@@ -142,12 +142,43 @@ export class MiningSystem implements System, MiningApi {
     const m = this.mine()!;
     m.setFloor(n);
     const L = m.layout;
-    const p = via === 'elevator' && L.elevator ? { x: L.elevator.x + 0.5, z: L.elevator.z + 1.6 } : L.spawn;
+    let p = via === 'elevator' && L.elevator ? { x: L.elevator.x + 0.5, z: L.elevator.z + 1.6 } : L.spawn;
+    // (r6) Co-op: a farmer already standing on the arrival spot → land 1.6 tiles beside them (two
+    // farmers stacked on one tile, one head clipping through the other).
+    const others = this.coop.othersOn(n);
+    if (others.some((o) => Math.hypot(o.x - p.x, o.z - p.z) < 1.3)) {
+      for (const [ox, oz] of [[1.6, 0.3], [-1.6, 0.3], [0.4, 1.6], [1.6, 1.4], [-1.6, 1.4], [0, 2.2]] as const) {
+        const x = p.x + ox;
+        const z = p.z + oz;
+        if (m.grid.isWalkable(Math.floor(x), Math.floor(z)) && m.clearAt(x, z, 0.4) && !others.some((o) => Math.hypot(o.x - x, o.z - z) < 1.3)) {
+          p = { x, z };
+          break;
+        }
+      }
+    }
     game.player.teleport(p.x, p.z);
     game.player.setFacing('down');
     game.followPlayer(true);
     this.cur = n;
     this.best = Math.max(this.best, n);
+    if (n > 0) this.readyTool();
+  }
+
+  /**
+   * Arriving on a mine floor with a farm tool in hand: switch to the pickaxe, or to the sword when
+   * a monster is already within 5 tiles.
+   */
+  private readyTool(): void {
+    const game = this.game;
+    const slots = game.services.inventory?.slots;
+    const m = this.mine();
+    if (!slots || !m) return;
+    const held = slots[game.toolbarSlot]?.id ?? '';
+    if (held === 'pickaxe' || held === 'sword') return;
+    const p = game.player.position;
+    const foe = m.monsters.some((mo) => mo.alive && Math.hypot(mo.pos.x - p.x, mo.pos.z - p.z) < 5);
+    const hasSword = slots.slice(0, 10).some((st) => st?.id === 'sword');
+    syncToolbar(game, foe && hasSword ? 'sword' : 'pickaxe');
   }
 
   async goto(n: number, via: 'ladder' | 'elevator' | 'debug' | 'entrance' = 'debug'): Promise<void> {
@@ -201,6 +232,7 @@ export class MiningSystem implements System, MiningApi {
     const tier = this.game.services.farming?.toolTier('pickaxe') ?? 0;
     const player = this.game.player;
     const origin = player.position.clone();
+    syncToolbar(this.game, 'pickaxe');
     this.game.events.emit('tool:swing', { tool: 'pickaxe', tier, charge: 0 });
     acts.start('chop', this.pickaxeMesh(), {
       speed: 1 + tier * 0.08,
@@ -274,6 +306,7 @@ export class MiningSystem implements System, MiningApi {
     this.coop.update(dt, game.time);
     const id = game.world.current?.id;
     const inMine = id === 'mine' || id === 'mine-entrance';
+    setUnderground(game.opts.uiRoot, id === 'mine');
     this.plaque.show(inMine && game.opts.hud);
     if (inMine) this.plaque.dodge(dt);
     this.numbers.update(dt, game.rc.camera, window.innerWidth, window.innerHeight);
@@ -283,7 +316,9 @@ export class MiningSystem implements System, MiningApi {
       this.plaqueKey = key;
       if (id === 'mine') {
         const m = this.mine()!;
-        this.plaque.set(m.floor, BIOMES[m.layout.biome].name, m.layout.biome);
+        // Repeat tiers (floor 31+ revisits the bands, tougher): the plaque says so.
+        const tier = m.layout.tier;
+        this.plaque.set(m.floor, tier > 0 ? `${BIOMES[m.layout.biome].name} · ${'★'.repeat(Math.min(3, tier + 1))}` : BIOMES[m.layout.biome].name, m.layout.biome);
       } else this.plaque.set(0, 'Mountain shelf', 'entrance');
     }
     // Keep the mine-action pose driver installed over whatever the farm installs.
@@ -310,7 +345,13 @@ export class MiningSystem implements System, MiningApi {
       return;
     }
     if (!(name in DEMO_FLOORS) || game.world.current?.id !== 'mine') return;
+    // Staged mine frames hold a mining tool, never the hoe (after the staging below settles).
     const q = new URLSearchParams(location.search);
+    setTimeout(() => {
+      this.readyTool();
+      // Beauty frames face the lens (equipping must never leave the farmer showing their back).
+      if (q.get('pick') !== '1' && (name === 'mine-floor' || name === 'mine-ice' || name === 'mine-lava' || name === 'mine')) game.player.setFacing('down');
+    }, 60);
     const n = Number(q.get('floor')) || DEMO_FLOORS[name]!;
     const m = this.mine()!;
     m.setFloor(n);
@@ -334,7 +375,22 @@ export class MiningSystem implements System, MiningApi {
       this.plaqueKey = '';
       return;
     }
-    const spot = showcaseSpot(m, name === 'mine-combat');
+    let spot = showcaseSpot(m, name === 'mine-combat');
+    // (r6) `&ui=elevator`: stand beside the lift cage (its gate, pulley and lit call lever in the
+    // frame), not out in a rock field with the panel floating over nothing.
+    const lift = q.get('ui') === 'elevator' ? m.layout.elevator : null;
+    if (lift) {
+      for (const [ox, oz] of [[1.75, 1.35], [-1.6, 1.35], [1.5, 2.0], [0.4, 2.2]] as const) {
+        const x = lift.x + 0.5 + ox;
+        const z = lift.z + 0.5 + oz;
+        if (m.grid.isWalkable(Math.floor(x), Math.floor(z))) {
+          spot = { x, z };
+          break;
+        }
+      }
+      m.removeRocks((m.rocks?.rocks ?? []).filter((r) => r.alive && Math.hypot(r.pos.x - (lift.x + 0.5), r.pos.z - (lift.z + 1.2)) < 2.6).map((r) => r.spec.z * FLOOR_W + r.spec.x));
+      setTimeout(() => game.player.setFacing(spot.x > lift.x + 0.5 ? 'left' : 'right'), 80);
+    }
     game.player.teleport(spot.x, spot.z);
     // Staged frames: nothing hugs the farmer (a rock just north of them is drawn behind the hat).
     // (the 42° camera draws anything up to ~2.3 m north of the farmer right behind the hat)
@@ -394,15 +450,18 @@ export class MiningSystem implements System, MiningApi {
       // Open floor towards the camera (nothing between the lens and the swing) and beside it.
       if (!open(sx, sz + 1) || !m.grid.isWalkable(rk.spec.x, sz + 1) || !open(sx - 1, sz)) continue;
       let s = -Math.hypot(sx + 0.5 - p.x, sz + 0.5 - p.z) * 0.35;
-      if (rk.spec.ore) s += 4;
+      if (rk.spec.ore) s += ORE_STYLE[rk.spec.ore].kind === 'metal' ? 60 : 40;
       // Keep walls out of the foreground (the lower third of the frame) and a dressed wall behind.
       for (let dz = 1; dz <= 3; dz++) for (let dx = -2; dx <= 2; dx++) if (L.solid[(sz + dz) * FLOOR_W + sx + dx]) s -= 0.8;
       for (let dz = 3; dz <= 6; dz++) if (L.solid[(sz - dz) * FLOOR_W + sx]) { s += 1.5; break; }
       if (!best || s > best.s) best = { x: rk.spec.x, z: rk.spec.z, s };
     }
     if (!best) return;
-    const fx = best.x + 0.5 - 0.78;
-    const fz = best.z + 0.55;
+    // (r6) Stand where the pick head actually lands: the chop's impact pose puts the head ~1.4 m
+    // ahead at knee height (0.12 m lensward with the 3/4 twist below) — the farmer used to stand
+    // 0.78 m off and the head bit the air past the rock.
+    const fx = best.x + 0.5 - 1.28;
+    const fz = best.z + 0.5 - 0.1;
     this.game.player.teleport(fx, fz);
     // Nothing else crowding the swing, and nothing in front of it (towards the camera) or right
     // behind the hat.
@@ -413,25 +472,31 @@ export class MiningSystem implements System, MiningApi {
       return Math.hypot(dx, dz) < 1.5 || (dz > 0 && dz < 2.6 && Math.abs(dx) < 1.3) || (dz < 0 && dz > -1.8 && Math.abs(dx) < 1.0);
     });
     m.removeRocks(crowd.map((r) => r.spec.z * FLOOR_W + r.spec.x));
-    for (const mo of [...m.monsters]) if (Math.hypot(mo.pos.x - fx, mo.pos.z - fz) < 2.4) m.removeMonster(mo);
+    for (const mo of [...m.monsters]) if (Math.hypot(mo.pos.x - fx, mo.pos.z - fz) < 3.6) m.removeMonster(mo);
     m.freezeAI = true;
     const tx = best.x;
     const tz = best.z;
     this.freezeOnImpact = still;
+    syncToolbar(this.game, 'pickaxe');
     const acts = mineActions(this.game.player);
     // Three-quarter turn towards the camera (the farmer faces +X; negative yaw swings the chest to +Z).
-    acts.twist = -0.8;
+    acts.twist = -0.3;
     // After the demo applies its own facing (same tick), turn to the rock; then chop on a loop so
     // any capture sequence catches a full swing (a still freezes the first impact, chips and all).
     setTimeout(() => this.game.player.setFacing('right'), 0);
+    // Burst-friendly: wind-up + contact + chips on the first swing, the shatter on the second
+    // (~0.7 s later), then the next rock in reach (a 5-frame capture shows the whole beat).
+    let first = true;
     const loop = (): void => {
       if (this.mine() !== m) return;
       const rk = m.rockAt(tx, tz);
       if (!rk) return;
-      rk.hp = Math.max(rk.hp, 2);
+      if (first || still) rk.hp = Math.max(rk.hp, 2);
+      else rk.hp = Math.min(rk.hp, 1);
+      first = false;
       this.game.player.setFacing('right');
       this.usePickaxe(tx, tz);
-      if (!still) setTimeout(loop, 1500);
+      if (!still) setTimeout(loop, 700);
     };
     setTimeout(loop, 900);
   }

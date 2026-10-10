@@ -27,6 +27,7 @@ import { CaveLighting } from './lighting';
 import { BIOMES, ORE_STYLE, biomeForFloor, type MonsterKind } from './biomes';
 import { createMonster, monsterColor, type ArenaCtx, type Monster } from '../../entities/monsters';
 import { mineSfx } from './sfx';
+import { OCC, updateOcclusion, occlusionScan, occlusionClear } from './occlude';
 import './events';
 
 export interface StrikeHit {
@@ -322,6 +323,19 @@ export class MineMap implements GameMap {
     this.rocks = new RockField(L, r.fork('rocks'), (x, z) => this.cave!.heightAt(x, z));
     this.floorGroup.add(this.rocks.group);
     for (const rk of this.rocks.rocks) g.setObject(rk.spec.x, rk.spec.z, { kind: 'mineRock', id: rk.spec.ore ?? 'rock', solid: true, hp: rk.hp, data: { ore: rk.spec.ore } });
+    // Cut / solid shader twins + cell-split floor meshes (occlude.ts, pillar 14): both programs build
+    // off-thread for the scene's real target; until then everything keeps the cut variant.
+    occlusionScan(this.floorGroup, (root) => {
+      const rc = this.game.rc;
+      const r = rc.renderer;
+      const prev = r.getRenderTarget();
+      r.setRenderTarget(rc.post.composer.readBuffer ?? null);
+      try {
+        return r.compileAsync(root, rc.camera, rc.scene);
+      } finally {
+        r.setRenderTarget(prev);
+      }
+    });
 
     const band = Math.floor((n - 1) / 10) % 3;
     for (const m of L.monsters) this.addMonster(m.kind, m.x, m.z, L.tier, band);
@@ -425,6 +439,7 @@ export class MineMap implements GameMap {
   }
 
   private clearFloor(): void {
+    occlusionClear();
     for (const pr of this.projectiles ?? []) pr.mesh.removeFromParent();
     if (this.projectiles) this.projectiles.length = 0;
     for (const m of this.monsters) {
@@ -466,6 +481,8 @@ export class MineMap implements GameMap {
   private deactivate(): void {
     if (!this.active) return;
     this.active = false;
+    OCC.uOccN.value = 0;
+    OCC.uOccH.value = 0;
     this.lighting.deactivate();
     const rig = this.game.rc.rig;
     if (this.savedCam) {
@@ -533,7 +550,9 @@ export class MineMap implements GameMap {
     this.game.events.emit('mine:rock', { x: tx, z: tz, ore, floor: this.floor });
     this.hooks?.rock?.(tz * FLOOR_W + tx, 0, true, drops, this.strikerId);
     // Ladder down?
-    if (!this.ladderDown) {
+    const lr = this.layout.ladderRock;
+    if (!this.ladderDown && lr && lr.x === tx && lr.z === tz) this.revealLadder(tx, tz, true);
+    else if (!this.ladderDown) {
       const total = this.layout.rocks.length;
       const left = this.rocks.remaining;
       const done = 1 - left / Math.max(1, total);
@@ -558,11 +577,16 @@ export class MineMap implements GameMap {
     // the biome's floor colour rolling out from the rock's foot.
     this.fx.sparks(pos, { color: 0xffe0a0, to: 0xff7a20, count: ore ? 12 : 8, speed: 3.4, up: 1.0, size: 0.08, gravity: 9, drag: 1.2, life: 0.38 });
     this.fx.shatter(pos, baseCol.clone().multiplyScalar(1.1), 8 + Math.floor(Math.random() * 5), 0.55, dir.clone().negate());
-    if (ore) this.fx.shatter(pos, oreColor(ore as never), 2, 0.6, dir.clone().negate());
+    if (ore) {
+      // Ore nuggets knocked loose: chunky ore-coloured bits + a few glints in the ore's colour.
+      const oc = oreColor(ore as never);
+      this.fx.shatter(pos.clone().setY(pos.y + 0.1), oc, 5, 0.75, dir.clone().negate());
+      this.fx.sparks(pos.clone().setY(pos.y + 0.15), { color: oc.clone().lerp(new THREE.Color(0xffffff), 0.4), count: 6, speed: 2.2, up: 1.3, size: 0.2, gravity: 4, drag: 2.5, life: 0.5, star: true });
+    }
     const dust = new THREE.Color(def.floor[0]).lerp(new THREE.Color(0xe8dcc8), 0.35);
     this.fx.dustRing(rock.pos.clone().setY(rock.pos.y + 0.1), dust, 12, 2.4, 0.5);
     this.fx.puff(pos, { color: dust, count: 3, speed: 0.6, up: 0.6, size: 0.55, grow: 1.4, gravity: -0.3, drag: 3, life: 0.6, alpha: 0.45 });
-    mineSfx.pick(!!ore);
+    mineSfx.pick(!!ore, rock.pos);
     if (!this.striker) this.game.rc.rig.addShake(0.08);
   }
 
@@ -587,7 +611,7 @@ export class MineMap implements GameMap {
     this.fx.rubble(rock.pos, baseCol.clone().multiplyScalar(0.9), big ? 6 : 4, big ? 0.55 : 0.42);
     const near = Math.hypot(rock.pos.x - this.game.player.position.x, rock.pos.z - this.game.player.position.z) < 6;
     if (near) this.game.rc.rig.addShake(big ? 0.3 : this.striker ? 0.08 : 0.18);
-    mineSfx.crumble(big);
+    mineSfx.crumble(big, rock.pos);
     const drops: DropInfo[] = [];
     if (ore) {
       const oc = oreColor(ore as never);
@@ -597,7 +621,7 @@ export class MineMap implements GameMap {
       this.fx.sparks(pos.clone().setY(pos.y + 0.25), { color: bright, count: 2, speed: 0.05, up: 0, size: 1.5, gravity: 0, drag: 0, life: 0.3, star: true });
       this.fx.sparks(pos, { color: bright, count: 16, speed: 2.4, up: 1.4, size: 0.24, gravity: 2, drag: 2.5, life: 0.9, star: true });
       this.fx.rubble(rock.pos, oc.clone().multiplyScalar(0.8), 1, 0.3);
-      if (ORE_STYLE[ore as keyof typeof ORE_STYLE]?.kind === 'gem') mineSfx.gem();
+      if (ORE_STYLE[ore as keyof typeof ORE_STYLE]?.kind === 'gem') mineSfx.gem(rock.pos);
     }
     if (!roll) return drops;
     for (const id of rollRockLoot(() => this.rng.next(), ore, big, this.layout.biome)) drops.push(this.spawnDrop(id, rock.pos, 1, 1.4));
@@ -666,7 +690,7 @@ export class MineMap implements GameMap {
     const p = g.position.clone().setY(g.position.y + 0.3);
     this.fx.sparks(p, { color: 0xffe6a0, count: 26, speed: 2, up: 1.6, size: 0.22, gravity: 1.5, drag: 2, life: 1.1, star: true });
     this.fx.puff(p, { color: 0xd8c0a0, count: 10, speed: 1.2, up: 0.4, size: 0.9, grow: 1.5, gravity: -0.3, drag: 3, life: 1, alpha: 0.4 });
-    mineSfx.reveal();
+    mineSfx.reveal(p);
     this.game.events.emit('mine:ladder', { x: tx, z: tz, floor: this.floor });
   }
 
@@ -698,21 +722,17 @@ export class MineMap implements GameMap {
       const col = monsterColor(m.kind, this.layout.biome);
       if (m.kind === 'slime') {
         this.fx.puff(at, { color: col, count: 10, speed: 2.6, up: 1.2, size: 0.16, gravity: 9, drag: 1, life: 0.6, dir: kdir, cone: 0.5 });
-        mineSfx.squish();
       } else if (m.kind === 'crab') {
         this.fx.shatter(at, new THREE.Color(col), 3, 0.7, kdir);
-        mineSfx.hitShell();
       } else if (m.kind === 'wisp') {
         this.fx.sparks(at, { color: 0xdff6ff, count: 14, speed: 3, up: 0.8, size: 0.14, gravity: 3, drag: 2, life: 0.5, dir: kdir, cone: 0.5, star: true });
-        mineSfx.zap();
       } else if (m.kind === 'imp') {
         this.fx.sparks(at, { color: 0xffb040, to: 0xff3010, count: 16, speed: 3, up: 1.2, size: 0.12, gravity: 4, drag: 2, life: 0.5, dir: kdir, cone: 0.5 });
-        mineSfx.squish();
-      } else {
-        mineSfx.screech();
       }
-      this.fx.sparks(at, { color: 0xffffff, to: crit ? 0xffc040 : 0xffe8c0, count: crit ? 18 : 10, speed: crit ? 5 : 3.6, up: 0.8, size: crit ? 0.14 : 0.1, gravity: 4, drag: 3, life: 0.28, dir: kdir, cone: 0.4 });
-      mineSfx.hitFlesh(crit);
+      // (r6: a few small warm sparks thrown off the far side — the white burst bloomed over the victim)
+      this.fx.sparks(at.clone().addScaledVector(kdir, m.radius * 0.6), { color: crit ? 0xffd070 : 0xffd8a0, to: crit ? 0xff9020 : 0xc08040, count: crit ? 10 : 6, speed: crit ? 4.4 : 3.4, up: 0.7, size: crit ? 0.1 : 0.075, gravity: 5, drag: 3, life: 0.24, dir: kdir, cone: 0.35 });
+      // One voice per kind for the whole swing (systems/audio.ts collapses simultaneous hits).
+      mineSfx.hit(m.kind, crit, killed, m.pos);
     }
     // The blade cuts fireballs out of the air.
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
@@ -745,7 +765,7 @@ export class MineMap implements GameMap {
     this.projectiles.push({ mesh: g, pos: from.clone(), vel: dir.clone().setY(0).normalize().multiplyScalar(5.2), age: 0, damage: this.puppet ? 0 : damage, owner });
     if (!this.puppet) this.hooks?.shoot?.(from, dir);
     this.fx.sparks(from, { color: 0xffc060, to: 0xff4010, count: 10, speed: 1.5, up: 1, size: 0.12, gravity: 1, drag: 2, life: 0.4 });
-    mineSfx.fireball();
+    mineSfx.fireball(from);
   }
 
   private popProjectile(i: number, parried = false): void {
@@ -759,7 +779,7 @@ export class MineMap implements GameMap {
     }
     this.fx.sparks(pr.pos, { color: parried ? 0xfff0c0 : 0xffb040, to: 0xff3010, count: parried ? 22 : 16, speed: 2.6, up: 1.2, size: 0.13, gravity: 3, drag: 2, life: 0.55, star: parried });
     this.fx.puff(pr.pos, { color: 0x4a3a38, count: 4, speed: 0.6, up: 1, size: 0.6, grow: 1.6, gravity: -0.6, drag: 2, life: 0.8, alpha: 0.4 });
-    if (parried) mineSfx.hitShell();
+    if (parried) mineSfx.hitShell(pr.pos);
   }
 
   private updateProjectiles(dt: number, player: THREE.Vector3): void {
@@ -799,7 +819,7 @@ export class MineMap implements GameMap {
     this.fx.sparks(p, { color: 0xffe6a0, count: 34, speed: 2.4, up: 2, size: 0.26, gravity: 1.2, drag: 2, life: 1.3, star: true });
     this.fx.sparks(p, { color: 0xfff6d0, count: 1, speed: 0, up: 0, size: 2.4, gravity: 0, drag: 0, life: 0.25 });
     this.lighting.flash = Math.max(this.lighting.flash, 0.4);
-    mineSfx.chest();
+    mineSfx.chest(p);
     return true;
   }
 
@@ -817,14 +837,21 @@ export class MineMap implements GameMap {
 
   private puff(p: THREE.Vector3, color: number, count: number, kind: 'dust' | 'goo' | 'spark'): void {
     if (kind === 'goo') {
-      this.fx.puff(p, { color, count, speed: 3, up: 1.4, size: 0.2, gravity: 10, drag: 0.8, life: 0.8 });
-      this.fx.sparks(p, { color: new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.5), count: 10, speed: 2, up: 1, size: 0.18, gravity: 0, drag: 3, life: 0.5, star: true });
-      this.fx.puff(p, { color: 0xf0ece0, count: 6, speed: 1, up: 0.5, size: 0.9, grow: 1.4, gravity: -0.4, drag: 3, life: 0.7, alpha: 0.55 });
-      mineSfx.pop();
+      // Death pop: chunky goo blobs in the monster's own colour + a short, low smoke puff tinted
+      // by it (kept well under the bloom threshold: a puff, not a flash-bang over the farmer).
+      const mc = new THREE.Color(color);
+      this.fx.puff(p, { color: mc, count: Math.round(count * 0.8), speed: 3, up: 1.4, size: 0.26, gravity: 10, drag: 0.8, life: 0.7 });
+      this.fx.sparks(p, { color: mc.clone().lerp(new THREE.Color(0xffffff), 0.25).multiplyScalar(0.55), count: 5, speed: 2, up: 1, size: 0.14, gravity: 0, drag: 3, life: 0.35, star: true });
+      this.fx.puff(p, { color: mc.clone().lerp(new THREE.Color(0x8a8070), 0.55).multiplyScalar(0.6), count: 5, speed: 1.2, up: 0.4, size: 0.55, grow: 1.1, gravity: -0.3, drag: 3.5, life: 0.4, alpha: 0.45 });
+      mineSfx.pop(p);
     } else if (kind === 'spark') {
       this.fx.sparks(p, { color, count, speed: 2.5, up: 1, size: 0.12, gravity: 3, drag: 2, life: 0.5 });
     } else {
-      this.fx.puff(p, { color, count, speed: 1.1, up: 0.4, size: 0.55, grow: 1.4, gravity: -0.2, drag: 3, life: 0.7, alpha: 0.45 });
+      // (dust: clamp the value so pale puffs never bloom out)
+      const dc = new THREE.Color(color);
+      const mx = Math.max(dc.r, dc.g, dc.b);
+      if (mx > 0.5) dc.multiplyScalar(0.5 / mx);
+      this.fx.puff(p, { color: dc, count, speed: 1.1, up: 0.4, size: 0.5, grow: 1.2, gravity: -0.2, drag: 3, life: 0.55, alpha: 0.42 });
     }
   }
 
@@ -900,6 +927,29 @@ export class MineMap implements GameMap {
         }
       }
     }
+    // (r7) Walkers never sink into a farmer's body (a slime used to sit inside the farmer's hip
+    // while it nibbled): a soft push out to body contact, still inside touchPlayer's reach so the
+    // contact hit fires. Host-side (puppet floors take the host's positions), local + co-op farmers.
+    if (!this.puppet && simDt > 0) {
+      for (const m of this.monsters) {
+        if (!m.alive || m.flies) continue;
+        for (let k = -1; k < this.remotes.length; k++) {
+          const at = k < 0 ? player : this.remotes[k]!.pos;
+          const dx = m.pos.x - at.x;
+          const dz = m.pos.z - at.z;
+          const d = Math.hypot(dx, dz);
+          const min = m.radius + 0.26;
+          if (d >= min) continue;
+          const nx = d > 1e-3 ? dx / d : 0;
+          const nz = d > 1e-3 ? dz / d : 1;
+          const push = (min - d) * Math.min(1, 14 * simDt);
+          if (this.clearAt(m.pos.x + nx * push, m.pos.z + nz * push, m.radius * 0.8, false)) {
+            m.pos.x += nx * push;
+            m.pos.z += nz * push;
+          }
+        }
+      }
+    }
     // Lava lip: standing on the hot shoreline scorches (tick + shove back onto the rock).
     this.hazardT = Math.max(0, this.hazardT - simDt);
     if (this.cave && this.layout.biome === 'lava' && this.playerTargetable && simDt > 0 && this.hazardT <= 0) {
@@ -917,7 +967,7 @@ export class MineMap implements GameMap {
         const at = new THREE.Vector3(player.x, player.y + 0.1, player.z);
         this.fx.sparks(at, { color: 0xffc060, to: 0xff3010, count: 14, speed: 1.6, up: 2.2, size: 0.12, gravity: 1, drag: 1.5, life: 0.7 });
         this.fx.puff(at, { color: 0x6a5a58, count: 5, speed: 0.6, up: 1.4, size: 0.6, grow: 1.8, gravity: -1, drag: 2, life: 0.9, alpha: 0.4 });
-        mineSfx.sizzle();
+        mineSfx.sizzle(at);
         this.game.events.emit('combat:playerHit', { damage: 5 + this.layout.tier * 3, x: hot.x, z: hot.z, kind: 'lava' });
       }
     }
@@ -1014,10 +1064,19 @@ export class MineMap implements GameMap {
     }
     const h = game.rc.renderer.domElement.height;
     FG_FADE.uFgH.value = h;
+    // See-through: farmers first (local, then co-op), then the nearest visible monsters.
+    const occT = this.occTargets;
+    occT.length = 0;
+    occT.push({ pos: player, h: 1.6 });
+    for (const r of this.remotes) occT.push({ pos: r.pos, h: 1.6 });
+    const mons = this.monsters.filter((m) => m.root.visible && m.alive !== false).sort((a, b) => a.pos.distanceToSquared(player) - b.pos.distanceToSquared(player));
+    for (const m of mons) occT.push({ pos: m.pos, h: m.kind === 'bat' || m.kind === 'wisp' ? 1.6 : 0.9 });
+    updateOcclusion(game.rc.camera, occT, game.rc.renderer.domElement.width, h);
     this.lighting.update(dt, time, player);
     this.fx.update(this.freezeFx ? 0 : dt, time, h, game.rc.rig.focus, this.lighting.fill.position);
   }
 
+  private readonly occTargets: { pos: THREE.Vector3; h: number }[] = [];
   private readonly frustum = new THREE.Frustum();
   private readonly pv = new THREE.Matrix4();
   private readonly cullSphere = new THREE.Sphere();

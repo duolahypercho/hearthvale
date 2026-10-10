@@ -9,7 +9,8 @@ import type { Game } from '../core/game';
 import { NPCS, type NpcId } from '../data/npcs';
 import { portraitSvg } from './portraits';
 import { ICONS } from './icons';
-import { Screen, el, frame, closeButton, sfx, replay, escapeHtml } from './kit';
+import { journal } from './profile';
+import { Screen, el, frame, closeButton, sfx, replay, escapeHtml, shortName } from './kit';
 
 const SEASON_NAME: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' };
 const SEASONS = ['spring', 'summer', 'fall', 'winter'];
@@ -34,7 +35,7 @@ function nextBirthday(game: Game): { name: string; season: string; day: number }
     if (!b) continue;
     let d = SEASONS.indexOf(b.season) * 28 + b.day - now;
     if (d < 0) d += 112;
-    if (!best || d < best.d) best = { name: n.name.split(' ')[0]!, season: b.season, day: b.day, d };
+    if (!best || d < best.d) best = { name: shortName(n.name), season: b.season, day: b.day, d };
   }
   return best;
 }
@@ -69,7 +70,6 @@ export class PauseScreen extends Screen {
       ['save', 'Save Game', 'save', ''],
       ['load', 'Load Game', 'door', ''],
       ['settings', 'Options', 'gear', ''],
-      ['title', 'Quit to Title', 'x', 'red'],
     ];
     for (const [id, label, icon, cls] of items) {
       const b = el('button', `u-btn ${cls}`, `${ICONS[icon] ?? ''}<span>${label}</span>`);
@@ -78,7 +78,35 @@ export class PauseScreen extends Screen {
       b.addEventListener('click', () => this.action(id));
       menu.appendChild(b);
     }
-    sign.querySelector('.board')!.appendChild(menu);
+    // r5: Quit is a quiet secondary link at the foot of the board with an inline confirm (it no longer weighs
+    // as much as Resume).
+    const quit = el('div', 'pause-quit');
+    const qb = el('button', 'pq-link', `${ICONS.door ?? ''}<span>Quit to title</span>`);
+    qb.dataset.nav = '';
+    qb.addEventListener('click', () => {
+      sfx(this.game, 'click');
+      quit.classList.add('ask');
+      quit.innerHTML = `<span class="pq-q">Leave for the title? Anything since your last save is lost.</span>`;
+      const yes = el('button', 'pq-yes', 'Quit');
+      const no = el('button', 'pq-no', 'Stay');
+      yes.dataset.nav = '';
+      no.dataset.nav = '';
+      yes.addEventListener('click', () => this.action('title'));
+      no.addEventListener('click', () => {
+        sfx(this.game, 'click');
+        quit.classList.remove('ask');
+        quit.replaceChildren(qb);
+        this.nav.set(qb, document.body.classList.contains('u-kbd'));
+      });
+      quit.append(yes, no);
+      this.nav.set(no, document.body.classList.contains('u-kbd'));
+    });
+    quit.appendChild(qb);
+    // A carved plaque fills the board's foot: whose farm this is and how long they've kept it.
+    const days = (['spring', 'summer', 'fall', 'winter'].indexOf(c.season) + (c.year - 1) * 4) * 28 + c.day;
+    const plaque = el('div', 'pause-plaque', `<b></b><small>${days === 1 ? 'first day on the farm' : `${days} days on the farm`}</small>`);
+    plaque.querySelector('b')!.textContent = journal.farm;
+    sign.querySelector('.board')!.append(menu, plaque, quit);
     // Today card.
     const bd = nextBirthday(this.game);
     const gold = this.game.services.economy?.gold() ?? 0;
@@ -148,10 +176,10 @@ export class PauseScreen extends Screen {
           } catch {
             /* no portrait */
           }
-          return `<div class="td-friend meet"><span class="pf">${face}</span><div><b>${escapeHtml(n.name.split(' ')[0]!)}</b></div></div>`;
+          return `<div class="td-friend meet"><span class="pf">${face}</span><div><b>${escapeHtml(shortName(n.name))}</b></div></div>`;
         })
         .join('');
-      return `<div class="td-friends meet"><div class="lbl">${ICONS.heart ?? ''}<span>Neighbours to meet</span></div><div class="row">${faces}</div><small class="nudge">Say hello in the square. A small gift goes a long way.</small></div>`;
+      return `<div class="td-friends meet"><div class="lbl">${ICONS.heart ?? ''}<span>Neighbours to meet</span></div><div class="row">${faces}</div><small class="nudge">Say hello — a small gift goes a long way.</small></div>`;
     }
     const top = close;
     const row = top
@@ -164,7 +192,7 @@ export class PauseScreen extends Screen {
           /* no portrait */
         }
         const hearts = Array.from({ length: 5 }, (_, i) => `<i class="${h >= (i + 1) * 2 ? 'on' : h >= i * 2 + 1 ? 'half' : ''}"></i>`).join('');
-        return `<div class="td-friend"><span class="pf">${face}</span><div><b>${escapeHtml(n.name.split(' ')[0]!)}</b><span class="hs">${hearts}</span></div></div>`;
+        return `<div class="td-friend"><span class="pf">${face}</span><div><b>${escapeHtml(shortName(n.name))}</b><span class="hs">${hearts}</span></div></div>`;
       })
       .join('');
     return `<div class="td-friends"><div class="lbl">${ICONS.heart ?? ''}<span>Closest friends</span></div><div class="row">${row}</div></div>`;

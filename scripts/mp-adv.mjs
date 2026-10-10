@@ -141,8 +141,16 @@ const watch = (page, id) =>
     if (!r) return false;
     // Stamped with the animation-frame time (the vsync the frame is presented on), not the moment
     // this callback happens to run in a busy frame.
+    // Only frames the game actually stepped + drew count: under load the frame governor paces the game
+    // to every other vsync, and a sample taken on a skipped vsync (nothing presented) followed by a
+    // drawn one read as a 2-3x "pop" that no one ever saw (r5/r6 first-walk failures on a saturated box).
+    const g = window.__game.game;
+    let lastFrame = -1;
     const tick = (ts) => {
-      window.__advS.push([ts ?? Number(document.timeline.currentTime), r.farmer.position.x, r.farmer.position.z]);
+      if (g.frame !== lastFrame) {
+        lastFrame = g.frame;
+        window.__advS.push([ts ?? Number(document.timeline.currentTime), r.farmer.position.x, r.farmer.position.z]);
+      }
       window.__advRaf = requestAnimationFrame(tick);
     };
     tick();
@@ -218,6 +226,18 @@ try {
     }, lane);
     for (const w of watchers) await ev(w, (l) => window.__game.teleport('farm', l.x + 4, l.z + 4.5), lane);
     await sleep(1500);
+    // On a saturated machine the start teleport can take longer to reach a watcher: don't start the
+    // per-frame watch (which would count the teleport as a 17 m "step") until everyone sees him there.
+    const atStart = await Promise.all(watchers.map((w) => waitFor(w, (q) => {
+      const r = window.__game.game.services.net.remotes.get(q.id);
+      return !!r && Math.hypot(r.farmer.position.x - (q.l.x + 0.5), r.farmer.position.z - (q.l.z + 1.5)) < 0.3;
+    }, { id: ids[moverName], l: lane }, 30000)));
+    await sleep(400);
+    const play0 = await Promise.all(watchers.map((w) => ev(w, (id) => {
+      const r = window.__game.game.services.net.remotes.get(id);
+      return r ? { snaps: r.play.snaps, limited: r.play.limited, x: +r.farmer.position.x.toFixed(2), z: +r.farmer.position.z.toFixed(2) } : null;
+    }, ids[moverName])));
+    log(`${moverName} at start: ${atStart.join(',')} · ${JSON.stringify(play0)}`);
     const okW = await Promise.all(watchers.map((w) => watch(w, ids[moverName])));
     if (run) await mover.keyboard.down('ShiftLeft');
     await mover.keyboard.down(key);
@@ -227,6 +247,25 @@ try {
     await sleep(1200);
     const own = await ev(mover, () => ({ ...window.__game.info().player, corr: window.__game.game.services.net.stats().corrections }));
     const rs = await Promise.all(watchers.map((w) => unwatch(w)));
+    // Diagnostics: the mover's sample stream as each watcher buffered it (sender clock): the fastest
+    // segment and the fastest 300 ms window — tells a sender-side burst from a playout pop.
+    const streams = await Promise.all(watchers.map((w) => ev(w, (id) => {
+      const r = window.__game.game.services.net.remotes.get(id);
+      const b = r ? r.play.buf : [];
+      let seg = 0, segDt = 0, win = 0;
+      for (let i = 1; i < b.length; i++) {
+        const dt = b[i].t - b[i - 1].t;
+        const v = (Math.hypot(b[i].x - b[i - 1].x, b[i].z - b[i - 1].z) / Math.max(1, dt)) * 1000;
+        if (v > seg) { seg = v; segDt = dt; }
+        let j = i;
+        while (j < b.length - 1 && b[j].t - b[i - 1].t < 300) j++;
+        let len = 0;
+        for (let k = i; k <= j; k++) len += Math.hypot(b[k].x - b[k - 1].x, b[k].z - b[k - 1].z);
+        win = Math.max(win, (len / Math.max(1, b[j].t - b[i - 1].t)) * 1000);
+      }
+      return { n: b.length, seg: +seg.toFixed(2), segDt: Math.round(segDt), win300: +win.toFixed(2), snaps: r?.play.snaps, limited: r?.play.limited };
+    }, ids[moverName])));
+    log(`${moverName} stream`, JSON.stringify(streams));
     const seen = await Promise.all(watchers.map((w) => ev(w, (id) => {
       const r = window.__game.game.services.net.remotes.get(id);
       return r ? { x: r.farmer.position.x, z: r.farmer.position.z } : null;
@@ -234,8 +273,11 @@ try {
     const end = seen.map((s) => (s ? Math.hypot(s.x - own.x, s.z - own.z) : 99));
     return { rs, end, own, okW };
   };
-  const speedCap = (run) => (run ? 6.4 : 4.2) * 2;
-  for (const run of [false, true]) {
+  // r6: the rendered pace may surge at most 1.5x (playout VCAP 1.4x of the windowed path pace), over
+  // WALKS consecutive walks (--walks, default 5) + one run.
+  const speedCap = (run) => (run ? 6.4 : 4.2) * 1.5;
+  const WALKS = opt('walks', 5);
+  for (const run of [...Array(WALKS).fill(false), true]) {
     const r = await moveTest(ash, 'ash', [host, bea, cole], 'KeyD', run ? 1100 : 1600, run);
     const wn = ['host', 'bea', 'cole'];
     log(`ash ${run ? 'run' : 'walk'}`, JSON.stringify(r.rs));
@@ -376,11 +418,54 @@ try {
 
   // ── sync traffic + frame time ──
   const st = await Promise.all([ash, bea, cole].map((p) => ev(p, () => window.__game.game.services.net.stats())));
-  log('sync', st.map((s, i) => `${['ash', 'bea', 'cole'][i]}: ${s.reconciles} host edits, ${s.drift} drift, ${s.needs} resyncs, ${s.fullSyncs} full (${s.driftLog.join(' ')})`).join(' | '));
+  log('sync', st.map((s, i) => `${['ash', 'bea', 'cole'][i]}: ${s.reconciles} host edits, ${s.mispredicts} mispredicts, ${s.drift} drift, ${s.needs} resyncs, ${s.fullSyncs} full (drift ${s.driftLog.join(' ')} · mispredict ${(s.mispredictLog ?? []).join(' ')})`).join(' | '));
+  // The harvest race loses three predictions on purpose (one winner); anything more is a pop.
+  check('farm sync: predictions + replays match the host (≤ 4 pops per farmhand)', st.every((s) => (s.mispredicts ?? 0) <= 4), st.map((s, i) => `${['ash', 'bea', 'cole'][i]} ${s.mispredicts}`).join(' · '));
   check('farm sync: drift ≈ 0, ≤ 1 mid-day resync per farmhand', st.every((s) => s.drift <= 2 && s.needs <= 1), st.map((s, i) => `${['ash', 'bea', 'cole'][i]} drift ${s.drift} resyncs ${s.needs} edits ${s.reconciles}`).join(' · '));
   const fm = await Promise.all(all().map((p) => ev(p, () => window.__game.game.services.net.stats().frameMs)));
-  log('frame ms avg/p95/p99', fm.map((f, i) => `${names[i]} ${f.avg}/${f.p95}/${f.p99}`).join('  '));
-  writeFileSync(resolve(outDir, 'adv-results.json'), JSON.stringify({ at: new Date().toISOString(), delay: DELAY, jitter: JITTER, results, frameMs: fm, sync: st, errors }, null, 2));
+  log('frame ms avg/p95/p99 (all 4 tabs rendering on this one GPU)', fm.map((f, i) => `${names[i]} ${f.avg}/${f.p95}/${f.p99}`).join('  '));
+  // Per-client frame time (pillar 13/14: "4 players hold 60 fps"): each player has their own machine,
+  // so measure one client at a time while the other three tabs keep simulating + sending but skip
+  // drawing (their GPU work would otherwise be charged to the measured tab). Everyone is on the farm,
+  // all four farmers + cabins in the world, Ash walking a loop so remote playback runs.
+  const solo = [];
+  for (const [i, pg] of all().entries()) {
+    await Promise.all(all().map((q, j) => ev(q, (skip) => {
+      const g = window.__game.game;
+      if (skip) {
+        window.__advRO ??= g.renderOverride;
+        g.renderOverride = () => true;
+      } else if ('__advRO' in window) {
+        g.renderOverride = window.__advRO;
+        delete window.__advRO;
+      }
+    }, j !== i)));
+    await ev(ash, () => {
+      window.__advWalk = setInterval(() => {
+        const g = window.__game.game;
+        const k = (Date.now() / 1400) % 4 | 0;
+        g.input.keys.clear();
+        g.input.keys.add(['KeyD', 'KeyS', 'KeyA', 'KeyW'][k]);
+      }, 100);
+    });
+    await sleep(5200);
+    const f = await ev(pg, () => window.__game.game.services.net.stats().frameMs);
+    const draws = await ev(pg, () => window.__game.info().perf);
+    await ev(ash, () => {
+      clearInterval(window.__advWalk);
+      window.__game.game.input.keys.clear();
+    });
+    solo.push({ who: names[i], ...f, draws: draws.drawCalls, tris: draws.triangles });
+  }
+  await Promise.all(all().map((q) => ev(q, () => {
+    if ('__advRO' in window) {
+      window.__game.game.renderOverride = window.__advRO;
+      delete window.__advRO;
+    }
+  })));
+  log('per-client frame ms avg/p95/p99', solo.map((f) => `${f.who} ${f.avg}/${f.p95}/${f.p99} (${f.draws} draws, ${(f.tris / 1e6).toFixed(2)}M tris)`).join('  '));
+  check('per-client frame time: every one of the 4 clients holds 60 fps (p95 ≤ 20 ms)', solo.every((f) => f.p95 <= 20), solo.map((f) => `${f.who} avg ${f.avg} p95 ${f.p95}`).join(' · '));
+  writeFileSync(resolve(outDir, 'adv-results.json'), JSON.stringify({ at: new Date().toISOString(), delay: DELAY, jitter: JITTER, results, frameMs: fm, perClient: solo, sync: st, errors }, null, 2));
 } catch (err) {
   console.error('[adv] failed:', err?.stack || err);
   failed++;

@@ -46,14 +46,16 @@ export interface ArenaCtx {
 const BAT_RIM: Record<Biome, number> = { earth: 0xe0b8ff, ice: 0xffd8a8, lava: 0xff9a4a };
 
 const PALETTE: Record<Biome, { slime: number; slimeCore: number; bat: number; batEye: number; crab: number; crabLeg: number }> = {
-  earth: { slime: 0x7ed957, slimeCore: 0x3f9a2a, bat: 0x5a4668, batEye: 0xffd24a, crab: 0xa29c94, crabLeg: 0xd8764a },
-  ice: { slime: 0x7fd8ff, slimeCore: 0x2a7ac8, bat: 0x3e4a86, batEye: 0xffd24a, crab: 0x9fb4c8, crabLeg: 0x5a8ac8 },
-  lava: { slime: 0xff7a2a, slimeCore: 0xc81e0a, bat: 0x3a2a2a, batEye: 0xff5a1a, crab: 0x4e4240, crabLeg: 0xa83a1a },
+  // (r7) a deeper, saturated gel green: the pale lime washed to mint under the warm lantern + bloom
+  earth: { slime: 0x55c636, slimeCore: 0x2a7d1c, bat: 0x5a4668, batEye: 0xffd24a, crab: 0xa29c94, crabLeg: 0xd8764a },
+  // Ice slime: a deep teal body with a warm amber heart (pale blue melted into the blue floor).
+  ice: { slime: 0x1f9c98, slimeCore: 0xffa040, bat: 0x3e4a86, batEye: 0xffd24a, crab: 0x9fb4c8, crabLeg: 0x5a8ac8 },
+  lava: { slime: 0xff7a2a, slimeCore: 0xc81e0a, bat: 0x5a3430, batEye: 0xff5a1a, crab: 0x4e4240, crabLeg: 0xa83a1a },
 };
 
 const STATS: Record<MonsterKind, { hp: number; dmg: number; radius: number; knock: number }> = {
   // knock = knockback distance in tiles (eased out over KB_TIME).
-  slime: { hp: 24, dmg: 6, radius: 0.42, knock: 1.65 },
+  slime: { hp: 24, dmg: 6, radius: 0.5, knock: 1.65 },
   bat: { hp: 16, dmg: 6, radius: 0.35, knock: 1.8 },
   crab: { hp: 42, dmg: 9, radius: 0.45, knock: 0.85 },
   wisp: { hp: 20, dmg: 4, radius: 0.36, knock: 1.5 },
@@ -94,10 +96,15 @@ function monsterMat(color: number, opts: { rough?: number; clearcoat?: boolean |
         float frF = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 1.5);
         float fLum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
         float fK = uFlash * mix(1.0, 0.3, smoothstep(0.25, 0.7, fLum));
-        totalEmissiveRadiance += (diffuseColor.rgb * 0.55 + vec3(0.3)) * fK + vec3(1.0, 0.9, 0.7) * frF * uFlash * mix(1.1, 0.6, smoothstep(0.25, 0.7, fLum));
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.6 + 0.4, fK * 0.4);
+        // (r6: kept well under the bloom knee — the flash reads on the victim's silhouette, it never
+        // blooms into a white blob over the blade and the farmer's arm)
+        totalEmissiveRadiance += (diffuseColor.rgb * 0.3 + vec3(0.12)) * fK + vec3(1.0, 0.86, 0.62) * frF * uFlash * mix(0.55, 0.3, smoothstep(0.25, 0.7, fLum));
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.7 + 0.25, fK * 0.35);
       }`,
     );
+    // The first ~2 frames of a hit: a flat pale silhouette (the classic hit-flash read), clamped
+    // below the bloom threshold so it stays the creature's shape instead of a glow ball.
+    fs = after(fs, '#include <dithering_fragment>', 'gl_FragColor.rgb = mix(gl_FragColor.rgb, min(vec3(1.0, 0.95, 0.88) * 0.62, max(gl_FragColor.rgb, vec3(0.5))), step(0.76, uFlash));');
     shader.fragmentShader = fs;
   });
   return m;
@@ -105,6 +112,8 @@ function monsterMat(color: number, opts: { rough?: number; clearcoat?: boolean |
 
 /** Knockback slide duration (s). */
 export const KB_TIME = 0.18;
+/** Hit squash recovery (s). */
+const SQUASH_TIME = 0.13;
 
 let blobGeo: THREE.CircleGeometry | null = null;
 function shadowBlob(r: number): THREE.Mesh {
@@ -116,7 +125,7 @@ function shadowBlob(r: number): THREE.Mesh {
   return m;
 }
 
-function eye(r: number, glow?: number): THREE.Group {
+function eye(r: number, glow?: number, glintColor = 0xffffff): THREE.Group {
   const g = new THREE.Group();
   if (glow !== undefined) {
     const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(glow).multiplyScalar(3) }));
@@ -128,7 +137,7 @@ function eye(r: number, glow?: number): THREE.Group {
   const pupil = new THREE.Mesh(new THREE.SphereGeometry(r * 0.62, 12, 8), new THREE.MeshStandardMaterial({ color: 0x14100e, roughness: 0.2 }));
   pupil.position.set(0, -r * 0.1, r * 0.42);
   pupil.scale.set(1, 1.25, 0.6);
-  const glint = new THREE.Mesh(new THREE.SphereGeometry(r * 0.2, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(r * (glintColor === 0xffffff ? 0.2 : 0.3), 8, 6), new THREE.MeshBasicMaterial({ color: glintColor }));
   glint.position.set(r * 0.25, r * 0.28, r * 0.72);
   g.add(white, pupil, glint);
   return g;
@@ -320,6 +329,13 @@ export abstract class Monster {
 
   protected onHit(_dir: THREE.Vector3): void {}
 
+  /** Staged demos: hold the creature on its mark for `s` seconds (idle animation keeps playing). */
+  hold(s: number): void {
+    this.stun = Math.max(this.stun, s);
+    this.vel.x = 0;
+    this.vel.z = 0;
+  }
+
   /** World position of the damage-number anchor. */
   headPos(out: THREE.Vector3): THREE.Vector3 {
     return out.copy(this.pos).setY(this.pos.y + 1.05);
@@ -382,9 +398,15 @@ export abstract class Monster {
       if (step > 0 && !this.slide(k.dx * step, k.dz * step, ctx)) this.kb = null;
       else if (u >= 1) this.kb = null;
     }
-    if (this.squash > 0) this.squash = Math.max(0, this.squash - dt / 0.075);
+    if (this.squash > 0) this.squash = Math.max(this.holdFlash ? 0.6 : 0, this.squash - dt / SQUASH_TIME);
+    this.applySquash();
+  }
+
+  /** Hit squash 1.3 / 0.7 at the impact, springing back with a small overshoot. */
+  private applySquash(): void {
     const s = this.squash;
-    this.root.scale.set(1 + 0.26 * s, 1 - 0.3 * s, 1 + 0.26 * s);
+    const e = s > 0 ? Math.sin(s * Math.PI * 0.5) - (1 - s) * s * 0.35 : 0;
+    this.root.scale.set(1 + 0.3 * e, 1 - 0.3 * e, 1 + 0.3 * e);
   }
 
   /** Co-op mirror: face this way (the host's heading). */
@@ -412,12 +434,11 @@ export abstract class Monster {
   }
 
   update(dt: number, ctx: ArenaCtx, frozen = false): void {
-    this.flash = this.holdFlash ? 0.22 : Math.max(0, this.flash - dt * 7);
+    this.flash = this.holdFlash ? 0.6 : Math.max(0, this.flash - dt * 7);
     if (frozen && this.dying < 0) {
       if (this.squash > 0) {
-        this.squash = Math.max(0, this.squash - dt / 0.075);
-        const s = this.squash;
-        this.root.scale.set(1 + 0.26 * s, 1 - 0.3 * s, 1 + 0.26 * s);
+        this.squash = Math.max(this.holdFlash ? 0.6 : 0, this.squash - dt / SQUASH_TIME);
+        this.applySquash();
       }
       for (const m of this.mats) (m.userData.uFlash as { value: number }).value = this.flash;
       this.pose(dt, ctx);
@@ -483,7 +504,10 @@ export class Slime extends Monster {
   constructor(biome: Biome, x: number, z: number, tier: number, band: number, seed: number) {
     super('slime', biome, x, z, tier, band, seed);
     const pal = PALETTE[biome];
-    this.color = pal.slime;
+    // Deeper tiers escalate visibly: a darker, richer body, a crust of crystals, red eye glints.
+    const elite = tier >= 1;
+    const bodyCol = elite ? new THREE.Color(pal.slime).multiplyScalar(0.62).offsetHSL(-0.03, 0.08, 0).getHex() : pal.slime;
+    this.color = bodyCol;
     const r = new Rng(seed);
     const geo = lumpySphere(0.42, 3, 0.035, r, 1.2);
     // Flat-ish bottom, domed top.
@@ -494,13 +518,20 @@ export class Slime extends Monster {
       p.setY(i, yy + 0.18);
     }
     smoothNormals(geo);
-    const gelMat = monsterMat(pal.slime, { rough: 0.16, clearcoat: true, emissive: pal.slime, emissiveI: biome === 'lava' ? 0.5 : 0.12, rim: 0.9 });
+    // (rim halved: the bloomed white fresnel turned slimes into ghosts at the frame edges)
+    const gelMat = monsterMat(bodyCol, { rough: 0.16, clearcoat: true, emissive: bodyCol, emissiveI: biome === 'lava' ? 0.5 : 0.24, rim: 0.7 });
     this.mats.push(gelMat);
     this.gel = new THREE.Mesh(geo, gelMat);
     this.gel.castShadow = true;
     this.body.add(this.gel);
+    // Ink outline: a dark inverted hull so the slime reads against any floor.
+    const hull = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.slimeCore).multiplyScalar(0.12), side: THREE.BackSide }));
+    hull.scale.setScalar(1.11);
+    hull.position.y = -0.03;
+    hull.userData.noAO = true;
+    this.body.add(hull);
     // Inner core shadow (seen through the glossy top as a darker belly band).
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 10), monsterMat(pal.slimeCore, { rough: 0.3, emissive: pal.slimeCore, emissiveI: biome === 'lava' ? 1.2 : 0.2, rim: 0.2 }));
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 10), monsterMat(pal.slimeCore, { rough: 0.3, emissive: pal.slimeCore, emissiveI: biome === 'lava' ? 1.2 : biome === 'ice' ? 0.9 : 0.2, rim: 0.2 }));
     core.position.set(0, 0.2, -0.12);
     core.scale.set(1.3, 0.7, 1);
     this.mats.push(core.material as THREE.MeshPhysicalMaterial);
@@ -514,7 +545,7 @@ export class Slime extends Monster {
     // Eyes + mouth.
     this.eyes = new THREE.Group();
     for (const sx of [-1, 1]) {
-      const e = eye(0.1);
+      const e = eye(0.1, undefined, elite ? 0xff3a22 : 0xffffff);
       e.position.set(sx * 0.14, 0.42, 0.3);
       e.rotation.x = -0.45;
       this.eyes.add(e);
@@ -525,6 +556,23 @@ export class Slime extends Monster {
     mouth.rotation.z = Math.PI;
     this.eyes.add(mouth);
     this.body.add(this.eyes);
+    if (elite) {
+      // Crystal crust grown through the gel's crown (one merged mesh).
+      const crustCol = biome === 'earth' ? 0xb07cff : biome === 'ice' ? 0xbff4ff : 0xffc040;
+      const crustMat = monsterMat(crustCol, { rough: 0.2, clearcoat: true, emissive: crustCol, emissiveI: 0.55, rim: 0.3 });
+      this.mats.push(crustMat);
+      const shards: THREE.Mesh[] = [];
+      for (let k = 0; k < 4; k++) {
+        const a = -0.9 + k * 0.6 + (r.next() - 0.5) * 0.3;
+        const sh = new THREE.Mesh(crystalPrism(0.05 + r.next() * 0.025, 0.2 + r.next() * 0.12), crustMat);
+        sh.position.set(Math.sin(a) * 0.2, 0.5 - Math.abs(Math.sin(a)) * 0.08, Math.cos(a) * -0.12 - 0.04);
+        sh.rotation.set(-0.35 + (r.next() - 0.5) * 0.3, r.next() * 3, Math.sin(a) * -0.6);
+        this.body.add(sh);
+        shards.push(sh);
+      }
+      const cm = mergeParts(this.body, shards, crustMat);
+      cm.castShadow = true;
+    }
     this.root.add(this.body);
     // One unlit mesh for the whole face + gloss highlight (was 8 meshes).
     hl.removeFromParent();
@@ -626,7 +674,7 @@ export class Slime extends Monster {
 
     const sy = THREE.MathUtils.clamp(this.sy, 0.5, 1.5);
     const sxz = 1 / Math.sqrt(sy);
-    this.body.scale.set(sxz, sy, sxz);
+    this.body.scale.set(sxz * 1.3, sy * 1.3, sxz * 1.3);
     this.body.rotation.set(this.lean.y, 0, -this.lean.x);
     let d = this.facing - this.root.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -647,7 +695,7 @@ export class Slime extends Monster {
       this.dead = true;
       const p = this.pos.clone().setY(this.pos.y + 0.3);
       ctx.puff(p, this.color, 22, 'goo');
-      ctx.puff(p, 0xe8e0d0, 10, 'dust');
+      ctx.puff(p, new THREE.Color(this.color).lerp(new THREE.Color(0xb0a898), 0.5).getHex(), 8, 'dust');
     }
     void dt;
   }
@@ -686,7 +734,10 @@ export class Bat extends Monster {
     const pal = PALETTE[biome];
     const r = new Rng(seed);
     this.home = new THREE.Vector2(x, z);
-    const furMat = monsterMat(pal.bat, { rough: 0.9, rim: 0.3, rimColor: BAT_RIM[biome], emissive: biome === 'lava' ? 0x301008 : 0x000000 });
+    const elite = tier >= 1;
+    const eyeCol = elite ? 0xff3a22 : pal.batEye;
+    // A pale fresnel rim (strong) so the dark fur reads against dark rock, + an eye-glow halo.
+    const furMat = monsterMat(pal.bat, { rough: 0.9, rim: biome === 'lava' ? 0.7 : 0.85, rimColor: BAT_RIM[biome], emissive: biome === 'lava' ? 0x401408 : 0x000000 });
     this.mats.push(furMat);
     const bodyGeo = lumpySphere(0.2, 2, 0.12, r, 3.2);
     const bodyM = new THREE.Mesh(bodyGeo, furMat);
@@ -698,7 +749,7 @@ export class Bat extends Monster {
       ear.position.set(sx * 0.1, 0.2, 0);
       ear.rotation.z = -sx * 0.35;
       this.body.add(ear);
-      const e = eye(0.045, pal.batEye);
+      const e = eye(0.045, eyeCol);
       e.position.set(sx * 0.075, 0.05, 0.17);
       this.body.add(e);
       const fang = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.06, 4), new THREE.MeshStandardMaterial({ color: 0xffffff }));
@@ -719,7 +770,8 @@ export class Bat extends Monster {
       fm.castShadow = true;
       mergeParts(this.body, face);
     }
-    const wingMat = monsterMat(new THREE.Color(pal.bat).multiplyScalar(0.7).getHex(), { rough: 0.7, rim: 0.1, rimColor: BAT_RIM[biome] });
+    // Lava band: ember-lit membranes (translucent warm glow) so the bat never melts into the basalt.
+    const wingMat = monsterMat(new THREE.Color(pal.bat).multiplyScalar(biome === 'lava' ? 1 : 0.7).getHex(), { rough: 0.7, rim: biome === 'lava' ? 0.45 : 0.4, rimColor: BAT_RIM[biome], emissive: biome === 'lava' ? 0x6a1c08 : undefined, emissiveI: biome === 'lava' ? 0.6 : undefined });
     wingMat.side = THREE.DoubleSide;
     this.mats.push(wingMat);
     const wg = wingGeometry();
@@ -733,6 +785,9 @@ export class Bat extends Monster {
     this.wingR.position.set(0.12, 0.04, 0);
     this.wingL.position.set(-0.12, 0.04, 0);
     this.body.add(this.wingL, this.wingR);
+    const halo = glowPoint(eyeCol, 0.62, 0.55);
+    halo.position.set(0, 0.06, 0.2);
+    this.body.add(halo);
     this.body.scale.setScalar(1.35);
     this.root.add(this.body);
     this.flap = r.next() * 10;
