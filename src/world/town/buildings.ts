@@ -543,7 +543,7 @@ export function buildStoneBridge(rng: Rng, br: { len: number; width: number; ris
         const px = x - 0.36 + i * 0.145;
         const py = deckY(br, px) + 0.86 + (rng.next() - 0.5) * 0.04;
         b.add('boxFlower', lumpySphere(0.1, 1, 0.25, rng), mat(px, py, z + (rng.next() - 0.5) * 0.06), { tint: 0x4f9a3a });
-        b.add('white', new THREE.SphereGeometry(0.05, 6, 5), mat(px + 0.02, py + 0.08, z + s * 0.04), { tint: petals[(i + (s > 0 ? 1 : 0)) % petals.length]! });
+        b.add('white', new THREE.SphereGeometry(0.05, 6, 5), mat(px + 0.02, py + 0.08, z + s * 0.04), { tint: petals[(i + (s > 0 ? 1 : 0)) % petals.length]!, keep: true });
       }
       for (let i = 0; i < 7; i++) b.add('boxFlower', new THREE.IcosahedronGeometry(0.06, 0), mat(x - 0.4 + i * 0.13, y - 0.12 - rng.next() * 0.35, z + s * 0.2), { tint: i % 2 ? 0x3f7a2e : 0x4f8a34 });
     }
@@ -1176,8 +1176,8 @@ export function buildFlowerRing(rng: Rng, r0: number, r1: number, a0: number, a1
     const x = Math.cos(a) * r;
     const z = -Math.sin(a) * r;
     const bush = lumpySphere(0.12 + rng.next() * 0.05, 0, 0.25, rng);
-    b.add('white', bush, mat(x, 0.2, z), { tint: 0x5f9a4a });
-    b.add('white', new THREE.SphereGeometry(0.05, 5, 4), mat(x + (rng.next() - 0.5) * 0.08, 0.31, z + (rng.next() - 0.5) * 0.08), { tint: cols[i % cols.length]! });
+    b.add('white', bush, mat(x, 0.2, z), { tint: 0x5f9a4a, keep: true });
+    b.add('white', new THREE.SphereGeometry(0.05, 5, 4), mat(x + (rng.next() - 0.5) * 0.08, 0.31, z + (rng.next() - 0.5) * 0.08), { tint: cols[i % cols.length]!, keep: true });
   }
   return b.build({ name: 'flower-ring' });
 }
