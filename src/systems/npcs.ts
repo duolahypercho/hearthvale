@@ -2992,6 +2992,11 @@ export class NpcSystem implements System {
           if (kind !== 'wide') {
             const rc = this.roofCover(tc, _sa.set(lead.x, lead.y + lead.head * 0.6, lead.z));
             if (rc > 0.12) h += (rc - 0.12) * 46;
+            // (r22: the same slab the live F-talk audit measures across the top band, above the faces)
+            if (this.camMode === 'talk') {
+              const rt = this.roofTop(tc, _sa.set(lead.x, lead.y + lead.head * 0.6, lead.z));
+              if (rt > 0.3) h += (rt - 0.3) * 40;
+            }
           }
           if (subj?.hold && kind === 'two') {
             const sp = _q2.set(subj.at[0], map.heightAt(subj.at[0], subj.at[1]) + (subj.y ?? 0.9), subj.at[1]).project(tc);

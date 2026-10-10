@@ -73,7 +73,8 @@ const EYE_IRIS: Record<string, number> = { marigold: 0.9, bram: 0.94, wren: 1.06
 const LASH_W: Record<string, number> = { marigold: 1, bram: 1.15, wren: 0.95, odessa: 1.3, linus: 1.05, june: 1.15, tobias: 1.2, kit: 0.9, rowan: 1.15, hazel: 1 };
 
 /** Heads are drawn bigger than the body (chibi) so faces read from the high diorama camera. */
-const HEAD_BOOST = 1.04;
+/** Adults: heads about 82% of the old chibi size (the critic still read bobbleheads); children keep the bigger head. */
+const headBoost = (L: { scale: number }): number => (L.scale < 0.85 ? 1.04 : 0.86);
 /** Shared material of held 3D produce gifts (vertex-coloured, like the crop meshes). */
 let heldMat: THREE.MeshStandardMaterial | null = null;
 /** Chin up: faces tilt towards the camera. */
@@ -779,7 +780,7 @@ export class Villager {
     }
     this.build(def.look);
     this.body.scale.setScalar(this.scaleS);
-    this.headTop = (this.headRigY + 0.8 * HEAD_BOOST * (def.look.head ?? 1)) * this.scaleS;
+    this.headTop = (this.headRigY + 0.8 * headBoost(def.look) * (def.look.head ?? 1)) * this.scaleS;
     this.blobR = 0.42 * Math.max(0.9, def.look.build) * def.look.scale;
     if (opts.blob === false) return;
     const blob = new THREE.Mesh(new THREE.CircleGeometry(this.blobR, 20), new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.2, depthWrite: false }));
@@ -799,7 +800,7 @@ export class Villager {
     const legLen = 0.5 * (L.legs ?? 1);
     const hipY = legLen;
     this.hipY = hipY;
-    const hs = 1.15 * HEAD_BOOST * (L.head ?? 1);
+    const hs = 1.15 * headBoost(L) * (L.head ?? 1);
     const R = 0.32;
     // Body proportions (r6 critic: one template for all ten — the lineup must read by shape alone).
     // Geometry is authored on the default chibi torso; the warp below stretches / widens / bellies it.
@@ -3024,7 +3025,7 @@ export class Villager {
 
   /** World centre of the head sphere (portrait framing) and its world radius. */
   headCenter(out: THREE.Vector3): { center: THREE.Vector3; radius: number } {
-    const hs = 1.15 * HEAD_BOOST * (this.def.look.head ?? 1);
+    const hs = 1.15 * headBoost(this.def.look) * (this.def.look.head ?? 1);
     this.bones[B.head]!.localToWorld(out.set(0, 0.32 * 0.92 * hs, 0));
     return { center: out, radius: 0.32 * hs * this.scaleS };
   }

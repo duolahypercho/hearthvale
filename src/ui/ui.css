@@ -688,7 +688,7 @@ body.u-calm #ui-root *::after {
   mask-image: linear-gradient(180deg, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
 }
 .shop-list::-webkit-scrollbar {
-  width: 8px;
+  width: 12px;
 }
 .shop-list::-webkit-scrollbar-track {
   margin: 18px 0;
@@ -6718,7 +6718,7 @@ body.u-calm .de-star .medal {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
   color: #8a6440;
 }
@@ -6730,13 +6730,14 @@ body.u-calm .de-star .medal {
 }
 .shop-friend .sf-rows em {
   font-style: normal;
-  min-width: 58px;
+  font-size: 14px;
+  min-width: 64px;
 }
 .shop-friend .sf-rows b {
   color: var(--ink);
   font-family: var(--font-head);
   font-weight: 600;
-  font-size: 14px;
+  font-size: 15px;
 }
 /* qty stepper: 36 px buttons, a 12 px QTY label */
 #ui-root .hv-shop .pk-qty .u-btn.small,
