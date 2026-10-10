@@ -927,6 +927,29 @@ export class MineMap implements GameMap {
         }
       }
     }
+    // (r7) Walkers never sink into a farmer's body (a slime used to sit inside the farmer's hip
+    // while it nibbled): a soft push out to body contact, still inside touchPlayer's reach so the
+    // contact hit fires. Host-side (puppet floors take the host's positions), local + co-op farmers.
+    if (!this.puppet && simDt > 0) {
+      for (const m of this.monsters) {
+        if (!m.alive || m.flies) continue;
+        for (let k = -1; k < this.remotes.length; k++) {
+          const at = k < 0 ? player : this.remotes[k]!.pos;
+          const dx = m.pos.x - at.x;
+          const dz = m.pos.z - at.z;
+          const d = Math.hypot(dx, dz);
+          const min = m.radius + 0.26;
+          if (d >= min) continue;
+          const nx = d > 1e-3 ? dx / d : 0;
+          const nz = d > 1e-3 ? dz / d : 1;
+          const push = (min - d) * Math.min(1, 14 * simDt);
+          if (this.clearAt(m.pos.x + nx * push, m.pos.z + nz * push, m.radius * 0.8, false)) {
+            m.pos.x += nx * push;
+            m.pos.z += nz * push;
+          }
+        }
+      }
+    }
     // Lava lip: standing on the hot shoreline scorches (tick + shove back onto the rock).
     this.hazardT = Math.max(0, this.hazardT - simDt);
     if (this.cave && this.layout.biome === 'lava' && this.playerTargetable && simDt > 0 && this.hazardT <= 0) {

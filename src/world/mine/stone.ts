@@ -154,6 +154,19 @@ export function applyStone<M extends THREE.MeshStandardMaterial>(m: M, veins: bo
          diffuseColor.rgb = mix(diffuseColor.rgb, c, hvVein);
        }`
            : ''
+       }
+       ${
+         frost
+           ? `{
+         // (r7) SNOW CAPS: packed rime on every up-facing facet with a ragged, noise-broken edge
+         // and a slight raised lip — the frozen band reads at a glance, not a blue-grey boulder.
+         vec3 hvFn = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
+         float hvUp = inverseTransformDirection(hvFn, viewMatrix).y;
+         float hvSnowC = smoothstep(0.86, 0.93, hvUp) * smoothstep(0.46, 0.51, hvBlot + (hvGrain - 0.5) * 0.2) * (1.0 - hvVein * 0.8);
+         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.74, 0.82, 0.93) * (0.9 + 0.14 * hvGrain), hvSnowC * 0.8);
+         hvHeight += hvSnowC * 0.25;
+       }`
+           : ''
        }`,
     );
     fs = after(

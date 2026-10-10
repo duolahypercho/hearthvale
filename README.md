@@ -2123,6 +2123,16 @@ Frostvein Grotto, Cinder Depths (`biomes.ts`), repeating with a tier (tougher mo
   jointed drums with ember seams. The entrance cliff gets tall vertical fractures; the headframe stands on a
   stone plinth beside a spoil heap. Co-op farmers arriving on an occupied spot land 1.6 tiles away. Rim boulders
   dropped to 80 tris each.
+- **Round 7**: the earth floors' sett paving now lies in coherent patches with a tight ragged fringe of
+  half-buried setts and dirt-packed joints, where it used to be a 1.5 m field of scattered loose bricks
+  with black grout. Frostvein rocks carry patchy snow caps on their up-facing facets (`stone.ts` frost
+  path, a crisp noise-broken edge and a raised lip), and the floor pebbles there take rock tints instead
+  of warm strata tints, so no pink crumbs sit on the ice. Earthen slimes are a deeper, saturated gel
+  green that holds its colour under the lantern and bloom. Walking monsters are pushed out to body
+  contact with every farmer, local and co-op, host-side: a nibbling slime used to sit inside the
+  farmer's hip, and the push still keeps it inside `touchPlayer` reach. The slash crescent's core band
+  and afterimage cores are dimmer, so a crit over a pale flashed victim on a lit floor no longer sums
+  into a white fan.
 - **Perf (pillar 14)**: the farmer / monster cutaway's `discard` switches off hidden-surface removal on tile GPUs, so
   every cut-patched material has a solid twin (`occlude.ts`): the shell, rim boulders, rubble and merged props are
   sorted into 2 m cells and each frame only the cells whose bounds can reach a cutaway ellipse or the foreground band

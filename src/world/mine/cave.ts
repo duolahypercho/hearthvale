@@ -470,7 +470,9 @@ ${CAVE_VN_GLSL}`,
         // (r6) Old PAVING: patches of laid stone setts (stretcher bond, 0.5 x 0.28 m, each its own
         // tone, dark gritty joints, raised crowns for the bump) that break up at their edges sett by
         // sett — the miners' floor showing through the dirt — and WET MUD hollows (dark, glossy).
-        float paveM = smoothstep(0.47, 0.6, hvFbm(fp * 0.085 + 71.0)) * onFloor;
+        // (r7) a tight patch edge (~1-2 setts of ragged fringe, not a 1.5 m field of scattered
+        // loose bricks): the paving reads as coherent laid floor under the dirt.
+        float paveM = smoothstep(0.5, 0.55, hvFbm(fp * 0.085 + 71.0)) * onFloor;
         if (paveM > 0.0) {
           vec2 bq = fp * vec2(2.0, 3.6);
           float row = floor(bq.y);
@@ -479,16 +481,18 @@ ${CAVE_VN_GLSL}`,
           vec2 bf = fract(bq);
           float bh = hvHash12(bc + 17.3);
           // edge break-up: a sett survives where the patch mask beats its own random threshold
-          float keep = step(bh * 0.85 + 0.1, paveM + (hvNoise(fp * 1.7) - 0.5) * 0.25);
+          float keep = step(bh * 0.55 + 0.25, paveM + (hvNoise(fp * 1.7) - 0.5) * 0.3);
           vec2 be = min(bf, 1.0 - bf) * vec2(0.5, 0.28);
           float ed = min(be.x, be.y);
           float body = smoothstep(0.008, 0.026, ed);
           // setts: cooler, greyer stone than the warm dirt (a clear second floor material), worn
           // paler crowns, each sett its own value
           float dl = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
-          vec3 stoneC = mix(diffuseColor.rgb, vec3(dl) * vec3(0.92, 0.9, 0.88), 0.62);
-          vec3 sett = stoneC * mix(0.62, 0.92, bh) * (0.88 + 0.2 * grit) * (1.0 + smoothstep(0.05, 0.12, ed) * 0.12);
-          vec3 joint = diffuseColor.rgb * 0.5;
+          vec3 stoneC = mix(diffuseColor.rgb, vec3(dl) * vec3(0.92, 0.9, 0.88), 0.55);
+          vec3 sett = stoneC * mix(0.7, 0.92, bh) * (0.88 + 0.2 * grit) * (1.0 + smoothstep(0.05, 0.12, ed) * 0.12);
+          // joints packed with dirt (a soft groove, not a black grid); fringe setts half-buried
+          vec3 joint = diffuseColor.rgb * 0.66;
+          sett = mix(sett, diffuseColor.rgb, (1.0 - smoothstep(0.55, 0.95, paveM)) * 0.45);
           diffuseColor.rgb = mix(diffuseColor.rgb, mix(joint, sett, body), keep);
           hvWallH += keep * (body * 0.05 + smoothstep(0.03, 0.09, ed) * 0.025) * onFloor;
         }
@@ -983,7 +987,8 @@ ${CAVE_VN_GLSL}`,
     // Denser near walls.
     if (pr.next() > 0.25 + smoothstep(-2.5, -0.2, s) * 0.75) continue;
     const rad = 0.035 + pr.next() * pr.next() * 0.12;
-    const tint = pr.next() < 0.5 ? def.rock[0]! : def.strata[pr.int(0, 2)]!;
+    // (ice: rock tints only — the warm strata bands read as pink crumbs on the blue floor)
+    const tint = L.biome === 'ice' ? def.rock[pr.int(0, def.rock.length - 1)]! : pr.next() < 0.5 ? def.rock[0]! : def.strata[pr.int(0, 2)]!;
     const g = facetRock(pr, rad, tint, { squash: 0.55, cap: capCol, capAmt: capAmt * 0.6, detail: 0, rim: 0.4 });
     g.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(x, floorBase(x, z) - 0.01, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, pr.next() * 6, 0)), new THREE.Vector3(1, 1, 1)));
     geos.push(g);

@@ -46,7 +46,8 @@ export interface ArenaCtx {
 const BAT_RIM: Record<Biome, number> = { earth: 0xe0b8ff, ice: 0xffd8a8, lava: 0xff9a4a };
 
 const PALETTE: Record<Biome, { slime: number; slimeCore: number; bat: number; batEye: number; crab: number; crabLeg: number }> = {
-  earth: { slime: 0x7ed957, slimeCore: 0x3f9a2a, bat: 0x5a4668, batEye: 0xffd24a, crab: 0xa29c94, crabLeg: 0xd8764a },
+  // (r7) a deeper, saturated gel green: the pale lime washed to mint under the warm lantern + bloom
+  earth: { slime: 0x55c636, slimeCore: 0x2a7d1c, bat: 0x5a4668, batEye: 0xffd24a, crab: 0xa29c94, crabLeg: 0xd8764a },
   // Ice slime: a deep teal body with a warm amber heart (pale blue melted into the blue floor).
   ice: { slime: 0x1f9c98, slimeCore: 0xffa040, bat: 0x3e4a86, batEye: 0xffd24a, crab: 0x9fb4c8, crabLeg: 0x5a8ac8 },
   lava: { slime: 0xff7a2a, slimeCore: 0xc81e0a, bat: 0x5a3430, batEye: 0xff5a1a, crab: 0x4e4240, crabLeg: 0xa83a1a },

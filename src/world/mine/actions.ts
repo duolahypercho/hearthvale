@@ -536,10 +536,13 @@ export class SlashArc {
           vec3 band = mix(warm, hot, smoothstep(0.55, 0.95, v));
           // (r6: capped — the edge peaks just over the bloom knee for a thin glint, the band stays under it:
           // a crisp arc, never a white blob over the victim, the blade and the farmer's arm)
-          vec3 col = warm * wash + band * core * 0.5 * streak + hot * edge * (0.85 + head * 0.3 + uHit * 0.15);
+          // (r7) the core band a notch lower (0.5 -> 0.38) and the afterimages mostly edge: on a
+          // lantern-lit floor under a pale flashed victim the three additive layers summed past the
+          // bloom knee into a white fan on crits.
+          vec3 col = warm * wash + band * core * 0.38 * streak + hot * edge * (0.85 + head * 0.3 + uHit * 0.15);
           col *= tail * uFade * smoothstep(0.0, 0.07, s) * smoothstep(0.0, 0.06, uHead + 0.015 - s);
           // Afterimages: dimmer, warmer, no hot edge flare.
-          col = mix(col, warm * (core + edge) * 0.9 * tail * uFade * smoothstep(0.0, 0.1, s), step(0.001, uGhost)) * (uGhost > 0.0 ? uGhost : 1.0);
+          col = mix(col, warm * (core * 0.5 + edge) * 0.9 * tail * uFade * smoothstep(0.0, 0.1, s), step(0.001, uGhost)) * (uGhost > 0.0 ? uGhost : 1.0);
           gl_FragColor = vec4(col, 1.0);
         }`,
     });
