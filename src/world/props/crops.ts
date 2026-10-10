@@ -1407,13 +1407,30 @@ const BUILDERS: Record<CropId, Builder> = {
         const R = 0.2 * s;
         const sy = 0.6 + form * 0.3;
         const tilt = mat(px, R * (sy - 0.06), pz, (r.next() - 0.5) * 0.3, r.next() * Math.PI * 2, (r.next() - 0.5) * 0.3);
-        const skin = C(0xd8601a).lerp(C(0xf2a850), r.next() * 0.55);
+        // (r30) A wider palette per fruit (blind judge: "all the same size, shape and orange"): deep
+        // red-orange through classic to pale buttery, now and then a green-shouldered late one.
+        const tone = r.next();
+        const skin = tone < 0.25 ? C(0xc84a18).lerp(C(0xd8601a), r.next()) : tone < 0.8 ? C(0xd8601a).lerp(C(0xf2a850), r.next() * 0.55) : C(0xf0b860).lerp(C(0xe8c888), r.next() * 0.5);
+        if (r.next() < 0.15) skin.lerp(C(0x8a9a48), 0.25);
         add(fruit(R, skin, { sy, ribs: 8 + Math.floor(r.next() * 5), crease: true, seg: 20, rows: 9, shade: 0.5 }), tilt, 'skin');
-        // A woody, curled stem.
+        // A woody, curled stem (its own lean and length per fruit).
         const top = R * (sy - 0.1);
-        add(tube([new THREE.Vector3(0, top, 0), new THREE.Vector3(0.01, top + 0.05, 0.005), new THREE.Vector3(0.04, top + 0.07, 0.02), new THREE.Vector3(0.06, top + 0.055, 0.04)], 0.016, 0.009, C(0x6a6a34), C(0x9a8a4a), 6, 5), tilt, 'skin');
+        const sl = 0.8 + r.next() * 0.5;
+        const sa = r.next() * Math.PI * 2;
+        const sc = Math.cos(sa);
+        const ss = Math.sin(sa);
+        add(tube([new THREE.Vector3(0, top, 0), new THREE.Vector3(0.01 * sc, top + 0.05 * sl, 0.01 * ss), new THREE.Vector3(0.04 * sc, top + 0.07 * sl, 0.04 * ss), new THREE.Vector3(0.06 * sc, top + 0.055 * sl, 0.06 * ss)], 0.016, 0.009, C(0x6a6a34), C(0x9a8a4a), 6, 5), tilt, 'skin');
+        // A corkscrew tendril springing off the stem base.
+        const tp: THREE.Vector3[] = [];
+        for (let q = 0; q <= 10; q++) {
+          const u = q / 10;
+          const ang = sa + Math.PI + u * Math.PI * 5;
+          const rad = 0.018 + 0.01 * u;
+          tp.push(new THREE.Vector3(-sc * 0.05 * u + Math.cos(ang) * rad, top + 0.01 + u * 0.06, -ss * 0.05 * u + Math.sin(ang) * rad));
+        }
+        add(tube(tp, 0.0045, 0.003, C(0x5f8a34), C(0x8cb450), 20, 4), tilt);
       };
-      one(0.9 + r.next() * 0.2, 0.05 + (r.next() - 0.5) * 0.06, 0.08 + (r.next() - 0.5) * 0.06);
+      one(0.82 + r.next() * 0.34, 0.05 + (r.next() - 0.5) * 0.06, 0.08 + (r.next() - 0.5) * 0.06);
       if (r.next() < 0.35) one(0.5 + r.next() * 0.12, -0.16 + (r.next() - 0.5) * 0.05, -0.1 + (r.next() - 0.5) * 0.05);
     }
   },
