@@ -1031,7 +1031,7 @@ export class TownMap implements GameMap {
         // rim's blob blossom batch cost two draws in every town frame)
         // (same rng draws as before: the rim's layout is unchanged)
         const sp = r.next() < 0.35 ? 'pine' : r.next() < 0.5 ? 'oak' : r.next() < 2 ? 'maple' : 'oak';
-        this.trees.add(sp, jx, this.terrain.heightAt(jx, jz) - 0.08, jz, 0.85 + r.next() * 0.45, undefined, d > 3.5 ? 1 : 0);
+        this.trees.add(sp, jx, this.terrain.heightAt(jx, jz) - 0.08, jz, 0.85 + r.next() * 0.45, undefined, d > 1.8 ? 1 : 0);
       }
     }
   }

@@ -37,7 +37,7 @@ const P3D = new Map<string, string | null>();
 /** Where the head sits in each rendered bust (fractions of the frame) — the manga marks follow it. */
 const P3D_HEAD = new Map<string, { x: number; y: number; r: number }>();
 /** Painted-mode switch for A/B shots and tests (`__game` eval): false = the SVG bust. */
-export const portraitOpts = { model3d: false, plate: true, persona: true, chibi: true };
+export const portraitOpts = { model3d: typeof location !== 'undefined' && /[?&]portrait3d=1/.test(location.search), plate: true, persona: true, chibi: true };
 
 /** Data URL of the 3D bust for this look + mood (cached), or null (not a villager / no WebGL). */
 export function portrait3dUrl(look: NpcLook, mood: Mood): string | null {

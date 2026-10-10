@@ -60,28 +60,8 @@ function wearTexture(cx: number, cz: number, R: number, seed = 5): THREE.CanvasT
       sett(px(cx + Math.cos(a) * r), pz(cz + Math.sin(a) * r), m * 0.3, m * 0.21, a + Math.PI / 2, `rgba(${sand[Math.floor(rnd() * sand.length)]},0.95)`);
     }
   }
-  {
-    // Dusty, desaturated brick (the saturated red-brown read as a rug laid on the cobbles).
-    const brick = ['150,108,90', '138,100,84', '158,118,98', '128,96,82', '146,112,100'];
-    const z0 = cz + 5.45;
-    const z1 = cz + R;
-    // Running bond (staggered courses of upright bricks). The earlier 45-degree herringbone overlapped its own dark
-    // joint outlines into a blurry red X lattice that read as a decal pasted under the characters.
-    // Bricks drop out towards the sides and the far end (cobbles show through), the rest are jittered and
-    // vary in strength, so the runner frays into the paving instead of ending on a ruled edge.
-    for (let z = z0, row = 0; z < z1; z += 0.105, row++)
-      for (let x = cx - 0.82 + (row % 2 ? 0.1 : 0); x <= cx + 0.82; x += 0.2) {
-        const side = Math.abs(x - cx) / 0.82;
-        const along = (z - z0) / (z1 - z0);
-        const keep = Math.min(1, 1.15 - side * side * 0.85) * Math.min(1, (1.05 - along * 0.9) * 1.4) * Math.min(1, 0.6 + (z - z0) * 3);
-        if (rnd() > keep) continue;
-        sett(px(x + (rnd() - 0.5) * 0.03), pz(z + (rnd() - 0.5) * 0.02), m * (0.15 + rnd() * 0.04), m * (0.07 + rnd() * 0.02), (rnd() - 0.5) * 0.22, `rgba(${brick[Math.floor(rnd() * brick.length)]},${(0.62 + rnd() * 0.25).toFixed(2)})`);
-      }
-    // Foot-wear down the middle: dust and scuffs over the bricks.
-    for (let i = 0; i < 60; i++) blob(px(cx + (rnd() - 0.5) * 1.0), pz(z0 + rnd() * (z1 - z0)), m * (0.3 + rnd() * 0.5), rnd() < 0.5 ? '176,160,140' : '70,56,46', 0.08 + rnd() * 0.07);
-    // kerb setts edging the runner, only here and there
-    for (const sx of [-1, 1]) for (let z = z0; z < z1; z += 0.26) if (rnd() < 0.55) sett(px(cx + sx * (0.92 + (rnd() - 0.5) * 0.08)), pz(z), m * 0.14, m * 0.24, (rnd() - 0.5) * 0.3, `rgba(${sand[Math.floor(rnd() * sand.length)]},0.9)`);
-  }
+  // (the brick runner down Meadow Lane was removed in r4: at every size it read as a dark stain on the setts;
+  // the lane is carried by the desire-line wear below and the cobbles themselves)
   // Foot-traffic ring round the basin: polished, a touch darker and warmer.
   for (let i = 0; i < 90; i++) {
     const a = rnd() * Math.PI * 2;

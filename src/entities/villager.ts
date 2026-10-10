@@ -74,7 +74,7 @@ const LASH_W: Record<string, number> = { marigold: 1, bram: 1.15, wren: 0.95, od
 
 /** Heads are drawn bigger than the body (chibi) so faces read from the high diorama camera. */
 /** Adults: heads about 82% of the old chibi size (the critic still read bobbleheads); children keep the bigger head. */
-const headBoost = (L: { scale: number }): number => (L.scale < 0.85 ? 1.04 : 0.86);
+const headBoost = (L: { scale: number }): number => (L.scale < 0.85 ? 1.04 : 0.78);
 /** Shared material of held 3D produce gifts (vertex-coloured, like the crop meshes). */
 let heldMat: THREE.MeshStandardMaterial | null = null;
 /** Chin up: faces tilt towards the camera. */
@@ -797,7 +797,8 @@ export class Villager {
   private build(L: NpcLook): void {
     const rng = new Rng(`npc:${this.def.id}`);
     const bw = L.build;
-    const legLen = 0.5 * (L.legs ?? 1);
+    // (adults get a touch more leg so the smaller head sits on a less chibi figure)
+    const legLen = 0.5 * (L.legs ?? (L.scale < 0.85 ? 1 : 1.1));
     const hipY = legLen;
     this.hipY = hipY;
     const hs = 1.15 * headBoost(L) * (L.head ?? 1);

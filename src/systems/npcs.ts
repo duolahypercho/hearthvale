@@ -4914,6 +4914,17 @@ export class NpcSystem implements System {
     }
     const map = game.world.current!;
     if (game.calendar.season !== this.lookSeason) this.applySeason(game.calendar.season);
+    // Stage cheat for live talks: the farmer turns to the villager but opens up to ~70 degrees towards the lens, so the
+    // face reads three-quarter (a dead-on profile shows only an eye rim and the back of the head).
+    if (this.talking && this.camMode === 'talk') {
+      const pl = game.player;
+      const tv = this.talking.v.position;
+      const toNpc = Math.atan2(tv.x - pl.position.x, tv.z - pl.position.z);
+      const cp = game.rc.camera.position;
+      const toCam = Math.atan2(cp.x - pl.position.x, cp.z - pl.position.z);
+      const d = Math.atan2(Math.sin(toCam - toNpc), Math.cos(toCam - toNpc));
+      pl.setYaw(toNpc + THREE.MathUtils.clamp(d, -1.25, 1.25));
+    }
     this.updateLensCut();
     Villager.lensPos.copy(game.rc.camera.position);
     // r13: the card's backdrop takes the scene's light (night = blue-violet with a warm lamp key)
