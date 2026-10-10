@@ -1140,6 +1140,20 @@ Fishing (`systems/fishing.ts`, visuals in `world/beach/tackle.ts` + `fishmesh.ts
   `trees` group are skipped (pond canopy). Pilings stop 0.7 m under the surface; seagrass is clumped tufts (two fixed
   blade leans), wind slicks and creased ridge normals are gone from steep views, bed caustics fade out by 1.15 m. A
   farmhand's catch line goes into their own name-tag speech bubble.
+- Round 7: the far sea by day is a saturated cerulean all the way to a true horizon line (deeper far reflections, the
+  haze colour reached just inside the camera's 400 m far plane, and `createHorizonClouds` paints the band below the
+  horizon in the same colour, then a pale horizon wash deepening to a cerulean zenith over the whole visible sky).
+  Steep lenses at dusk read a calmer reflection normal; the sun's side gets a few large 4-point stars past 9 m (no warm
+  confetti under the pier). Rocks take 60 % of the distance fog (the dusk headland keeps a silhouette); the moored
+  dory pushes slow ripple rings and darkens the water round its hull. Every catch is now presented across the chest
+  in both hands, local and remote (`presentSpread`: hands spread with the fish's length, smaller fish ride higher;
+  `poseAnglerArms(..., spread)`), with a 0.4 s twirl; the catch card picks the side / height that covers the fewest
+  other farmers (`CardAnchor.avoid`). Reel pacing: gain 0.155-0.075d, loss 0.06+0.1d, and a hot streak (+30 % after
+  ~2 s of unbroken tracking, the bar glows gold) — commons land in ~4-7 s; the sim test adds a laggy 60 ms-polling
+  controller. The reel panel stays below the clock HUD (and scales on short windows). Casting draws a dotted arc from
+  the rod tip to the reticle, the meter sits out over the water, the rod is loaded upright and the farmer crouches
+  with the power. Pond / river ripple rings sit under the lily pads. `__game.teleport` resets the camera to the
+  follow defaults (a demo camera no longer outlives it; `&x=`/`&z=` URL nudges keep it).
 
 Demos: `beach-day`, `beach-sunset` (a line in the water at dusk), `beach-night`, `beach-tidepools`, `beach-tackle` (the honesty box),
 `fishing-cast`, `fishing-flight` (the cast arc in the air), `fishing-wait`, `fishing-bite`, `fishing-reel`, `fishing-catch`,

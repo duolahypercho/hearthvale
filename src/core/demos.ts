@@ -123,8 +123,9 @@ export const DEMOS: Record<string, DemoDef> = {
   'beach-sunset': { map: 'beach', x: 48.9, z: 49.6, facing: 'left', time: 19.3, season: 'summer', weather: 'sun', camera: BEACH_SUNSET_CAM, showcase: ['beach', 'fishing-wait'] },
   // Looking out to sea over the beach: dune grass + sand in front, the wet band + surf, turquoise
   // shallows into deep blue, the pier and the horizon beyond (r5: the old top-down framing read as
-  // "lighthouse on a lawn"; r6: pulled back + lifted so the whole lighthouse and its wind-bent pines fit).
-  'beach-day': { map: 'beach', x: 44.4, z: 35.6, facing: 'up', time: 15.4, season: 'summer', weather: 'sun', camera: { yaw: 212, pitch: 19, distance: 40, offsetX: 5.2, offsetY: 3.5, offsetZ: 8.4 }, showcase: ['beach'] },
+  // "lighthouse on a lawn"; r6: pulled back + lifted so the whole lighthouse and its wind-bent pines fit;
+  // r7b: 6° flatter so the true horizon, the sky wash and its cumulus banks read above the sea).
+  'beach-day': { map: 'beach', x: 44.4, z: 35.6, facing: 'up', time: 15.4, season: 'summer', weather: 'sun', camera: { yaw: 212, pitch: 13, distance: 42, offsetX: 5.2, offsetY: 4.5, offsetZ: 8.4 }, showcase: ['beach'] },
   'beach-night': { map: 'beach', x: 50, z: 38.5, facing: 'down', time: 22.4, season: 'summer', weather: 'sun', camera: BEACH_NIGHT_CAM, showcase: ['beach'] },
   'fishing-cast': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 16.8, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-cast'] },
   'fishing-wait': { map: 'beach', x: 48.9, z: 52.4, facing: 'left', time: 17.4, season: 'summer', weather: 'sun', camera: FISH_CAM, showcase: ['fishing-wait'] },

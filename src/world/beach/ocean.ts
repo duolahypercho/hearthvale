@@ -1101,12 +1101,14 @@ export function createHorizonClouds(): THREE.Mesh {
         vec3 wash = vec3(0.0);
         if (day > 0.0 && el > -0.12 && el < 0.95) {
           // Crisp pale blue at the horizon (a clear line against the sea), deepening upward.
-          vec3 hzB = mix(uSkyColor, vec3(0.86, 0.93, 0.98), 0.5) * 1.02;
+          // (r7b: 0.5 → 0.32 towards white — after tone mapping + the warm grade the paler mix read as an
+          // overcast beige band over the horizon.)
+          vec3 hzB = mix(uSkyColor, vec3(0.74, 0.86, 0.97), 0.32);
           // (r7b: deepening to a soft cerulean zenith, and over the whole visible sky: the global
           // dome's afternoon beige showed through above ~17° as an overcast lid.)
-          vec3 zen = mix(uSkyColor, vec3(0.34, 0.56, 0.88), 0.4);
-          wash = mix(hzB, zen, smoothstep(0.0, 0.36, el));
-          washA = day * 0.94 * (1.0 - smoothstep(0.75, 0.95, el));
+          vec3 zen = mix(uSkyColor, vec3(0.3, 0.52, 0.88), 0.25);
+          wash = mix(hzB, zen, smoothstep(0.0, 0.3, el));
+          washA = day * (1.0 - smoothstep(0.75, 0.95, el));
           if (el < 0.0) {
             // (r7b) Below the horizon: the sea past the camera's 400 m far plane, in the ocean shader's
             // far-haze colour (oceanMaterial hzc by day), so the sea runs on to a true horizon line
