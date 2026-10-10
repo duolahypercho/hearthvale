@@ -71,8 +71,8 @@ export interface RainLayer {
 }
 
 /** Near layer: fast, crisp hairlines around the focus. Far layer: slow, faint veil behind it. */
-export const RAIN_NEAR: RainLayer = { count: 15000, speed: 19, length: 0.32, px: 1.4, alpha: 0.33, box: new THREE.Vector3(22, 12, 22), seed: 1234 };
-export const RAIN_FAR: RainLayer = { count: 9000, speed: 11, length: 0.2, px: 1.1, alpha: 0.2, box: new THREE.Vector3(34, 15, 34), seed: 4321 };
+export const RAIN_NEAR: RainLayer = { count: 15000, speed: 19, length: 0.46, px: 1.6, alpha: 0.5, box: new THREE.Vector3(22, 12, 22), seed: 1234 };
+export const RAIN_FAR: RainLayer = { count: 9000, speed: 11, length: 0.28, px: 1.2, alpha: 0.28, box: new THREE.Vector3(34, 15, 34), seed: 4321 };
 
 export class RainStreaks {
   readonly mesh: THREE.Mesh;

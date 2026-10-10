@@ -669,6 +669,8 @@ export class Terrain {
         float hvWetK = smoothstep(0.5, 0.95, uWetT);
         // Islands, not sheets: only the deepest dips of the path hold water.
         float hvPuddle = smoothstep(0.625, 0.67, pudN) * flatG * hvWetK * (1.0 - rockM) * pathM * (1.0 - tillM);
+        // Depth: shallow at the rim (mud shows through), deepest dark mirror in the middle.
+        float hvPudDeep = smoothstep(0.645, 0.78, pudN);
         // 1-2 px bright meniscus right at the waterline.
         float hvPudW = max(fwidth(pudN), 1e-4);
         float hvPudEdge = (1.0 - smoothstep(0.0, hvPudW * 1.6, abs(pudN - 0.629))) * flatG * hvWetK * (1.0 - rockM) * pathM * (1.0 - tillM);
@@ -682,7 +684,7 @@ export class Terrain {
         ground = mix(vec3(hvLum), hvWetG, 1.0 + 0.18 * hvWetPath);
         ground *= mix(1.0, 0.6, hvPudRim * hvPudRim * (3.0 - 2.0 * hvPudRim));
         // Standing water: the dirt under it goes near-black (the mirror term carries the colour).
-        ground *= mix(1.0, 0.16, hvPuddle);
+        ground *= mix(1.0, mix(0.34, 0.1, hvPudDeep), hvPuddle);
         ground = mix(ground, ground * vec3(0.8, 0.92, 1.12), hvPuddle);
         float hvTPath = pathM;
 
@@ -705,14 +707,14 @@ export class Terrain {
           vec3 Vp = normalize(cameraPosition - vTWorld);
           // Near top-down the mirror is weak (Fresnel): the dark soaked mud shows through and only the
           // sky openings flash, so a puddle never reads as a flat pale paper cut-out.
-          float fr = 0.3 + 0.55 * pow(1.0 - max(Vp.y, 0.0), 2.0);
+          float fr = (0.3 + 0.55 * pow(1.0 - max(Vp.y, 0.0), 2.0)) * mix(0.5, 1.2, hvPudDeep);
           // Mirror of the sky with the dark masses of trees / eaves reflected in it (a cheap
           // screen-free "probe": low-frequency blotches offset along the view direction).
           // The reflected ray climbs away from the lens: it sees the far side of the puddle's sky, so
           // the probe is offset down-screen of the fragment and stretched along the view (a mirror
           // image smears along the reflection plane, never across it).
           vec2 vd = normalize(Vp.xz + 1e-4);
-          vec2 rq = vTWorld.xz - Vp.xz * 6.0;
+          vec2 rq = vTWorld.xz - Vp.xz * 6.0 + (vec2(hvNoise(vTWorld.xz * 2.3 + uTimeT * 0.35), hvNoise(vTWorld.xz * 2.3 - uTimeT * 0.3 + 4.0)) - 0.5) * (0.5 + uRain * 2.2);
           vec2 rs = vec2(dot(rq, vd) * 0.55, dot(rq, vec2(-vd.y, vd.x)));
           // Dark crowns / trunks over most of it, torn sky gaps between them (reads as water, not a
           // grey sheet: a still puddle is mostly a dark mirror with a few bright openings).
@@ -725,7 +727,7 @@ export class Terrain {
           vec3 refl = mix(skyR, crownR, trees);
           // Ripple rings catch the light.
           float rr = length(hvRipples(vTWorld.xz, uTimeT)) * uRain;
-          totalEmissiveRadiance += (refl * fr * 0.62 + mix(uHorizonT, uSkyT, 0.3) * rr * 0.3) * hvPuddle;
+          totalEmissiveRadiance += (refl * fr * 0.62 + mix(uHorizonT, uSkyT, 0.3) * rr * 0.85) * hvPuddle;
         }
         // Bright meniscus at the waterline (1-2 px), a touch stronger where the sky is reflected.
         // (kept faint: a strong one outlined every puddle like a paper cut-out; the dark soaked halo

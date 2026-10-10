@@ -403,6 +403,14 @@ export class DayNight {
       (g.uLift!.value as THREE.Vector3).lerp(_stormLift, stormK);
       (g.uGain!.value as THREE.Vector3).lerp(_stormGain, stormK);
     }
+    // Plain rain borrows half the storm's cold slate grade and dips ~0.2 EV so the day reads as
+    // overcast and heavy, not a desaturated haze (local value contrast stays via rainOnly above).
+    if (rainOnly > 0.001) {
+      (g.uLift!.value as THREE.Vector3).lerp(_stormLift, rainOnly * 0.55);
+      (g.uGain!.value as THREE.Vector3).lerp(_stormGain, rainOnly * 0.5);
+      this.rc.renderer.toneMappingExposure *= 1 - rainOnly * 0.12;
+      g.uContrast!.value *= 1 + rainOnly * 0.08;
+    }
     // Lightning: the whole frame blooms blue-white for an instant.
     if (this.flash > 0.001) (g.uLift!.value as THREE.Vector3).add(_flashLift.set(0.03, 0.035, 0.05).multiplyScalar(this.flash));
     g.uVignette!.value = L(a.vignette, b.vignette, t);

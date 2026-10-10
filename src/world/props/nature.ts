@@ -118,6 +118,7 @@ export class Nature {
     stone: 6,
     boulder: 3,
     weed: 3,
+    fern: 4,
     flower: 3,
     bush: 3,
     berryBush: 2,

@@ -67,7 +67,7 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
           vec2 d = f - jit * 0.5;
           float r = length(d);
           float rr = ph * 0.5;
-          float ring = sin((r - rr) * 55.0) * smoothstep(0.07, 0.0, abs(r - rr)) * (1.0 - ph);
+          float ring = sin((r - rr) * 30.0) * smoothstep(0.11, 0.0, abs(r - rr)) * (1.0 - ph) * (1.0 - ph);
           acc += normalize(d + 1e-4) * ring;
         }
         return acc;
@@ -106,8 +106,9 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
         float ice = smoothstep(0.5, 0.9, uSnow);
         amp *= 1.0 - ice * 0.95;
         vec3 n = normalize(vec3(-hx / (2.0 * e) * amp, 1.0, -hz / (2.0 * e) * amp));
+        vec2 rp = vec2(0.0);
         if (uRain > 0.01) {
-          vec2 rp = ripples(p, t) * 0.9 * uRain * (1.0 - ice);
+          rp = ripples(p, t) * 0.9 * uRain * (1.0 - ice);
           n = normalize(n + vec3(rp.x, 0.0, rp.y));
         }
         vec3 V = normalize(cameraPosition - vW);
@@ -130,18 +131,23 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
         float cloud = hvCloudShadow(p, t, uCloudShadow);
         float diff = 0.55 + 0.45 * max(dot(n, L), 0.0);
         vec3 lit = col * (uSunColor * diff * 0.9 * cloud + uSkyColor * 0.55);
+        // Storm water: darker, slate-steel body instead of bright turquoise.
+        lit = mix(lit, lit * vec3(0.55, 0.66, 0.78), uRain * 0.7);
         // Reflection: the sky gradient along the reflected ray, with the dark tree-lined banks
         // mirrored in a band near the shore (cheap stand-in for a planar reflection).
         vec3 Rv = reflect(-V, n);
         vec3 skyR = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.7, Rv.y));
         float bank = smoothstep(0.7, 0.15, dd) * (0.55 + 0.45 * hvNoise(p * 0.9 + n.xz * 2.0));
         vec3 bankCol = mix(vec3(0.05, 0.1, 0.05), vec3(0.12, 0.2, 0.08), hvNoise(p * 2.2)) * (uSunColor * 0.4 + uSkyColor * 0.5);
-        vec3 refl = mix(skyR * 1.05, bankCol, bank * 0.75);
+        vec3 refl = mix(skyR * 1.05, bankCol, bank * 0.75) * (1.0 - 0.32 * uRain);
         vec3 c = mix(lit, refl, clamp(fres * 1.6 + bank * 0.35, 0.0, 0.85));
 
         vec3 R = reflect(-L, n);
         float spec = pow(max(dot(R, V), 0.0), 220.0) * 6.0 + pow(max(dot(R, V), 0.0), 24.0) * 0.18;
-        c += uSunColor * spec * cloud * (1.0 - uNight * 0.6);
+        c += uSunColor * spec * cloud * (1.0 - uNight * 0.6) * (1.0 - 0.9 * uRain);
+        // Raindrop rings catch the overcast sky as soft pale arcs (not pinpoint sparkle).
+        float ringLit = clamp(length(rp) * 0.55, 0.0, 0.55);
+        c = mix(c, skyR * 1.15 + 0.06, ringLit * uRain * (1.0 - ice));
 
         // Shoreline foam: a broken, animated ~0.3 m band (noise-thresholded), not a solid liner.
         float fn = hvNoise(p * 4.0 + t * 0.3);
