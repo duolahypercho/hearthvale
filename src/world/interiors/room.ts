@@ -18,7 +18,7 @@ import type { Game } from '../../core/game';
 import type { Facing } from '../../core/events';
 import type { GameMap, MapWarp } from '../map';
 import { TileGrid, TileType, TileFlag } from '../tiles';
-import { Kit, imat, interiorEmissive, floorPlane, type IMat } from './kit';
+import { Kit, imat, interiorEmissive, floorPlane, takeContacts, type IMat } from './kit';
 import { shaftGradient, windowView, windowViewNight, glowDisc, roomAO } from './textures';
 import { textures } from '../../render/textures';
 import { mergeStatic } from '../geom';
@@ -266,6 +266,7 @@ export abstract class InteriorMap implements GameMap {
     // Threshold + mat
     k.box('wood', [gap1 - gap0, 0.04, T + 0.1], [(gap0 + gap1) / 2, 0, D + T / 2], { tint: 0x7a5236 });
     this.statics.push(k.build('shell'));
+    takeContacts(); // wall / plinth footprints are not furniture
 
     // Contact AO card: the floor darkens softly into every wall and corner (multiplied over the floor).
     const ao = new THREE.Mesh(
@@ -488,7 +489,66 @@ export abstract class InteriorMap implements GameMap {
     this.root.add(merged);
     this.buildShafts();
     this.root.add(this.dust);
+    this.buildContactShadows();
     this.finalized = true;
+  }
+
+  /** One merged, multiply-blended mesh: a soft dark halo on the floor around every low piece of furniture. */
+  private buildContactShadows(): void {
+    const list = takeContacts();
+    if (!list.length) return;
+    const P = 0.3;
+    const pos: number[] = [];
+    const col: number[] = [];
+    const idx: number[] = [];
+    const IN = 0.16;
+    for (const c of list) {
+      const xs = [-c.hw - P, -c.hw, c.hw, c.hw + P];
+      const zs = [-c.hd - P * 0.8, -c.hd, c.hd, c.hd + P * 1.1];
+      const base = pos.length / 3;
+      const cs = Math.cos(c.ry);
+      const sn = Math.sin(c.ry);
+      for (let j = 0; j < 4; j++) {
+        for (let i = 0; i < 4; i++) {
+          const lx = xs[i]!;
+          const lz = zs[j]!;
+          pos.push(c.x + lx * cs + lz * sn, 0.011, c.z - lx * sn + lz * cs);
+          const edge = i === 0 || i === 3 || j === 0 || j === 3;
+          const v = edge ? 1 : IN;
+          col.push(v, v, v);
+        }
+      }
+      for (let j = 0; j < 3; j++) {
+        for (let i = 0; i < 3; i++) {
+          const a = base + j * 4 + i;
+          idx.push(a, a + 4, a + 1, a + 1, a + 4, a + 5);
+        }
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    const m = new THREE.Mesh(
+      g,
+      new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        depthWrite: false,
+        toneMapped: false,
+        fog: false,
+        side: THREE.DoubleSide,
+        blending: THREE.CustomBlending,
+        blendSrc: THREE.DstColorFactor,
+        blendDst: THREE.ZeroFactor,
+        blendEquation: THREE.AddEquation,
+      }),
+    );
+    m.renderOrder = 2;
+    m.userData.noAO = true;
+    m.userData.perfTag = 'contact-shadow';
+    m.name = 'contact-shadows';
+    this.root.add(m);
   }
 
   private buildShafts(): void {

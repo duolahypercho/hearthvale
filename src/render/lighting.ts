@@ -54,6 +54,8 @@ const SEASON_W: Record<Season, [number, number, number, number]> = { spring: [1,
 
 /** Distance (world units) from the view centre back towards the sun that shadow casters are gathered. */
 const SHADOW_REACH = 25;
+const MORNING_MIN_SHADOW_Y = Math.sin(THREE.MathUtils.degToRad(30));
+const _shadowWant = new THREE.Vector3();
 /** Shadow direction step (rad, ≈0.034°): ~10 steps per real second at the clock's pace. */
 const SHADOW_STEP_RAD = 0.0006;
 /** Shadow frustum centre step (m), rounded to whole texels. */
@@ -325,7 +327,15 @@ export class DayNight {
 
     // Sun / moon
     this.lightDirection(hour, this.sunDir);
-    if (this.shadowDir.lengthSq() === 0 || this.shadowDir.angleTo(this.sunDir) > SHADOW_STEP_RAD) this.shadowDir.copy(this.sunDir);
+    // Morning shadows never rake lower than ~30°: a 20° sun throws 15 m house/roof shadows across the farm
+    // that break into unexplained dark diagonal bands on the dirt path. Colour/rim still use the true low sun.
+    _shadowWant.copy(this.sunDir);
+    if (hour < 12 && hour >= 5.5 && _shadowWant.y < MORNING_MIN_SHADOW_Y) {
+      const hl = Math.hypot(_shadowWant.x, _shadowWant.z) || 1;
+      const k = Math.sqrt(1 - MORNING_MIN_SHADOW_Y * MORNING_MIN_SHADOW_Y) / hl;
+      _shadowWant.set(_shadowWant.x * k, MORNING_MIN_SHADOW_Y, _shadowWant.z * k);
+    }
+    if (this.shadowDir.lengthSq() === 0 || this.shadowDir.angleTo(_shadowWant) > SHADOW_STEP_RAD) this.shadowDir.copy(_shadowWant);
     globalUniforms.uSunDir.value.copy(this.sunDir);
     lerpHex(a.sun, b.sun, t, this.sun.color).multiply(this.seasonTint);
     const grey = new THREE.Color(0.75, 0.78, 0.82);

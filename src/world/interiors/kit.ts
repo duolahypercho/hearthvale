@@ -176,11 +176,33 @@ export interface BoxOpts {
   uv?: number;
 }
 
+/** Floor footprints of low furniture, logged by Kit so the room can lay one soft contact shadow under each. */
+export interface Contact { x: number; z: number; hw: number; hd: number; ry: number }
+let contactLog: Contact[] = [];
+const tmpBox = new THREE.Box3();
+/** Materials that lie flat on the floor or glow: never cast a contact halo. */
+const FLAT = new Set<IMat>(['floor', 'rug', 'runner', 'braid', 'tile', 'glow', 'leaf', 'ember'] as IMat[]);
+/** Returns (and clears) the footprints logged since the last call. */
+export function takeContacts(): Contact[] {
+  const c = contactLog;
+  contactLog = [];
+  return c;
+}
+
 /** MeshBuilder front-end with interior materials and "y = bottom" boxes. */
 export class Kit {
   readonly b = new MeshBuilder();
 
   add(m: IMat, g: THREE.BufferGeometry, mtx?: THREE.Matrix4, opts: { tint?: THREE.ColorRepresentation; ao?: AOFn; aoWorld?: AOFn } = {}): this {
+    if (!FLAT.has(m)) {
+      if (!g.boundingBox) g.computeBoundingBox();
+      const bb = tmpBox.copy(g.boundingBox!);
+      if (mtx) bb.applyMatrix4(mtx);
+      const w = bb.max.x - bb.min.x;
+      const d = bb.max.z - bb.min.z;
+      const h = bb.max.y - bb.min.y;
+      if (bb.min.y < 0.09 && h > 0.1 && w > 0.1 && d > 0.1 && w < 3.4 && d < 3.4) contactLog.push({ x: (bb.min.x + bb.max.x) / 2, z: (bb.min.z + bb.max.z) / 2, hw: w * 0.42, hd: d * 0.42, ry: 0 });
+    }
     this.b.add(imat(m), g, mtx, opts);
     return this;
   }
@@ -191,6 +213,7 @@ export class Kit {
     const g = roundedBox(w, h, d, o.r ?? 0.02);
     if (o.uv) boxProject(g, o.uv, w, h, d);
     const aoH = o.ao ?? 0;
+    if (y < 0.1 && h > 0.1 && w < 3.4 && d < 3.4 && Math.min(w, d) > 0.1) contactLog.push({ x, z, hw: w / 2, hd: d / 2, ry: o.ry ?? 0 });
     this.b.add(imat(m), g, mat(x, y + h / 2, z, o.rx ?? 0, o.ry ?? 0, o.rz ?? 0), {
       tint: o.tint,
       aoWorld: aoH > 0 ? groundAO(aoH, 0.6) : undefined,
@@ -200,6 +223,7 @@ export class Kit {
 
   cyl(m: IMat, rTop: number, rBot: number, h: number, [x, y, z]: [number, number, number], opts: BoxOpts & { seg?: number } = {}): this {
     const g = new THREE.CylinderGeometry(rTop, rBot, h, opts.seg ?? 16);
+    if (y < 0.1 && h > 0.1 && rBot > 0.05) contactLog.push({ x, z, hw: rBot * 0.85, hd: rBot * 0.85, ry: 0 });
     this.b.add(imat(m), g, mat(x, y + h / 2, z, opts.rx ?? 0, opts.ry ?? 0, opts.rz ?? 0), { tint: opts.tint });
     return this;
   }

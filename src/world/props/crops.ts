@@ -670,7 +670,9 @@ function vine(add: Adder, r: Rng, a: number, len: number, leaf: LeafOpts, leafLe
 
 const BUILDERS: Record<CropId, Builder> = {
   parsnip(add, r, k) {
-    rosette(add, r, 3 + k * 2, 0.13 + k * 0.07, 0.07, { shape: 'lance', serrate: 0.35, lift: 1.0 + k * 0.08, bend: 0.5, c0: GREEN.mid, c1: GREEN.light });
+    // Feathery LIME fountains (the lightest greens on the farm); ripe tops yellow at the tips as the root fattens.
+    const ripeTop = k === 3 ? C(0xe6e070) : C(0xd2ee7a);
+    rosette(add, r, 3 + k * 2, 0.13 + k * 0.07, 0.07, { shape: 'lance', serrate: 0.35, lift: 1.0 + k * 0.08, bend: 0.5, c0: C(0x6fae34), c1: ripeTop });
     if (k >= 2) {
       // Only the pale shoulder of the root shows above the soil.
       const R = k === 3 ? 0.085 : 0.06;
@@ -682,14 +684,15 @@ const BUILDERS: Record<CropId, Builder> = {
   },
   potato(add, r, k) {
     const yellow = k === 3 ? 0.35 : 0;
-    const c0 = GREEN.dark.clone().lerp(C(0x8a8a3a), yellow);
-    const c1 = GREEN.mid.clone().lerp(C(0xc8c060), yellow);
+    // Dark, matte, olive-bronze bushes: the heaviest, lowest mounds on the farm; ripe = yellowing, collapsing haulm.
+    const c0 = C(0x2a4a24).lerp(C(0x8a7a3a), yellow);
+    const c1 = C(0x547a34).lerp(C(0xc8b050), yellow);
     rosette(add, r, 4 + k * 2, 0.14 + k * 0.06, 0.11, { shape: 'oval', lift: 0.75, bend: 0.35, fold: 0.3, c0, c1 });
     if (k >= 1) rosette(add, r, 3 + k, 0.11 + k * 0.05, 0.1, { shape: 'oval', lift: 1.0, bend: 0.3, c0: c1, c1: GREEN.light }, 0.6, 0.05 + k * 0.035);
     if (k === 2) {
       for (let i = 0; i < 5; i++) {
         const a = r.next() * Math.PI * 2;
-        flower(add, 0.03, C(0xf4ecff), C(0xf2d040), mat(Math.cos(a) * 0.09, 0.26 + r.next() * 0.05, Math.sin(a) * 0.09, 0.3, a, 0));
+        flower(add, 0.04, C(0xe6d4ff), C(0xf2d040), mat(Math.cos(a) * 0.09, 0.26 + r.next() * 0.05, Math.sin(a) * 0.09, 0.3, a, 0));
       }
     }
     if (k === 3) {
@@ -717,9 +720,10 @@ const BUILDERS: Record<CropId, Builder> = {
     // Big frilly leaves on pale stalks that arch OUT and over (a loose, open vase), deep blue-green
     // with yellow-green frilled tips — never the cauliflower's flat, pale, waxy rosette.
     const tiers = 1 + Math.min(2, k);
-    const c0 = k === 3 ? C(0x1f4a3a) : C(0x245440);
-    const c1 = C(0x4f8a5e);
-    const rib = C(0xc2dcc0);
+    // Red-Russian kale: smoky violet-green blades, magenta ribs; ripe plants flush deeper plum with pale frills.
+    const c0 = k === 3 ? C(0x35254a) : C(0x2c3a4c);
+    const c1 = k === 3 ? C(0x7a5a92) : C(0x52805e);
+    const rib = k === 3 ? C(0xd0709e) : C(0xb8789c);
     for (let t = 0; t < tiers; t++) {
       const n = 4 + (k >= 2 ? 1 : 0) - (t === tiers - 1 && t > 0 ? 1 : 0);
       const len = 0.16 + k * 0.065 - t * 0.035;
@@ -729,7 +733,7 @@ const BUILDERS: Record<CropId, Builder> = {
         // Outer tiers lean well out, the heart stays upright.
         const lean = 0.95 - t * 0.28 + (r.next() - 0.5) * 0.2;
         const stalkL = 0.06 + t * 0.03 + k * 0.01;
-        add(stalk(stalkL, 0.009, 0.006, C(0xb8d0b0), C(0x9cbc98), 0, 3), m.clone().multiply(mat(0, 0, 0, lean, 0, 0)));
+        add(stalk(stalkL, 0.009, 0.006, C(0xd070b0), C(0xa85a98), 0, 3), m.clone().multiply(mat(0, 0, 0, lean, 0, 0)));
         const lf = ruffledLeaf(len * (0.85 + r.next() * 0.3), 0.17 + k * 0.035, r, c0, c1, rib, 0.35 + t * 0.2 + r.next() * 0.2, 6, 12);
         // The blade continues the stalk's lean (rotateX +: tips fall outward), arching back up.
         add(lf, m.clone().multiply(mat(0, Math.cos(lean) * stalkL, Math.sin(lean) * stalkL, lean - 0.95 - 0.25, 0, 0)));
@@ -1800,7 +1804,17 @@ const PLACE: Partial<Record<CropId, { scale?: number; yaw?: number }>> = {
   blueberry: { scale: 1.1 },
 };
 
-const STAGE_SCALE = [1.15, 1.3, 1.42, 1.54, 1.62, 1.68];
+/** Foliage colour cast per crop (multiplies the instance tint) so neighbouring rows never share one green. */
+const CROP_CAST: Partial<Record<CropId, THREE.Color>> = {
+  parsnip: new THREE.Color(1.1, 1.08, 0.82),
+  cauliflower: new THREE.Color(0.88, 1.02, 1.1),
+  kale: new THREE.Color(0.98, 0.95, 1.02),
+  potato: new THREE.Color(0.95, 0.95, 0.8),
+  beet: new THREE.Color(1.05, 0.95, 0.95),
+  strawberry: new THREE.Color(1.02, 1.04, 0.9),
+};
+const RIPE_FLUSH = new THREE.Color(1.1, 1.06, 0.95);
+const STAGE_SCALE = [1.15, 1.28, 1.38, 1.46, 1.5, 1.52];
 
 export class CropVisuals {
   readonly group = new THREE.Group();
@@ -1882,6 +1896,10 @@ export class CropVisuals {
     const j = hv(13, 29) - 0.5;
     const l = 0.92 + hv(17, 23) * 0.16;
     const tint = new THREE.Color(l * (1 + j * 0.1), l * (1 + j * 0.03), l * (1 - j * 0.12));
+    // Crop identity: a per-crop foliage cast on top of each builder's palette, and a warm ripe flush.
+    const cast = CROP_CAST[id];
+    if (cast) tint.multiply(cast);
+    if (stage === RIPE_STAGE) tint.multiply(RIPE_FLUSH);
     return this.place(set, pos, yaw, new THREE.Vector3(s, s * (0.92 + hv(11, 17) * 0.16), s), tint);
   }
 

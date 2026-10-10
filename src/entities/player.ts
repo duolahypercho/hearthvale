@@ -122,6 +122,7 @@ export class Player {
   private lookTarget = 0;
   private tool = new THREE.Group();
   private shadowBlob: THREE.Mesh;
+  private indoorK = 1;
 
   constructor(private game: Game) {
     this.root.name = 'player';
@@ -554,10 +555,15 @@ export class Player {
     for (const e of this.eyes) e.scale.y = eyeY;
 
     this.body.position.y = bob;
-    const S = 1.22;
+    // Indoors the dollhouse furniture is built at real scale: shrink the chunky farmer so head and hat stop
+    // rivalling the armchair (eased, so warping through a door doesn't pop).
+    const mapId = this.game.world.current?.id ?? '';
+    const want = mapId === 'house' || mapId === 'coop' || mapId === 'barn' ? 0.8 : 1;
+    this.indoorK += (want - this.indoorK) * Math.min(1, dt * 8);
+    const S = 1.22 * this.indoorK;
     this.body.scale.set(S / Math.sqrt(sy), S * sy, S / Math.sqrt(sy));
     this.hat.position.y = 0.32 * 1.55 + (this.state === 'walk' ? Math.abs(Math.cos(this.phase)) * 0.015 : 0);
-    this.shadowBlob.scale.setScalar(1 - bob * 1.5);
+    this.shadowBlob.scale.setScalar((1 - bob * 1.5) * this.indoorK);
     this.shadowBlob.position.y = 0.03;
   }
 }
