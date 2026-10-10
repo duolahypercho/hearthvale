@@ -12,6 +12,15 @@ import { lantern, windowUnit, type BuiltProp } from './structures';
 const TRIM = 0xf3ead8;
 const groundAO = (h = 0.5, min = 0.6) => (p: THREE.Vector3): number => min + (1 - min) * THREE.MathUtils.smoothstep(p.y, 0, h);
 
+/** Cap a stripe colour's brightest channel (sRGB 0.83) so sunlit cloth never clips to white. */
+function awningTint(c: number): number {
+  const r = (c >> 16) & 255;
+  const g = (c >> 8) & 255;
+  const b = c & 255;
+  const k = Math.min(1, 212 / Math.max(r, g, b));
+  return (Math.round(r * k) << 16) | (Math.round(g * k) << 8) | Math.round(b * k);
+}
+
 export interface HouseSpec {
   w: number;
   d: number;
@@ -118,15 +127,18 @@ export function buildTownHouse(rng: Rng, s: HouseSpec): BuiltProp {
   }
   // Striped shop awning
   if (s.awning) {
+    // Cream stripes straight from the palette sit at ~0.95 albedo: under the sun key plus bloom they clip to white
+    // and the stripe pattern is lost. Cap every channel so the light stripe stays a warm cream.
+    const awn = s.awning.map(awningTint) as [number, number];
     const aw = W - 0.4;
     const n = Math.round(aw / 0.36);
     for (let i = 0; i < n; i++) {
       const x = -aw / 2 + (i + 0.5) * (aw / n);
-      b.add('cloth', roundedBox(aw / n + 0.01, 0.05, 1.05, 0.02), mat(x, baseH + 2.25, fz + 0.5, 0.42, 0, 0), { tint: i % 2 ? s.awning[1] : s.awning[0] });
+      b.add('cloth', roundedBox(aw / n + 0.01, 0.05, 1.05, 0.02), mat(x, baseH + 2.25, fz + 0.5, 0.42, 0, 0), { tint: i % 2 ? awn[1] : awn[0] });
       // Scalloped valance
       const sc = new THREE.CylinderGeometry(aw / n / 2, aw / n / 2, 0.04, 10, 1, false, 0, Math.PI);
       sc.rotateX(Math.PI / 2);
-      b.add('cloth', sc, mat(x, baseH + 1.98, fz + 0.97, 0, 0, Math.PI), { tint: i % 2 ? s.awning[1] : s.awning[0] });
+      b.add('cloth', sc, mat(x, baseH + 1.98, fz + 0.97, 0, 0, Math.PI), { tint: i % 2 ? awn[1] : awn[0] });
     }
     for (const sx of [-1, 1]) b.add('metal', new THREE.CylinderGeometry(0.02, 0.02, 1.0, 6), mat(sx * (aw / 2), baseH + 2.2, fz + 0.5, Math.PI / 2 - 0.42, 0, 0), { tint: 0x3a3a3a });
   }

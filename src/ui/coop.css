@@ -231,7 +231,7 @@
   font: 700 13px var(--font-body);
 }
 .coop-server {
-  font: 600 12px var(--font-body);
+  font: 600 14px var(--font-body);
   color: var(--ink-soft);
 }
 .coop-server summary {
@@ -307,7 +307,7 @@
 }
 .coop-slot small {
   display: block;
-  font: 600 12px var(--font-body);
+  font: 600 14px var(--font-body);
   color: var(--ink-soft);
   white-space: nowrap;
 }
@@ -326,7 +326,7 @@
 .coop-hint {
   margin-top: 12px;
   text-align: center;
-  font: 600 12px var(--font-body);
+  font: 600 14px var(--font-body);
   color: var(--ink-soft);
 }
 .coop-hint b {
@@ -465,7 +465,7 @@
   animation: coopZ 1.6s ease-in-out infinite;
 }
 .zz small {
-  font-size: 10px;
+  font-size: 13px;
 }
 
 /* ── HUD: roster plate, name tags, chat, emote wheel, bedtime ──────────── */
@@ -504,7 +504,7 @@
 .coop-roster .hd .warn {
   margin-left: auto;
   color: #b8321e;
-  font-size: 12px;
+  font-size: 14px;
   animation: coopBlink 1s steps(2) infinite;
 }
 .coop-roster .pl {
@@ -519,12 +519,12 @@
   opacity: 0.5;
 }
 .coop-roster .pl .where {
-  font: 600 11px var(--font-body);
+  font: 600 13.5px var(--font-body);
   color: var(--ink-soft);
 }
 .coop-roster .ft {
   margin-top: 4px;
-  font: 600 12.5px var(--font-body);
+  font: 600 14px var(--font-body);
   color: var(--ink-soft);
   text-align: center;
 }
@@ -735,7 +735,7 @@
   bottom: -14px;
   translate: -50% 0;
   white-space: nowrap;
-  font: 700 12px var(--font-head);
+  font: 700 14px var(--font-head);
   color: #fff6e0;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
   opacity: 0;
@@ -749,7 +749,7 @@
   border-radius: 5px;
   background: #fff3d6;
   color: #5a2e10;
-  font: 700 11px/18px var(--font-head);
+  font: 700 13.5px/18px var(--font-head);
   box-shadow: 0 1px 0 #8a5a2a;
 }
 .coop-wheel .wedge.on {
@@ -830,7 +830,7 @@
   font: 700 13px var(--font-head);
 }
 .coop-sleep .bed em {
-  font: 600 11px var(--font-body);
+  font: 600 13.5px var(--font-body);
   color: #c8c0a8;
 }
 .coop-sleep .zz {
@@ -948,7 +948,7 @@
   background: rgba(150, 60, 30, 0.12);
   box-shadow: inset 0 0 0 1.5px rgba(150, 60, 30, 0.45);
   color: #8a3418;
-  font: 700 12px var(--font-head);
+  font: 700 14px var(--font-head);
   cursor: pointer;
   transition: background 120ms, color 120ms;
 }
@@ -963,7 +963,7 @@
   align-self: center;
 }
 .coop-pause .pl em {
-  font: 600 12px var(--font-body);
+  font: 600 14px var(--font-body);
   color: var(--ink-soft);
   font-style: italic;
 }
@@ -1001,7 +1001,7 @@
 .coop-slot .side .coop-kick {
   margin: 0;
   padding: 2px 8px 3px;
-  font-size: 11px;
+  font-size: 13.5px;
 }
 
 /* ── holdout nudge: other farmers are in bed, we're still up ── */
@@ -1068,7 +1068,7 @@
   position: absolute;
   right: -7px;
   top: -9px;
-  font-size: 12px;
+  font-size: 14px;
   color: #bcd0ff;
 }
 .coop-nudge .tx p {
@@ -1138,7 +1138,7 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  font: 700 12px/1 var(--font-head);
+  font: 700 14px/1 var(--font-head);
   color: #fff8e0;
   background: #e0a030;
   box-shadow: 0 0 0 2px #8a5a0a;
@@ -1155,7 +1155,7 @@
   text-overflow: ellipsis;
 }
 .coop-today .ct-tx b em {
-  font: 700 11px var(--font-body);
+  font: 700 13.5px var(--font-body);
   font-style: normal;
   color: #a08060;
 }
@@ -1185,7 +1185,7 @@
   height: 17px;
 }
 .coop-today .ct-tx small {
-  font: 700 12px var(--font-body);
+  font: 700 14px var(--font-body);
   color: #a08060;
 }
 @keyframes coopTodayIn {

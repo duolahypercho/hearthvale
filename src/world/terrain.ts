@@ -481,6 +481,7 @@ export class Terrain {
       uGrassTex: { value: textures.grassDetail().map },
       uDirtTex: { value: this.opts.pathTexture ?? textures.dirt().map },
       uPathScale: { value: this.opts.pathScale ?? 0.34 },
+      uPathRag: { value: this.opts.pathTexture ? 1 : 0 },
       uSoilTex: { value: textures.soil().map },
       uWetSoilTex: { value: textures.wetSoil().map },
       uCliffTex: { value: textures.cliff().map },
@@ -523,6 +524,7 @@ export class Terrain {
         uniform sampler2D uGrassTex;
         uniform sampler2D uDirtTex;
         uniform float uPathScale;
+        uniform float uPathRag;
         uniform sampler2D uSoilTex;
         uniform sampler2D uWetSoilTex;
         uniform sampler2D uCliffTex;
@@ -619,11 +621,19 @@ export class Terrain {
 
         // Path (packed dirt) with trampled rim.
         float pv = spW.r + (tn1 - 0.5) * 0.32 + (tn2 - 0.5) * 0.12;
-        float pathM = smoothstep(0.46, 0.54, pv);
-        float rim = smoothstep(0.26, 0.46, pv) * (1.0 - pathM);
         vec3 dirt = texture2D(uDirtTex, wp.xz * uPathScale).rgb;
+        // Cobbled lanes: the stones' own lightness raggedises the edge (grass creeps into the joints, stones
+        // poke out onto the lawn) and a wide mossy, soil-stained rim replaces the crisp cut-out shape.
+        float stoneL = dot(dirt, vec3(0.333));
+        float stoneJ = (stoneL - 0.5) * 1.5 + (hvNoise(wp.xz * 9.0) - 0.5) * 0.35;
+        pv += stoneJ * uPathRag * (1.0 - smoothstep(0.1, 0.42, abs(pv - 0.5)));
+        float pathM = smoothstep(mix(0.46, 0.44, uPathRag), mix(0.54, 0.56, uPathRag), pv);
+        float rim = smoothstep(mix(0.26, 0.1, uPathRag), 0.46, pv) * (1.0 - pathM);
         dirt *= 0.92 + 0.12 * smoothstep(0.5, 0.9, pv);
-        grass = mix(grass, grass * vec3(0.78, 0.8, 0.62) + dirt * 0.12, rim * 0.8);
+        vec3 rimTint = mix(vec3(0.78, 0.8, 0.62), vec3(0.62, 0.64, 0.38), uPathRag);
+        grass = mix(grass, grass * rimTint + dirt * mix(0.12, 0.2, uPathRag), rim * mix(0.8, 0.95, uPathRag));
+        // Lawn between cobbles: a touch olive and mottled so it never reads as the park's flat bright green.
+        grass = mix(grass, grass * vec3(0.9, 0.93, 0.74) * (0.88 + 0.22 * tn2), uPathRag * smoothstep(0.02, 0.3, spW.r + rim));
 
         // Sand
         float sandM = smoothstep(0.4, 0.6, spW.a + (tn1 - 0.5) * 0.3);

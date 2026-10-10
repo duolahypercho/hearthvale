@@ -6,6 +6,7 @@
  * 1. Create src/systems/<name>.ts exporting a class implementing `System` (core/system.ts).
  * 2. Add ONE line to SYSTEMS below.
  */
+import { setBustRenderer } from '../ui/bust';
 import * as THREE from 'three';
 import { EventBus, type Quality } from './events';
 import { Rng } from './rng';
@@ -138,6 +139,7 @@ export class Game {
     this.rng = new Rng(opts.seed);
     this.calendar = new Calendar(this.events);
     this.rc = new RenderContext(opts.container, opts.quality);
+    setBustRenderer(this.rc.renderer);
     this.input = new Input(this.events, this.rc.renderer.domElement);
     this.saves = new SaveManager(this.events);
     this.lighting = new DayNight(this.rc);

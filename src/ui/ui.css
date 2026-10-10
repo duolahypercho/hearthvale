@@ -104,7 +104,7 @@ body.u-calm #ui-root *::after {
 .u-tab span {
   font-family: var(--font-head);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 14px;
   color: #fff4dc;
   text-shadow: 0 1px 0 #4a2810;
 }
@@ -214,7 +214,7 @@ body.u-calm #ui-root *::after {
   line-height: 1.1;
 }
 .inv-card .stats small {
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #a08060;
   text-transform: uppercase;
@@ -242,7 +242,7 @@ body.u-calm #ui-root *::after {
 .inv-label small {
   font-family: var(--font-body);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 14px;
   color: #a08060;
 }
 .inv-grid {
@@ -372,7 +372,7 @@ body.u-calm #ui-root *::after {
 .idt-name .t-cat {
   padding: 1px 9px 2px;
   border-radius: 20px;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -402,7 +402,7 @@ body.u-calm #ui-root *::after {
   align-items: center;
   gap: 5px;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #5f8a3a;
 }
@@ -434,7 +434,7 @@ body.u-calm #ui-root *::after {
   line-height: 1;
 }
 .idt-val small {
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #d8b888;
 }
@@ -567,7 +567,7 @@ body.u-calm #ui-root *::after {
 }
 .shop-name small {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #a08060;
   text-align: center;
@@ -630,7 +630,7 @@ body.u-calm #ui-root *::after {
   font-variant-numeric: tabular-nums;
 }
 .shop-purse small {
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -767,7 +767,7 @@ body.u-calm #ui-root *::after {
   border-radius: 10px;
   font-family: var(--font-body);
   font-style: normal;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 900;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -788,7 +788,7 @@ body.u-calm #ui-root *::after {
   bottom: 1px;
 }
 .shop-row .nm small {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -867,7 +867,7 @@ body.u-calm #ui-root *::after {
   text-overflow: ellipsis;
 }
 .pk-item small {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #a08060;
 }
@@ -896,7 +896,7 @@ body.u-calm #ui-root *::after {
   animation: hTick 300ms var(--ease-back);
 }
 .pk-n small {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 800;
   color: #a08060;
   text-transform: uppercase;
@@ -976,7 +976,7 @@ body.u-calm #ui-root *::after {
 }
 .craft-head small {
   font-family: var(--font-body);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #a08060;
 }
@@ -1036,7 +1036,7 @@ body.u-calm #ui-root *::after {
   box-sizing: border-box;
   text-align: center;
   line-height: 1.2;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
   color: #a08060;
 }
@@ -1133,7 +1133,7 @@ img.sil {
   margin: 5px 0 6px;
   padding: 1px 9px 2px;
   border-radius: 20px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -1262,7 +1262,7 @@ img.sil {
 .cd-prev small {
   margin-top: 8px;
   text-align: center;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #6a8a3a;
 }
@@ -1283,7 +1283,7 @@ img.sil {
   font-size: 16px;
 }
 .cd-out small {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #a08060;
 }
@@ -1297,7 +1297,7 @@ img.sil {
 .cd-out .ar {
   padding: 2px 9px 3px;
   border-radius: 20px;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 900;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -1695,7 +1695,7 @@ svg.valley {
   color: var(--ink-soft);
 }
 .set-seg .seg small {
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
   color: #a08060;
 }
@@ -1784,7 +1784,7 @@ svg.valley {
   font-size: 15px;
 }
 .set-toggle .lb small {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -1858,7 +1858,7 @@ svg.valley {
   padding: 10px;
   border-radius: 10px;
   background: rgba(120, 80, 40, 0.1);
-  font-size: 12.5px;
+  font-size: 14px;
 }
 .set-fixed div {
   display: flex;
@@ -2047,7 +2047,7 @@ svg.valley {
   font-size: 18px;
 }
 .td-row small {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -2062,7 +2062,7 @@ svg.valley {
   align-items: center;
   gap: 5px;
   margin-bottom: 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #8a6440;
   text-transform: uppercase;
@@ -2082,7 +2082,7 @@ svg.valley {
 }
 .td-quest small {
   display: block;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1.3;
   color: #8a6a4a;
@@ -2149,7 +2149,7 @@ svg.valley {
 .td-prog .lbl {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #8a6440;
   text-transform: uppercase;
@@ -2219,7 +2219,7 @@ svg.valley {
   bottom: 6px;
   padding: 1px 8px 2px;
   border-radius: 8px;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #fff;
   background: rgba(40, 20, 6, 0.7);
@@ -2245,7 +2245,7 @@ svg.valley {
   height: 18px;
 }
 .save-card .meta small {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -2861,7 +2861,7 @@ svg.valley {
 .de-rest small {
   display: block;
   margin-top: 2px;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -2894,7 +2894,7 @@ svg.valley {
   box-shadow: 0 1px 2px rgba(90, 50, 14, 0.2);
 }
 .de-note small {
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   letter-spacing: 0.6px;
   text-transform: uppercase;
@@ -2961,7 +2961,7 @@ svg.valley {
 }
 .de-pen small {
   display: block;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #8a5040;
 }
@@ -3013,7 +3013,7 @@ svg.valley {
   font-size: 17px;
 }
 .de-tmr small {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -3068,7 +3068,7 @@ svg.valley {
   padding: 1px 7px 2px;
   margin-right: 4px;
   border-radius: 6px;
-  font: 800 12.5px var(--font-body);
+  font: 800 14px var(--font-body);
   color: #5a3414;
   background: linear-gradient(180deg, #fffaf0, #eedcb8);
   box-shadow: 0 2px 0 #b89a70, inset 0 0 0 1.5px rgba(122, 80, 40, 0.35);
@@ -3119,7 +3119,7 @@ svg.valley {
   height: 58px;
 }
 .ic-cell span {
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 800;
   text-align: center;
   line-height: 1.15;
@@ -3789,7 +3789,7 @@ svg.valley {
 }
 .cd-chips i {
   font-style: normal;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   padding: 1px 8px 2px;
   border-radius: 9px;
@@ -3864,7 +3864,7 @@ svg.valley {
   border-radius: 12px;
   font-family: var(--font-head);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 14px;
   color: #fff6e0;
   background: linear-gradient(180deg, #c98a4a, #a0602c);
   box-shadow: 0 2px 0 #5a3418, 0 4px 8px rgba(60, 30, 6, 0.25);
@@ -3998,7 +3998,7 @@ svg.valley {
 }
 .set-fpsline small {
   margin-left: auto;
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: #a08060;
   white-space: nowrap;
 }
@@ -4022,7 +4022,7 @@ svg.valley {
   color: var(--ink-soft);
 }
 .set-caprow .lb small {
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 700;
   color: #a08060;
 }
@@ -4030,7 +4030,7 @@ svg.valley {
   grid-template-columns: 1fr;
   gap: 4px;
   margin: 10px 0;
-  font-size: 12.5px;
+  font-size: 14px;
 }
 .set-fixed b {
   white-space: nowrap;
@@ -4185,7 +4185,7 @@ svg.valley {
 }
 .save-card .meta .who {
   font-style: normal;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   letter-spacing: 0.3px;
   color: #b8602a;
@@ -4372,7 +4372,7 @@ svg.valley {
 }
 .shop-have small {
   display: block;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 900;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -4599,7 +4599,7 @@ svg.valley {
 }
 .cd-facts .fact small {
   display: block;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #a08060;
   white-space: nowrap;
@@ -4660,7 +4660,7 @@ svg.valley {
   font-size: 15px;
 }
 .cd-facts.stack .fact small {
-  font-size: 11.5px;
+  font-size: 13.5px;
   line-height: 1.2;
 }
 .craft-detail.many .pedestal {
@@ -4728,7 +4728,7 @@ svg.valley {
 .set-sec h3 small {
   margin-left: auto;
   font-family: var(--font-body, inherit);
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #a08060;
 }
@@ -4791,7 +4791,7 @@ svg.valley {
 .set-pad .gl.sh {
   width: 34px;
   border-radius: 8px 8px 6px 6px;
-  font-size: 12px;
+  font-size: 14px;
   background: #5a6474;
 }
 .set-pad .gl.st {
@@ -4801,7 +4801,7 @@ svg.valley {
 .set-pad .gl.sys {
   width: 30px;
   border-radius: 9px;
-  font-size: 12px;
+  font-size: 14px;
   background: #3e4654;
 }
 .set-col.b .set-slider {
@@ -4841,7 +4841,7 @@ svg.valley {
   top: 50%;
   translate: 0 -50%;
   font-style: normal;
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 900;
   color: #b8742a;
   white-space: nowrap;
@@ -4858,7 +4858,7 @@ svg.valley {
   padding: 0 5px 1px;
   border-radius: 5px;
   font-family: var(--font-head);
-  font-size: 12px;
+  font-size: 14px;
   text-align: center;
   background: #fffdf6;
   box-shadow: 0 0 0 1.5px #8a6440, 0 2px 0 #8a6440;
@@ -4947,7 +4947,7 @@ body.u-contrast #ui-root {
 .m-npc[data-npc='+'] .m-npcface {
   display: grid;
   place-items: center;
-  font: 800 11px/1 'Fredoka', sans-serif;
+  font: 800 13.5px/1 'Fredoka', sans-serif;
   color: #5a3418;
 }
 /* Backpack detail card: "Carrying" tag while a stack is lifted. */
@@ -4956,7 +4956,7 @@ body.u-contrast #ui-root {
   border-radius: 8px;
   background: #e8a03a;
   color: #fff8e6;
-  font: 700 11px/1.5 var(--font-head);
+  font: 700 13.5px/1.5 var(--font-head);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   box-shadow: inset 0 -2px 0 rgba(90, 40, 0, 0.3);
@@ -5078,7 +5078,7 @@ body.u-contrast #ui-root {
   mask-image: repeating-radial-gradient(circle at 30% 40%, #000 0 2px, rgba(0, 0, 0, 0.78) 2px 3px);
 }
 .de-stamp small {
-  font: 800 10px/1 var(--font-body);
+  font: 800 13px/1 var(--font-body);
   letter-spacing: 0.6px;
 }
 .de-tot.go .de-stamp {
@@ -5187,7 +5187,7 @@ body.u-contrast #ui-root {
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.55);
   box-shadow: inset 0 0 0 1.5px rgba(138, 100, 64, 0.2);
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 800;
   color: var(--ink-soft);
   transition: background 160ms, box-shadow 160ms;

@@ -11,6 +11,7 @@
  * lids, gaze, brows, mouth, blush and little manga marks (tear, sweat drop, anger vein, sparkles).
  */
 import type { NpcLook, Mood, Backdrop } from '../data/npcs';
+import { bustUrl, defForLook } from './bust';
 
 export type { Mood };
 
@@ -520,8 +521,31 @@ function clothing(id: string, L: NpcLook, sw: number): string {
   return p.join('');
 }
 
-/** Portrait SVG for a look + mood. */
+/**
+ * Portrait SVG for a look + mood. A villager's portrait is a snapshot of their real 3D rig (ui/bust.ts) over the
+ * painted backdrop, so the dialogue frame shows the same soft 3D character as the square; looks without a
+ * villager def (extras), or a renderer that is not attached, get the fully painted bust instead.
+ */
 export function portraitSvg(look: NpcLook, bg: [number, number], mood: Mood = 'happy'): string {
+  const def = defForLook(look);
+  const url = def ? bustUrl(def, mood) : null;
+  if (!url) return paintedPortraitSvg(look, bg, mood);
+  const id = `p${uid++}`;
+  const pz = POSE[mood] ?? POSE.neutral;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" class="bust3d"><defs>
+    <radialGradient id="${id}bg" cx="42%" cy="34%" r="80%"><stop offset="0" stop-color="${shade(bg[0], 1.1)}"/><stop offset="0.6" stop-color="${css(bg[0])}"/><stop offset="1" stop-color="${css(bg[1])}"/></radialGradient>
+    <radialGradient id="${id}vig" cx="50%" cy="46%" r="72%"><stop offset="0.62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#2a1408" stop-opacity="0.3"/></radialGradient>
+    <linearGradient id="${id}shaft" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff8e0" stop-opacity="0"/><stop offset="0.5" stop-color="#fff8e0" stop-opacity="0.32"/><stop offset="1" stop-color="#fff8e0" stop-opacity="0"/></linearGradient>
+    <filter id="${id}dof" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="3.4"/></filter>
+  </defs>${backdrop(id, bg, look.backdrop)}
+  <ellipse cx="100" cy="196" rx="78" ry="12" fill="#2a1408" opacity="0.22"/>
+  <image href="${url}" x="0" y="0" width="200" height="200"/>
+  <rect width="200" height="200" fill="${pz.tint}" opacity="${(pz.tintA * 0.8).toFixed(3)}" style="mix-blend-mode:soft-light"/>
+  <rect width="200" height="200" fill="url(#${id}vig)"/></svg>`;
+}
+
+/** The fully painted 2D bust (fallback for looks that are not a villager, or when 3D snapshots are unavailable). */
+function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mood = 'happy'): string {
   const id = `p${uid++}`;
   const L = look;
   const m0 = MOOD[mood] ?? MOOD.happy;

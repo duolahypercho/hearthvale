@@ -23,7 +23,7 @@ import type { Game } from '../core/game';
 import type { Facing } from '../core/events';
 import { NPCS, NPC_IDS, pickGroup, heartEvent, type NpcId, type NpcLook, type NpcDef, type Activity, type Ask, type HeartEvent, type CutStep, type Place, type Who, type Emote } from '../data/npcs';
 import { itemDef } from '../data/items';
-import { Villager, buildCat, buildCandle, buildPainting, MOOD_GESTURE, ReactionFx } from '../entities/villager';
+import { Villager, barkSize, buildCat, buildCandle, buildPainting, MOOD_GESTURE, ReactionFx } from '../entities/villager';
 import { SPOTS, NEW_BUILDINGS, EXTRA_PROPS, FESTOON_POLES, BRIDGES } from '../world/town/layout';
 import { BUILDINGS, TOWN_PROPS } from '../data/town-layout';
 import type { Festoons } from '../world/town/festoons';
@@ -221,6 +221,9 @@ export class NpcSystem implements System {
   private heldBy = new Map<NpcId, { x: number; z: number; until: number }>();
   /** Street chatter: seconds until the next speech bubble may pop (town-wide), rotating line index. */
   private barkCd = 2;
+  /** Staged talkers that may get a held bubble once the camera has settled, and frames left to wait. */
+  private stageBarks: NpcId[] = [];
+  private stageBarkWait = 0;
   private barkN = 0;
   private playerPath: Waypoint[] = [];
   private playerArrive: { resolve: () => void; face?: Facing | number } | null = null;
@@ -668,6 +671,7 @@ export class NpcSystem implements System {
     const map = this.game.world.current!;
     {
       let barks = 0;
+      this.stageBarks = [];
       for (const [id, x, z, deg, act, emote] of marks) {
         if (id === skip) continue;
         const a = this.agents.get(id)!;
@@ -685,9 +689,11 @@ export class NpcSystem implements System {
           a.emoteT = 600;
         }
         // Two of the talkers are caught mid-sentence (a speech bubble reads as a living town).
-        if (act === 'chat' && emote && barks < 2 && a.def.barks?.length) {
+        // Which two speak is decided a few frames later, once the camera is placed, so no bubble is cropped or piled up.
+        if (act === 'chat' && emote && barks < 4 && a.def.barks?.length) {
           barks++;
-          a.v.bark(a.def.barks[(barks + NPC_IDS.indexOf(id)) % a.def.barks.length]!, 600);
+          this.stageBarks.push(id);
+          this.stageBarkWait = 12;
         }
       }
     }
@@ -1812,6 +1818,24 @@ export class NpcSystem implements System {
 
   update(dt: number, game: Game): void {
     this.clock += dt;
+    if (this.stageBarks.length && --this.stageBarkWait <= 0) {
+      const ids = this.stageBarks;
+      this.stageBarks = [];
+      let shown = 0;
+      for (const id of ids) {
+        const a = this.agents.get(id)!;
+        if (shown >= 2 || this.talking || a.inside) break;
+        const lines = a.def.barks!;
+        for (let k = 0; k < lines.length; k++) {
+          const text = lines[(shown + k + NPC_IDS.indexOf(id)) % lines.length]!;
+          if (this.barkFits(a, text)) {
+            a.v.bark(text, 600);
+            shown++;
+            break;
+          }
+        }
+      }
+    }
     if (this.waits.length) {
       const due = this.waits.filter((w) => w.t <= this.clock);
       if (due.length) {
@@ -2262,8 +2286,54 @@ export class NpcSystem implements System {
 
   private barkAt(a: Agent, dur = 3.4): void {
     const lines = a.def.barks!;
-    a.v.bark(lines[(this.barkN++ + NPC_IDS.indexOf(a.def.id)) % lines.length]!, dur);
+    const text = lines[(this.barkN++ + NPC_IDS.indexOf(a.def.id)) % lines.length]!;
+    // A bubble that would be cropped by the screen edge, sit under the HUD, land on another speaker's bubble or
+    // cover a neighbour's face reads as a glitch (and loses its owner): skip it, try again soon.
+    if (!this.barkFits(a, text)) {
+      this.barkCd = 0.8;
+      return;
+    }
+    a.v.bark(text, dur);
     this.barkCd = 3.5 + Math.random() * 4;
+  }
+
+  private static readonly _p = new THREE.Vector3();
+  private static readonly _q = new THREE.Vector3();
+
+  /** Screen rectangle (NDC) a villager's bark bubble would occupy, or null when it is behind the lens. */
+  private barkRect(a: Agent, text: string): { x0: number; x1: number; y0: number; y1: number } | null {
+    const cam = this.game.rc.camera;
+    cam.updateMatrixWorld();
+    const base = NpcSystem._p.set(a.v.position.x, a.v.position.y + a.v.headTop + 0.5, a.v.position.z);
+    const h = barkSize(text, cam.position.distanceTo(base));
+    const c = NpcSystem._q.copy(base).project(cam);
+    if (c.z > 1 || c.z < -1) return null;
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+    const ex = base.clone().addScaledVector(right, h.w / 2).project(cam);
+    const ey = base.clone().addScaledVector(up, h.h / 2).project(cam);
+    const hw = Math.abs(ex.x - c.x);
+    const hh = Math.abs(ey.y - c.y);
+    return { x0: c.x - hw, x1: c.x + hw, y0: c.y - hh, y1: c.y + hh };
+  }
+
+  private barkFits(a: Agent, text: string): boolean {
+    const r = this.barkRect(a, text);
+    if (!r) return false;
+    // Inside the viewport, clear of the HUD strip at the top (clock plate) and the toolbar band at the bottom.
+    if (r.x0 < -0.94 || r.x1 > 0.94 || r.y1 > 0.78 || r.y0 < -0.7) return false;
+    const pad = 0.05;
+    for (const o of this.agents.values()) {
+      if (o === a || o.inside || !o.v.root.visible) continue;
+      if (o.v.barking) {
+        const q = this.barkRect(o, o.v.barkText);
+        if (q && r.x0 < q.x1 + pad && r.x1 > q.x0 - pad && r.y0 < q.y1 + pad && r.y1 > q.y0 - pad) return false;
+      }
+      // Never over another villager's face.
+      const f = NpcSystem._p.set(o.v.position.x, o.v.position.y + o.v.headTop * 0.85, o.v.position.z).project(this.game.rc.camera);
+      if (f.x > r.x0 - 0.02 && f.x < r.x1 + 0.02 && f.y > r.y0 - 0.04 && f.y < r.y1 + 0.04) return false;
+    }
+    return true;
   }
 
   // ───────────────────────────────────────────── co-op villager sync

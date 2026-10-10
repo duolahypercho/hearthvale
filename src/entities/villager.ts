@@ -50,7 +50,7 @@ function sharedMat(): THREE.MeshStandardMaterial {
 }
 
 /** Heads are drawn bigger than the body (chibi) so faces read from the high diorama camera. */
-const HEAD_BOOST = 1.2;
+const HEAD_BOOST = 1.04;
 /** Chin up: faces tilt towards the camera. */
 const FACE_UP = 0.15;
 
@@ -1396,7 +1396,7 @@ export class Villager {
       const age = this.barkDur - this.barkT;
       const pop = age < 0.3 ? THREE.MathUtils.smoothstep(age, 0, 0.2) * (1 + 0.18 * Math.sin((age / 0.3) * Math.PI)) : 1;
       const fade = THREE.MathUtils.clamp(this.barkT / 0.35, 0, 1);
-      const h = 0.66 * pop;
+      const h = BARK_H * pop * this.barkZoom;
       this.barkSprite.scale.set(h * this.barkAspect, h, 1);
       this.barkSprite.position.set(0, this.headTop + 0.5 + Math.sin(age * 2.2) * 0.025, 0);
       this.barkSprite.material.opacity = fade;
@@ -1409,6 +1409,13 @@ export class Villager {
   private barkT = 0;
   private barkDur = 3.4;
   private barkAspect = 3;
+  private barkLine = '';
+  /** Bubble enlargement for a far lens (set while drawn): the lettering stays readable on the wide diorama shots. */
+  private barkZoom = 1;
+  /** The line currently (or last) shown in the bubble. */
+  get barkText(): string {
+    return this.barkLine;
+  }
   /** Say a short line out loud (street chatter): a speech bubble over the head for `dur` s. */
   bark(text: string, dur = 3.4): void {
     const { tex, aspect } = barkTexture(text);
@@ -1416,12 +1423,18 @@ export class Villager {
       this.barkSprite = billboard(tex, 21);
       this.barkSprite.name = 'npc-bark';
       this.barkSprite.userData.perfTag = 'npcs';
+      const bb = this.barkSprite.onBeforeRender;
+      this.barkSprite.onBeforeRender = (...a: Parameters<THREE.Object3D['onBeforeRender']>): void => {
+        this.barkZoom = barkZoom(a[2].position.distanceTo(this.root.position));
+        bb.apply(this.barkSprite, a);
+      };
       this.root.add(this.barkSprite);
     }
     this.barkSprite.material.map = tex;
     this.barkSprite.material.needsUpdate = true;
     this.barkSprite.visible = true;
     this.barkAspect = aspect;
+    this.barkLine = text;
     this.barkT = this.barkDur = dur;
   }
 
@@ -1980,6 +1993,18 @@ function billboard(tex: THREE.Texture, renderOrder: number): THREE.Mesh<THREE.Pl
     m.updateMatrixWorld();
   };
   return m;
+}
+
+/** World height (m) of a speech bark bubble at full size. */
+const BARK_H = 0.54;
+/** Bubble enlargement at a camera distance (1 up to ~22 m, growing to 1.8x on the wide establishing shots). */
+export function barkZoom(dist: number): number {
+  return THREE.MathUtils.clamp(dist / 22, 1, 1.8);
+}
+/** World size (m) of the bubble a line would show from a camera `dist` metres away. */
+export function barkSize(text: string, dist = 20): { w: number; h: number } {
+  const z = barkZoom(dist);
+  return { w: BARK_H * z * barkTexture(text).aspect, h: BARK_H * z };
 }
 
 /** Speech-bark bubbles: one canvas texture per line (a handful per villager), cached. */

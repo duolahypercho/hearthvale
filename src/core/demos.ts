@@ -23,7 +23,7 @@ export interface DemoDef {
 /** Homestead framing: whole house + roof, the crop field, the east yard and a framing tree line. */
 const HOME_CAM = { yaw: -16, pitch: 45, distance: 27, offsetX: -1.6, offsetZ: -2.6 };
 /** Town square framing: plaza + fountain in front, Lantern Hall and shop fronts behind. */
-const TOWN_CAM = { yaw: 0, pitch: 43, distance: 37, offsetX: -2.9, offsetZ: -7.6 };
+const TOWN_CAM = { yaw: 0, pitch: 43, distance: 40, offsetX: -2.9, offsetZ: -4.8 };
 /** Cindergrove: the waterfall, plunge pool and flanking elders, player on the pool path. */
 const FOREST_FALLS_CAM = { yaw: 2, pitch: 48, distance: 23, offsetX: -4.2, offsetZ: -3.2 };
 /** Driftsand Beach: pier, surf and the shack; sunset looks out over the pier. */

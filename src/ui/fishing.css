@@ -348,7 +348,7 @@
 .hvf-card .kicker {
   font-family: var(--font-head, 'Fredoka', sans-serif);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #b0703a;
@@ -619,7 +619,7 @@
   align-items: center;
   gap: 7px;
   margin-top: 7px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #6a4424;
 }
@@ -710,7 +710,7 @@
 .hvf-tk-note i {
   display: block;
   text-align: right;
-  font-size: 12px;
+  font-size: 14px;
 }
 .hvf-tk-skill {
   padding: 10px 12px;
@@ -735,7 +735,7 @@
   font-size: 15px;
 }
 .hvf-tk-skill small {
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 700;
   color: #6a4a2a;
 }
@@ -766,7 +766,7 @@
   height: 22px;
 }
 .hvf-tk-purse small {
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 600;
   color: #8a6a4a;
 }
@@ -799,7 +799,7 @@
 }
 .hvf-tk-row .nm small {
   display: block;
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 700;
   color: #8a6a4a;
 }

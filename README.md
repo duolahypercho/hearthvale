@@ -329,7 +329,10 @@ actors such as Pip the shop cat).
   hearts, sparkles or a grey puff burst over the head, and the new heart pops on the meter.
 - `systems/relationships.ts` owns points / hearts / gifts (`meet()` for demo staging), `ui/dialogue.ts` the typewriter
   box (name tab, top-left layout-stable text, choices, gift ribbons, heart meter, birthday toast), the 'social' page and
-  the 'portraits' model sheet; `ui/portraits.ts` paints the SVG portraits: nine moods, each with its own head / shoulder
+  the 'portraits' model sheet; `ui/bust.ts` snapshots each villager's real 3D rig (studio light, per-mood pose, cached per
+  villager + mood) over the painted backdrop so portraits match the in-world art (the SVG bust below is the fallback for non-villager looks);
+  speech barks only show when the whole bubble fits the viewport, clear of the HUD, other bubbles and other faces (and grow on far lenses);
+  `ui/portraits.ts` paints the SVG portraits: nine moods, each with its own head / shoulder
   pose, hand gesture and colour temperature (warm gold joy, cool blue sorrow, red-rimmed anger), bezier hair locks,
   cel-shaded neck and two-tone cloth folds, per-villager backdrops.
 

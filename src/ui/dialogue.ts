@@ -125,7 +125,7 @@ const CSS = /* css */ `
 .dlg-title.on { opacity: 1; translate: 0 0; }
 .dlg-title.dim { opacity: 0.55; }
 .dlg-title .t { font-family: var(--font-head); font-weight: 700; font-size: clamp(22px, 3.3vh, 36px); color: #fff4dc; text-shadow: 0 2px 0 #5a2a10, 0 0 18px rgba(255, 190, 110, .35); letter-spacing: 0.6px; }
-.dlg-title .s { font-family: var(--font-body); font-weight: 800; font-size: clamp(12px, 1.6vh, 17px); color: #f6c89a; display: flex; gap: 7px; align-items: center; justify-content: center; padding: 3px 12px 4px; border-radius: 999px; border: 1.5px solid rgba(246, 200, 154, .45); }
+.dlg-title .s { font-family: var(--font-body); font-weight: 800; font-size: clamp(14px, 1.7vh, 18px); color: #f6c89a; display: flex; gap: 7px; align-items: center; justify-content: center; padding: 3px 12px 4px; border-radius: 999px; border: 1.5px solid rgba(246, 200, 154, .45); }
 .dlg-title .s svg { width: 16px; height: 14px; }
 .dlg-title .rule { width: 60px; height: 2px; background: linear-gradient(90deg, transparent, rgba(246, 200, 154, .7)); }
 .dlg-title .rule.r { transform: scaleX(-1); }
@@ -731,7 +731,7 @@ const SHEET_CSS = /* css */ `
 .hv-psheet .pp { position: relative; width: 150px; height: 150px; border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 3px #f6e2b8, 0 0 0 5px var(--wood-3); }
 .hv-psheet.one .pp { width: 190px; height: 190px; }
 .hv-psheet .pp svg { width: 100%; height: 100%; display: block; }
-.hv-psheet .pp span { position: absolute; left: 6px; bottom: 5px; font-family: var(--font-body); font-weight: 800; font-size: 12px; color: #fff; background: rgba(40,20,8,.55); padding: 0 6px 1px; border-radius: 6px; }
+.hv-psheet .pp span { position: absolute; left: 6px; bottom: 5px; font-family: var(--font-body); font-weight: 800; font-size: 14px; color: #fff; background: rgba(40,20,8,.55); padding: 0 6px 1px; border-radius: 6px; }
 `;
 
 /**
