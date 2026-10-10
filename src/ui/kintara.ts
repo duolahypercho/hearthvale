@@ -12,7 +12,7 @@ import type { Game } from '../core/game';
 import { Screen, el, frame, closeButton, sfx, replay, rollTo, escapeHtml } from './kit';
 import { itemIcon, qualityStar, QUALITY_NAME } from './icons';
 import { portraitSvg } from './portraits';
-import { KEEPER, INTRO_LINES, SOURCES, RARITY_STYLE, FUND_TIERS, COUNTER, TITHE, MINT_PER_DAY, KIN, emissionFactor, type EarnSource } from '../data/kintara';
+import { KEEPER, INTRO_LINES, SOURCES, RARITY_STYLE, FUND_TIERS, COUNTER, TITHE, MINT_PER_DAY, MINT_FEE, KIN, emissionFactor, type EarnSource } from '../data/kintara';
 import type { DeedToken } from '../core/kintara-chain';
 
 export const KIN_COIN = `<svg viewBox="0 0 24 24" class="kn-coin"><path d="M12 2.2 L20 6.8 V17.2 L12 21.8 L4 17.2 V6.8 Z" fill="#3aa6a0" stroke="#17525a" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 5.2 L17.4 8.3 V15.7 L12 18.8 L6.6 15.7 V8.3Z" fill="none" stroke="#bff2e8" stroke-width="1" opacity=".7"/><rect x="9.6" y="8.8" width="4.8" height="6.2" rx="1.4" fill="#ffd66a" stroke="#8a5a0a" stroke-width="1"/><path d="M10.4 8.8 L12 7 L13.6 8.8" fill="none" stroke="#8a5a0a" stroke-width="1"/></svg>`;
@@ -238,10 +238,14 @@ export class KintaraScreen extends Screen {
     const t = k.today();
     this.content.appendChild(el('div', 'kn-intro', `Sealing writes a <b>soulbound deed</b>: it cannot be sold, traded or moved. The fee is burned and the item goes into the vault (tools are only attested). Editions get dearer. <b>${t.mintLeft}</b> of ${MINT_PER_DAY} seals left today.`));
     const opts = k.mintOptions();
-    if (!opts.length) {
-      this.content.appendChild(el('div', 'kn-empty', 'Nothing in your pack can be sealed yet. Gold-quality crops, valuable fish, hard-won gems and upgraded tools qualify.'));
-      return;
-    }
+    const guide = el(
+      'div',
+      'kn-guide',
+      `<h4>The fee board <small>burned when you seal; later editions of the same item cost x2, then x4</small></h4>
+       <div class="kn-fees">${(['common', 'uncommon', 'rare', 'legendary'] as const).map((r) => `<span class="kn-rar" style="--c:${RARITY_STYLE[r].color}">${RARITY_STYLE[r].name}</span><b>${MINT_FEE[r]}</b>`).join('')}</div>
+       <small>Crops: gold-quality or 160g+ · Fish: 150g+ · Gems: amethyst and finer · Tools: any upgrade (attested, stays in your pack)</small>`,
+    );
+    if (!opts.length) this.content.appendChild(el('div', 'kn-empty', 'Nothing in your pack can be sealed yet.'));
     for (const o of opts) {
       const r = RARITY_STYLE[o.rule.rarity];
       const row = el(
@@ -265,6 +269,7 @@ export class KintaraScreen extends Screen {
       if (o.blocked) row.appendChild(el('div', 'why', escapeHtml(o.blocked)));
       this.content.appendChild(row);
     }
+    this.content.appendChild(guide);
   }
 
   // ── Collection ──
@@ -281,6 +286,24 @@ export class KintaraScreen extends Screen {
     const grid = el('div', 'kn-grid');
     for (const d of [...deeds].reverse()) grid.appendChild(deedCard(d));
     this.content.appendChild(grid);
+    this.content.appendChild(this.findStrip(deeds));
+  }
+
+  private findStrip(deeds: DeedToken[]): HTMLElement {
+    const hints: [string, string, string][] = [
+      ['crop', 'Crops', 'a gold-quality harvest, or a pumpkin, melon, yam'],
+      ['fish', 'Fish', 'an Ember Koi, Old Bristleback, the Lanternjaw'],
+      ['gem', 'Gems', 'amethyst, topaz, ruby, aquamarine, diamond'],
+      ['tool', 'Tools', 'upgrade a tool at the forge, then attest it'],
+      ['keepsake', 'Keepsakes', 'the Hall Keystone, stamped when the Hall relights'],
+    ];
+    const box = el('div', 'kn-guide finds');
+    box.appendChild(el('h4', '', 'Still to find <small>one deed on each shelf fills it</small>'));
+    for (const [c, l, h] of hints) {
+      const n = deeds.filter((d) => d.category === c).length;
+      box.appendChild(el('div', `kn-find${n ? ' done' : ''}`, `<span>${n ? '&#10003;' : '&#9675;'}</span><b>${l}</b><small>${n ? `${n} sealed` : h}</small>`));
+    }
+    return box;
   }
 
   // ── Market ──
@@ -308,6 +331,7 @@ export class KintaraScreen extends Screen {
 
     const goods = el('div', 'kn-sect');
     goods.appendChild(el('h4', '', 'Exchange goods <small>paid in kin, which is burned</small>'));
+    const gg = el('div', 'kn-goods');
     for (const o of k.offers()) {
       const can = k.balance() >= o.kin;
       const row = el('div', `kn-row${can ? '' : ' off'}`, `<div class="u-slot mini">${itemIcon(o.itemId)}</div><div class="nm"><b>${o.qty > 1 ? `${o.qty}× ` : ''}${escapeHtml(o.name)}</b><small>${escapeHtml(o.note)}</small></div><div class="pr">${KIN_COIN}<span>${o.kin}</span></div>`);
@@ -319,16 +343,17 @@ export class KintaraScreen extends Screen {
         this.say(k.line('burn'));
       });
       row.appendChild(b);
-      goods.appendChild(row);
+      gg.appendChild(row);
     }
+    goods.appendChild(gg);
 
     const f = k.fund();
     const next = FUND_TIERS[f.tier];
+    const prev = FUND_TIERS[f.tier - 1]?.at ?? 0;
     const fund = el('div', 'kn-sect kn-fund');
     fund.innerHTML = `<h4>Lantern Fund <small>burn kin for the Hall's oil</small></h4>
-      <div class="kn-fundbar"><i style="width:${next ? Math.min(100, ((f.kin - (FUND_TIERS[f.tier - 1]?.at ?? 0)) / (next.at - (FUND_TIERS[f.tier - 1]?.at ?? 0))) * 100) : 100}%"></i><span>${f.kin} kin burned${next ? ` · next: ${next.title} at ${next.at}` : ' · every tier lit'}</span></div>
-      <ul>${FUND_TIERS.map((x, i) => `<li class="${i < f.tier ? 'on' : ''}"><b>${x.title}</b> (${x.at}) ${x.perk}</li>`).join('')}</ul>
-      <div class="kn-give"></div>`;
+      <div class="kn-fundbar"><i style="width:${next ? Math.min(100, ((f.kin - prev) / (next.at - prev)) * 100) : 100}%"></i><span>${f.kin} kin burned${next ? ` · next: ${next.title} at ${next.at}` : ' · every tier lit'}</span></div>
+      <div class="kn-fundrow"><small>${next ? `Next perk: ${next.perk}` : 'Every perk is lit.'}</small><div class="kn-give"></div></div>`;
     const give = fund.querySelector('.kn-give')!;
     for (const n of [5, 25, 100]) {
       const b = el('button', `u-btn small${k.balance() >= n ? '' : ' disabled'}`, `Burn ${n}`);

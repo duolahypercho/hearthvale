@@ -734,10 +734,13 @@ export class KintaraSystem implements System, KintaraApi {
     g.rotation.y = STALL.rot;
     town.root.add(g);
     const k = this.keeper!;
-    const kx = STALL.x - Math.sin(STALL.rot) * 0.78;
-    const kz = STALL.z - Math.cos(STALL.rot) * 0.78;
+    // The keeper stands at the open end of the counter (not behind the awning), leaning on it, facing the square.
+    const lx = -1.95;
+    const lz = 0.3;
+    const kx = STALL.x + lx * Math.cos(STALL.rot) + lz * Math.sin(STALL.rot);
+    const kz = STALL.z - lx * Math.sin(STALL.rot) + lz * Math.cos(STALL.rot);
     k.setPosition(kx, town.heightAt(kx, kz), kz);
-    k.setYaw(STALL.rot);
+    k.setYaw(STALL.rot + 0.3);
     town.root.add(k.root);
     this.stallMap = mapId;
     // Solid counter: the farmer walks up to it, never through it.

@@ -118,15 +118,15 @@ export function buildKintaraStall(): KintaraStallParts {
   b.add('woodPaint', roundedBox(W - 0.3, 0.5, 0.05, 0.02), mat(0, 0.5, 0.43), { tint: TEAL });
   for (let i = -2; i <= 2; i++) b.add('woodPaint', roundedBox(0.05, 0.5, 0.06, 0.015), mat(i * 0.6, 0.5, 0.44), { tint: CREAM });
   // posts
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add('woodGrain', roundedBox(0.09, 2.45, 0.09, 0.03), mat(sx * (W / 2 + 0.05), 1.22, sz * 0.52), { tint: 0xa87a50 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add('woodGrain', roundedBox(0.09, 2.8, 0.09, 0.03), mat(sx * (W / 2 + 0.05), 1.4, sz * 0.52), { tint: 0xa87a50 });
   // striped awning
   const n = 8;
   for (let i = 0; i < n; i++) {
     const x = -W / 2 - 0.15 + (i + 0.5) * ((W + 0.3) / n);
-    b.add('cloth', roundedBox((W + 0.3) / n + 0.01, 0.04, 1.5, 0.015), mat(x, 2.5, 0.05, 0.22, 0, 0), { tint: i % 2 ? CREAM : TEAL });
+    b.add('cloth', roundedBox((W + 0.3) / n + 0.01, 0.04, 1.5, 0.015), mat(x, 2.86, 0.05, 0.16, 0, 0), { tint: i % 2 ? CREAM : TEAL });
     const sc = new THREE.CylinderGeometry((W + 0.3) / n / 2, (W + 0.3) / n / 2, 0.035, 10, 1, false, 0, Math.PI);
     sc.rotateX(Math.PI / 2);
-    b.add('cloth', sc, mat(x, 2.27, 0.8, 0, 0, Math.PI), { tint: i % 2 ? CREAM : TEAL });
+    b.add('cloth', sc, mat(x, 2.66, 0.78, 0, 0, Math.PI), { tint: i % 2 ? CREAM : TEAL });
   }
   // open ledger on the counter: two pages, spine, a ribbon and a quill
   b.add('white', roundedBox(0.34, 0.035, 0.46, 0.012), mat(-0.19, 1.025, 0.06, 0, 0.06, 0.04), { tint: 0xf6efd8 });
@@ -147,8 +147,8 @@ export function buildKintaraStall(): KintaraStallParts {
   // lantern on the counter (flame = the Lantern Fund)
   lantern(b, -0.45, 1.2, -0.05, 1.5);
   // post lanterns
-  lantern(b, -W / 2 - 0.02, 2.02, 0.56, 1.0);
-  lantern(b, W / 2 + 0.02, 2.02, 0.56, 1.0);
+  lantern(b, -W / 2 - 0.02, 2.3, 0.56, 1.0);
+  lantern(b, W / 2 + 0.02, 2.3, 0.56, 1.0);
   // tally wall: slate in a wooden frame leaning behind the counter
   b.add('woodDark', roundedBox(1.95, 1.25, 0.07, 0.03), mat(0.0, 1.8, -0.5, -0.05, 0, 0));
   const group = b.build({ name: 'kintara-stall' });
@@ -159,24 +159,48 @@ export function buildKintaraStall(): KintaraStallParts {
   group.add(slate);
   // hanging sign (plank board under the awning front)
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.47), new THREE.MeshStandardMaterial({ map: signTexture(), roughness: 0.8 }));
-  sign.position.set(0, 1.93, 0.86);
+  sign.position.set(0, 2.18, 0.86);
   sign.rotation.x = -0.04;
   group.add(sign);
   const bo = new THREE.Mesh(new THREE.BoxGeometry(1.58, 0.55, 0.03), new THREE.MeshStandardMaterial({ color: 0x6a4630, roughness: 0.8 }));
-  bo.position.set(0, 1.93, 0.835);
+  bo.position.set(0, 2.18, 0.835);
   group.add(bo);
   for (const sx of [-1, 1]) {
     const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.28, 5), new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.6, roughness: 0.5 }));
-    chain.position.set(sx * 0.7, 2.2, 0.86);
+    chain.position.set(sx * 0.7, 2.5, 0.86);
     group.add(chain);
   }
 
+  // Warm pools of light on the ground: one at the keeper's end of the counter, one in front of the stall.
+  const glowTex = (): THREE.CanvasTexture => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d')!;
+    const gr = g.createRadialGradient(64, 64, 2, 64, 64, 62);
+    gr.addColorStop(0, 'rgba(255,214,140,0.9)');
+    gr.addColorStop(0.45, 'rgba(255,190,110,0.35)');
+    gr.addColorStop(1, 'rgba(255,170,90,0)');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  };
+  const gt = glowTex();
+  const glows: THREE.Mesh[] = [];
+  for (const [gx, gz, gs] of [[-2.0, 0.5, 3.2], [0, 1.5, 4.2]] as [number, number, number][]) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(gs, gs), new THREE.MeshBasicMaterial({ map: gt, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.4 }));
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(gx, 0.05, gz);
+    m.renderOrder = 2;
+    group.add(m);
+    glows.push(m);
+  }
   const light = new THREE.PointLight(0xffc878, 0, 5.5, 1.6);
-  light.position.set(-0.45, 1.5, 0.35);
+  light.position.set(-1.4, 1.7, 0.6);
   group.add(light);
   const setTier = (t: number): void => {
     // The Lantern Fund widens the lamp's pool of light (its brightness follows the night, see DayNight).
     light.distance = 4.2 + 0.9 * t;
+    for (const m of glows) (m.material as THREE.MeshBasicMaterial).opacity = 0.34 + 0.1 * t;
     light.color.setHex([0xffc878, 0xffcf80, 0xffd68c, 0xffdf9a, 0xffe8ae][Math.min(4, t)]!);
   };
   setTier(0);
