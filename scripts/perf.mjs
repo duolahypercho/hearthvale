@@ -12,7 +12,8 @@
  *   npm run perf -- --eval "<js>"                   # run JS after ready (A/B experiments; tag with --label)
  *   npm run perf -- --params 'warmkit=0'          # extra URL params (A/B switches; tag with --label)
  *   npm run perf -- --profile 15                   # + top-15 self-time JS functions per demo (CDP sampling profiler)
- *   npm run perf -- --ready-budget 200000         # ms allowed for page load + __game.ready() (default 150000)
+ *   npm run perf -- --frames                       # + per-frame series to shots/perf/frames-<demo>.json (tail forensics)
+ *   npm run perf -- --ready-budget 200000        # ms allowed for page load + __game.ready() (default 150000)
  *   npm run perf -- --resume                       # skip demos already in shots/perf/partial.json (after a killed run)
  *   npm run perf -- --no-prime                     # skip the unrecorded priming load of the first demo (cold-GPU tax;
  *                                                  # when primed, that demo is recorded last)
@@ -388,6 +389,13 @@ async function measureDemo(ctx, base, name) {
       profile = topSelf(prof, Number(args.profile) || 15);
     }
     const frames = r.deltas.length || 1;
+    // --frames: dump the per-frame series (rAF delta, Game.step CPU ms, draw calls) to
+    // shots/perf/frames-<demo>.json - for tail forensics (periodic hitches, vsync quantisation).
+    if (args.frames) {
+      try {
+        writeFileSync(resolve(root, `shots/perf/frames-${name}.json`), JSON.stringify({ demo: name, loadavg1: loadavg()[0], deltas: r.deltas.map(r2), cpu: (r.cpu || []).map(r2), drawCalls: r.perfSamples.map((s) => s.drawCalls) }));
+      } catch (e) { console.warn('[perf] frames dump failed', e.message); }
+    }
     const d = (k) => (m1[k] ?? 0) - (m0[k] ?? 0);
     const sumMs = r.deltas.reduce((a, b) => a + b, 0);
     const dcs = r.perfSamples.map((s) => s.drawCalls);
