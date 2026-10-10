@@ -265,6 +265,20 @@
 .hvf-reel.tense .frame {
   box-shadow: inset 0 2px 0 rgba(255, 220, 170, 0.55), inset 0 -4px 0 rgba(60, 30, 10, 0.4), 0 6px 0 rgba(60, 30, 10, 0.4), 0 0 26px rgba(255, 214, 90, 0.75), 0 18px 34px rgba(20, 10, 4, 0.45);
 }
+/* Hot streak (r7b): the tag warms to gold and gets a flame chip while the reel runs fast. */
+.hvf-reel.hot .head {
+  background: linear-gradient(180deg, #fff1b8, #ffcf5a);
+  box-shadow: 0 0 14px rgba(255, 190, 60, 0.85);
+}
+.hvf-reel.hot .head::after {
+  content: 'HOT!';
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: #d0582a;
+  color: #fff4d6;
+  font-size: 0.82em;
+}
 .hvf-bang.remote {
   width: 62px;
   height: 70px;
