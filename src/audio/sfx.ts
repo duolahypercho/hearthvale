@@ -90,6 +90,8 @@ export const SFX_NAMES = [
   'emote:heart', 'emote:exclaim', 'emote:question', 'emote:music', 'emote:sweat', 'emote:anger', 'emote:idea', 'emote:sad', 'emote:zzz', 'emote:dots', 'emote:happy', 'emote:laugh', 'emote:wow',
   // Co-op: a farmer joins / leaves the session, a chat line arrives.
   'join', 'leave', 'chat',
+  // Kintara: a line written on the tally, a deed sealed.
+  'kin:earn', 'kin:mint',
 ] as const;
 export type SfxName = (typeof SFX_NAMES)[number];
 
@@ -549,6 +551,19 @@ export class Sfx {
       case 'pickup':
         this.tone(d, t, { f0: 520, f1: 1050, glide: 0.05, amp: 0.2, tau: 0.04 });
         this.chime(d, t + 0.03, this.kn(5), 0.14);
+        break;
+      case 'kin:earn':
+        // A nib scratching the slate, then two glass-bell notes.
+        this.noise(d, t, { f: 3200, q: 2, amp: 0.05, attack: 0.01, tau: 0.04, buf: this.g.pink });
+        this.chime(d, t + 0.04, this.kn(4), 0.22, 'bell');
+        this.chime(d, t + 0.12, this.kn(7), 0.24, 'bell');
+        break;
+      case 'kin:mint':
+        // The seal comes down (a soft thump), then a rising run of bells.
+        this.tone(d, t, { f0: 120, f1: 55, glide: 0.12, amp: 0.4, tau: 0.09 });
+        this.noise(d, t, { f: 700, q: 1, amp: 0.2, tau: 0.05, buf: this.g.pink });
+        [0, 2, 4, 5, 7, 9].forEach((k, i) => this.chime(d, t + 0.14 + i * 0.07, this.kn(k), 0.26, 'bell'));
+        this.g.duckMusic(t, 0.6, 0.6, 0.8);
         break;
       case 'coin':
         this.chime(d, t, this.kn(3), 0.3, 'bell');

@@ -33,6 +33,16 @@ export interface DebugApi {
   step(frames?: number, dt?: number): void;
   info(): Record<string, unknown>;
   demos: string[];
+  /** Kintara (simulated $KIN): state / debug grants / earn rules / mint, see README. */
+  kin: {
+    state(): unknown;
+    grant(n: number): void;
+    earn(source: string, amount: number, once?: string): number;
+    mint(itemId: string, quality?: number): unknown;
+    convert(kin: number): unknown;
+    donate(kin: number): unknown;
+    verify(): unknown;
+  };
 }
 
 declare global {
@@ -117,8 +127,22 @@ export function installDebugApi(game: Game): DebugApi {
       drawCalls: game.rc.renderer.info.render.calls,
       triangles: game.rc.renderer.info.render.triangles,
       audio: game.services.audio?.state(),
+      kin: game.services.kintara?.balance() ?? 0,
     }),
     demos: Object.keys(DEMOS),
+    kin: {
+      state: () => {
+        const k = game.services.kintara;
+        if (!k) return null;
+        return { balance: k.balance(), address: k.address(), supply: k.supply(), today: k.today(), lifetime: k.lifetime(), fund: k.fund(), deeds: k.deeds().length, verify: k.verify(), network: k.network() };
+      },
+      grant: (n) => game.services.kintara?.debugGrant(n),
+      earn: (s, n, once) => game.services.kintara?.debugEarn(s as never, n, once) ?? 0,
+      mint: (id, q = 0) => game.services.kintara?.mint(id, q),
+      convert: (n) => game.services.kintara?.convert(n),
+      donate: (n) => game.services.kintara?.donate(n),
+      verify: () => game.services.kintara?.verify(),
+    },
   };
   window.__game = api;
   return api;
@@ -151,6 +175,8 @@ export async function applyUrlParams(api: DebugApi, params: URLSearchParams): Pr
   if (time) api.setTime(Number(time));
   const gold = params.get('gold');
   if (gold) api.setGold(Number(gold));
+  const kin = params.get('kin');
+  if (kin) api.kin.grant(Number(kin));
   const facing = params.get('facing') as Facing | null;
   if (facing) api.facing(facing);
   if (params.get('pause') === '1') api.pause(true);

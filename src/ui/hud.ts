@@ -23,6 +23,7 @@ import { DialoguePanel } from './dialogue';
 import { TitlePanel } from './title';
 import { FishingPanel } from './panels';
 import { ShopScreen } from './shop';
+import { KintaraScreen, KintaraChip } from './kintara';
 import { CraftingScreen } from './crafting';
 import { MapScreen } from './mapscreen';
 import { SettingsScreen, loadSettings, settings } from './settings';
@@ -47,12 +48,12 @@ type RichPanel = Panel & Partial<Pick<Screen, 'back' | 'update' | 'key' | 'nav'>
 const WEEKDAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SEASON_NAME = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' } as const;
 /** Panels that stop the clock while open. */
-const PAUSING = new Set(['inventory', 'crafting', 'map', 'settings', 'shop', 'dayend', 'pause', 'saves', 'icons']);
+const PAUSING = new Set(['inventory', 'crafting', 'map', 'settings', 'shop', 'dayend', 'pause', 'saves', 'icons', 'kintara']);
 /** Game-menu tabs (E closes, [ ] / LB RB cycle). */
 export const MENU_TABS = ['inventory', 'crafting', 'map', 'settings'] as const;
 /** Screens that keep the clock / purse plate sharp above their blurred backdrop (you shop with your purse in view). */
 const NOPE_TOOLS = new Set(['hoe', 'pickaxe', 'axe', 'scythe', 'wateringCan']);
-const CRISP_CLOCK = new Set(['inventory', 'crafting', 'map', 'settings', 'shop']);
+const CRISP_CLOCK = new Set(['inventory', 'crafting', 'map', 'settings', 'shop', 'kintara']);
 
 const HILLS: Record<string, [string, string]> = {
   spring: ['#8fcf5a', '#5fa83c'],
@@ -149,6 +150,9 @@ export class Hud {
     this.registerPanel('dialogue', new DialoguePanel(game, this.root));
     this.registerPanel('title', new TitlePanel(game, S));
     this.registerPanel('shop', new ShopScreen(game, S));
+    this.registerPanel('kintara', new KintaraScreen(game, S));
+    const plateEl = this.root.querySelector<HTMLElement>('.h-plate');
+    if (plateEl) new KintaraChip(game, plateEl);
     this.registerPanel('crafting', new CraftingScreen(game, S));
     this.registerPanel('map', new MapScreen(game, S));
     this.registerPanel('fishing', new FishingPanel(game, this.root));
