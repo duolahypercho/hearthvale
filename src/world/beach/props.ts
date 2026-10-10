@@ -417,13 +417,17 @@ function signMaterial(): THREE.MeshStandardMaterial {
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     const label = 'BAIT & TACKLE';
-    let px = 104;
-    g.font = `bold ${px}px Georgia, serif`;
-    while (g.measureText(label).width > 620 && px > 40) {
-      px -= 2;
-      g.font = `bold ${px}px Georgia, serif`;
-    }
-    g.fillText(label, 512, 132);
+    // (r7b: tall condensed caps — the shrink-to-fit Georgia came out ~60 px tall, too small to read
+    // from the beach-day lens. Fixed 150 px height, squeezed horizontally into the 640 px panel.)
+    g.font = 'bold 150px Georgia, serif';
+    const sx = Math.min(1, 640 / g.measureText(label).width);
+    g.save();
+    g.setTransform(sx, 0, 0, 1, 512, 138);
+    g.fillStyle = 'rgba(40,30,20,0.25)';
+    g.fillText(label, 3 / sx, 5);
+    g.fillStyle = '#2f5f6a';
+    g.fillText(label, 0, 0);
+    g.restore();
     // Little fish, one per end panel, nose to the lettering.
     g.fillStyle = '#c8483a';
     const fish = (cx: number, dir: number): void => {

@@ -52,8 +52,10 @@ export class RemoteAngler {
   /** The farmer's gripping fist (world), written by the pose hook; `fistOk` while it is fresh. */
   readonly fist = new THREE.Vector3();
   fistOk = false;
-  /** The held catch is a trophy (presented in both hands across the chest, not hung by the tail). */
+  /** The held catch is a trophy (a bigger glory burst). */
   trophy = false;
+  /** Hand spread for the two-hand chest presentation (every catch, r7b), × TROPHY_ARMS.z. */
+  spread = 1;
   /** Catch arc (0 → 1 as the fish flies to the hands) from the latest snapshot. */
   arc = 0;
   /** Screen anchor for the bite "!" (null when not biting / not visible). */
@@ -211,6 +213,7 @@ export class RemoteAngler {
       if (def && this.held !== fishId) {
         g.hold(def, A[12]);
         this.trophy = heldFishScale(def, A[12]) >= TROPHY_SCALE;
+        this.spread = presentSpread(heldFishScale(def, A[12]));
         this.held = fishId;
         this.caughtNote = def.name;
         this.noteAt.copy(feet).addScaledVector(_UP, 3.9);
@@ -221,7 +224,7 @@ export class RemoteAngler {
       // (Held clear above the farmer's floating name tag, ≈ 2.75 m: the tag never sits on the fish.)
       const hold = _hold.copy(feet).addScaledVector(_UP, 3.3 + (boost - 1) * 0.35).addScaledVector(fwd, 0.08 - (boost - 1) * 0.3);
       // Hanging from the farmer's fist when the pose hook reports it (else over the hat, as before).
-      if (this.fistOk) hold.copy(this.fist).y -= 0.4;
+      if (this.fistOk) hold.copy(this.fist);
       if (arc < 1) {
         g.heldRoot.position.lerpVectors(bob, hold, arc);
         g.heldRoot.position.y += Math.sin(arc * Math.PI) * 1.2;
@@ -229,8 +232,9 @@ export class RemoteAngler {
         g.setGlory(null, camera, 0, t);
       } else {
         g.heldRoot.scale.setScalar(boost);
-        if (this.fistOk && this.trophy) g.presentHeld(this.fist, camera, 0, Math.sin(t * 2.2) * 0.05, hold);
-        else if (this.fistOk) g.hangHeld(this.fist, camera, Math.sin(t * 2.6) * 0.1, hold);
+        // (r7b: every catch presented across the chest in both hands, as the local pose: a fish hung by
+        // the tail at the hip read as a thin grey sliver from the co-op camera, critic r6.)
+        if (this.fistOk) g.presentHeld(this.fist, camera, 0, Math.sin(t * 2.2) * 0.05, hold);
         else {
           g.heldRoot.position.copy(hold);
           g.heldRoot.position.y += Math.sin(t * 3) * 0.02;
@@ -284,7 +288,7 @@ export class RemoteAngler {
 }
 
 /** Arm / torso pose for a farmer rig that is fishing in state `st` (remote farmers, the co-op demo). */
-export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D; torso: THREE.Object3D }, st: NetState, t: number, power = 0, arc = 0, fist?: THREE.Vector3, trophy = false): boolean {
+export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D; torso: THREE.Object3D }, st: NetState, t: number, power = 0, arc = 0, fist?: THREE.Vector3, spread = 1): boolean {
   let ar = -0.95;
   let al = -0.8;
   let arz = 0.3;
@@ -303,27 +307,19 @@ export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D
     al = -1.05 + Math.sin(t * (st === 'reeling' ? 16 : 5)) * 0.25;
     alz = -0.45 + Math.cos(t * (st === 'reeling' ? 16 : 5)) * 0.15;
     tx = -0.12;
-  } else if (st === 'caught' && arc > 0.6 && trophy) {
-    // A trophy is presented level across the chest in both hands (see FishingGear.presentHeld).
-    const lift = Math.sin(t * 3) * 0.05;
-    ar = TROPHY_ARMS.x + lift;
-    al = TROPHY_ARMS.x + lift;
-    arz = TROPHY_ARMS.z;
-    alz = -TROPHY_ARMS.z;
-    tx = 0.1;
   } else if (st === 'caught' && arc > 0.6) {
-    // Same as the local catch pose: the right fist punched up beside the head, the fish hanging from
-    // it by the tail; the left arm up in a cheer.
+    // Every catch is presented level across the chest in both hands (see FishingGear.presentHeld),
+    // the hands spread with the fish's length.
     const lift = Math.sin(t * 3) * 0.05;
-    ar = -0.32;
-    arz = 2.62 + lift;
-    al = -0.25 + Math.sin(t * 7) * 0.08;
-    alz = -2.35 - lift;
+    ar = TROPHY_ARMS.x - (1 - spread) * 0.55 + lift;
+    al = TROPHY_ARMS.x - (1 - spread) * 0.55 + lift;
+    arz = TROPHY_ARMS.z * spread;
+    alz = -TROPHY_ARMS.z * spread;
     tx = 0.08;
   }
   rig.armR.rotation.set(ar, 0, arz);
   rig.armL.rotation.set(al, 0, alz);
-  rig.armR.scale.y = st === 'caught' && arc > 0.6 && !trophy ? 1.28 : 1;
+  rig.armR.scale.y = 1;
   rig.torso.rotation.x = tx;
   rig.torso.rotation.y = ty;
   if (!fist || !(st === 'caught' && arc > 0.6)) return false;
@@ -331,7 +327,7 @@ export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D
   // point between both hands.
   rig.armR.updateWorldMatrix(true, false);
   rig.armR.localToWorld(fist.set(0, -0.31, 0.03));
-  if (trophy) {
+  {
     rig.armL.updateWorldMatrix(true, false);
     const l = rig.armL.localToWorld(new THREE.Vector3(0, -0.31, 0.03));
     fist.add(l).multiplyScalar(0.5);
@@ -341,3 +337,8 @@ export function poseAnglerArms(rig: { armL: THREE.Object3D; armR: THREE.Object3D
 
 /** Arm pose (rotation x / outward z) for a trophy held level across the chest in both hands. */
 export const TROPHY_ARMS = { x: -1.38, z: 0.32 };
+
+/** Hand spread (× TROPHY_ARMS.z) for a held fish of mesh scale s: a sardine between close hands, a trophy wide. */
+export function presentSpread(s: number): number {
+  return Math.min(1, Math.max(0.45, 0.45 + (s - 0.6) * 0.85));
+}

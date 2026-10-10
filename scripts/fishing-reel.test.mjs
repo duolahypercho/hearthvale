@@ -69,13 +69,13 @@ export function runReelTests(log = console.log) {
   const rows = [];
   // [label, difficulty, behaviour, median band (s), max losses of 12]
   for (const [label, d, behavior, lo, hi, maxLost] of [
-    ['common', 0.2, 'smooth', 4, 8.5, 0],
-    ['common', 0.25, 'mixed', 4.5, 8.5, 0],
-    ['common', 0.3, 'dart', 6, 14, 1],
-    ['uncommon', 0.45, 'dart', 8, 45, 2],
-    ['rare', 0.6, 'sinker', 9, 40, 3],
-    ['rare', 0.6, 'mixed', 11, 45, 3],
-    ['v.rare', 0.78, 'sinker', 12, 50, 5],
+    ['common', 0.2, 'smooth', 3.2, 7, 0],
+    ['common', 0.25, 'mixed', 3.4, 7.5, 0],
+    ['common', 0.3, 'dart', 4, 10, 1],
+    ['uncommon', 0.45, 'dart', 6, 30, 2],
+    ['rare', 0.6, 'sinker', 6.5, 30, 3],
+    ['rare', 0.6, 'mixed', 8, 35, 3],
+    ['v.rare', 0.78, 'sinker', 10, 45, 5],
   ]) {
     const times = [];
     let lost = 0;
@@ -88,6 +88,43 @@ export function runReelTests(log = console.log) {
     rows.push(`${label.padEnd(9)} d=${d} ${behavior.padEnd(7)} median ${m.toFixed(1)} s  (${times.length}/12 landed)`);
     if (times.length && !(m >= lo && m <= hi)) fails.push(`pacing ${label} d=${d} ${behavior}: median ${m.toFixed(1)} s outside ${lo}-${hi} s`);
     if (lost > maxLost) fails.push(`pacing ${label} d=${d} ${behavior}: lost ${lost}/12 (max ${maxLost})`);
+  }
+  // 2b. Real-loop pacing (critic r6: a laggy scripted controller took 15-17 s on commons in real play):
+  // input polled every 60 ms (held between polls), the fish seen 350 ms late with no lead, 15 % sloppy polls —
+  // a so-so player still lands a common in ~5-10 s.
+  const laggy = (seed) => {
+    const hist = [];
+    const r = mulberry32(seed + 7);
+    let last = false;
+    let nextPoll = 0;
+    return (s, t) => {
+      hist.push([s.fish, s.fishV]);
+      if (hist.length > 21) hist.shift();
+      if (t < nextPoll) return last;
+      nextPoll = t + 0.06;
+      const [f, v] = hist[0];
+      let h = f - (s.bar + s.barH * 0.5) - s.barV * 0.1 > 0;
+      if (r() < 0.15) h = !h;
+      last = h;
+      return h;
+    };
+  };
+  for (const [label, d, behavior, lo, hi] of [
+    ['laggy common', 0.2, 'smooth', 4, 9],
+    ['laggy common', 0.25, 'mixed', 4, 10],
+    ['laggy common', 0.3, 'dart', 4, 25], // a darter shakes a laggy player off (~60 % in-bar): slow but landed
+  ]) {
+    const times = [];
+    let inside = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      const r = fight({ d, behavior, seed: seed * 6007, auto: false, hold: laggy(seed) });
+      if (r.end === 'caught') times.push(r.t);
+      inside += r.s.insideT / Math.max(r.s.t, 1e-3);
+    }
+    const m = times.length ? median(times) : Infinity;
+    rows.push(`${label.padEnd(13)} d=${d} ${behavior.padEnd(7)} median ${m.toFixed(1)} s  (${times.length}/12 landed, ${Math.round((inside / 12) * 100)} % in-bar)`);
+    if (!(m >= lo && m <= hi)) fails.push(`pacing ${label} d=${d} ${behavior}: median ${m.toFixed(1)} s outside ${lo}-${hi} s`);
+    if (times.length < 11) fails.push(`pacing ${label} d=${d} ${behavior}: lost ${12 - times.length}/12`);
   }
   // Depth: a lag-free PD controller (a bot that never blinks) must NOT sail through fish with a
   // signature move — dashes outrun the lv-0 bar, so perfect fights are earned, not automatic —
@@ -121,7 +158,7 @@ export function runReelTests(log = console.log) {
     }
     if (seenAt >= 0 && seenAt < 1.5 - 1e-6) fails.push(`treasure appeared at ${seenAt.toFixed(2)} s (< 1.5 s)`);
   }
-  log(`reel sim: start ${REEL.start}, gain 0.15-0.08d, loss 0.09+0.07d, dash ${REEL.dashV}, tell ${REEL.tell} s\n  ${rows.join('\n  ')}`);
+  log(`reel sim: start ${REEL.start}, gain 0.155-0.075d (+${REEL.hot * 100} % hot streak), loss 0.06+0.1d, dash ${REEL.dashV}, tell ${REEL.tell} s\n  ${rows.join('\n  ')}`);
   return fails;
 }
 

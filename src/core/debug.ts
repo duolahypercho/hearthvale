@@ -59,7 +59,12 @@ export function installDebugApi(game: Game): DebugApi {
       if (!WEATHERS.includes(w)) throw new Error(`bad weather ${w}`);
       game.calendar.setWeather(w);
     },
-    teleport: (map, x, z) => game.teleport(map, x, z),
+    // (beach r7b, critic r6: a demo's custom camera outlived the teleport, so staged real play
+    // looked at open sea.) A scripted teleport hands the camera back to the follow-camera defaults.
+    teleport: async (map, x, z) => {
+      await game.teleport(map, x, z);
+      api.camera({});
+    },
     facing: (d) => game.player.setFacing(d),
     openUI: (name) => {
       const base = name.split(':')[0]!;
@@ -158,7 +163,8 @@ export async function applyUrlParams(api: DebugApi, params: URLSearchParams): Pr
   const z = params.get('z');
   if (map || x || z) {
     const cur = api.game.world.current;
-    await api.teleport(map ?? cur?.id ?? 'farm', x ? Number(x) : (cur?.spawn.x ?? 32), z ? Number(z) : (cur?.spawn.z ?? 20));
+    // (game.teleport, not api.teleport: a ?demo= camera survives an &x= / &z= nudge.)
+    await api.game.teleport(map ?? cur?.id ?? 'farm', x ? Number(x) : (cur?.spawn.x ?? 32), z ? Number(z) : (cur?.spawn.z ?? 20));
   }
   const season = params.get('season') as Season | null;
   if (season) {

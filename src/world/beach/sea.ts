@@ -195,8 +195,9 @@ function boatRingMaterial(): THREE.ShaderMaterial {
       float n(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
         return mix(mix(h(i), h(i + vec2(1.0, 0.0)), f.x), mix(h(i + vec2(0.0, 1.0)), h(i + vec2(1.0, 1.0)), f.x), f.y); }
       void main(){
-        // Hull plan: bow at +x (pointed), transom at -x (blunt) - a superellipse in the 4.3 x 2.3 quad.
-        vec2 q = (vUv - 0.5) * vec2(4.3, 2.3);
+        // Hull plan: bow at +x (pointed), transom at -x (blunt) - a superellipse (the quad is 6.0 x 3.6:
+        // room for the ripple rings + contact shade, r7b).
+        vec2 q = (vUv - 0.5) * vec2(6.0, 3.6);
         float bow = smoothstep(-0.4, 1.6, q.x);
         vec2 e = q / vec2(1.72, 0.8 - bow * 0.38);
         float r = pow(pow(abs(e.x), 2.4) + pow(abs(e.y), 2.4), 1.0 / 2.4);
@@ -205,10 +206,22 @@ function boatRingMaterial(): THREE.ShaderMaterial {
         float ring = smoothstep(0.1, 0.0, abs(r - 1.02 - wob)) * (0.55 + 0.45 * n(vec2(a * 14.0, uT * 2.0)));
         // Faint lace spreading from the collar.
         float lace = smoothstep(0.62, 0.8, n(q * 5.0 + vec2(uT * 0.3, 0.0))) * smoothstep(1.5, 1.05, r) * step(1.0, r) * 0.45;
+        // (r7b, critic r6: the dory read as a toy shell laid on the water.) Slow rings pushed out by the
+        // hull's bob, broken up round the hull, fading as they spread.
+        float rings = 0.0;
+        for (int k = 0; k < 2; k++) {
+          float ph = fract(uT * 0.22 + float(k) * 0.5);
+          float rr = 1.08 + ph * 1.1;
+          rings += smoothstep(0.05, 0.0, abs(r - rr - wob * 0.5)) * (1.0 - ph) * (1.0 - ph) * smoothstep(0.35, 0.7, n(vec2(a * 6.0 + float(k) * 3.0, uT * 0.4)));
+        }
         float foam = max(ring, lace) * (1.0 - uNight * 0.6);
         vec3 fc = vec3(0.95, 0.97, 0.96) * (uSun * 0.6 + uSky * 0.5);
         float band = smoothstep(0.86, 0.98, r) * smoothstep(1.05, 0.98, r) * 0.25;
-        gl_FragColor = vec4(mix(vec3(0.02, 0.08, 0.1), fc, foam / max(foam + band, 1e-3)), clamp(foam * 0.85 + band, 0.0, 1.0));
+        // Contact shade: the hull darkens the water close round it (the dory sits IN the sea).
+        float shade = smoothstep(1.75, 1.0, r) * step(0.97, r) * 0.32;
+        float fA = clamp(foam * 0.85 + rings * 0.42 * (1.0 - uNight * 0.6), 0.0, 1.0);
+        vec3 col = mix(vec3(0.02, 0.06, 0.09), fc, fA / max(fA + band + shade, 1e-3));
+        gl_FragColor = vec4(col, clamp(fA + band + shade * (1.0 - fA), 0.0, 1.0));
       }`,
   });
   m.name = 'doryWaterline';
@@ -259,7 +272,7 @@ export class SeaProps {
     this.boatAt = new THREE.Vector3(boat.x, level - 0.22, boat.z);
     // A soft waterline collar round the hull (foam + a darker contact band): the dory sits IN the
     // water, it doesn't hover over it.
-    this.boatRing = new THREE.Mesh(new THREE.PlaneGeometry(4.3, 2.3).rotateX(-Math.PI / 2), boatRingMaterial());
+    this.boatRing = new THREE.Mesh(new THREE.PlaneGeometry(6.0, 3.6).rotateX(-Math.PI / 2), boatRingMaterial());
     this.boatRing.name = 'dory-waterline';
     this.boatRing.renderOrder = 3;
     this.boatRing.frustumCulled = false;

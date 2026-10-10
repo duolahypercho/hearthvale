@@ -34,6 +34,15 @@ export interface ReelView {
   tell?: number;
   /** 0..1 while the fish thrashes (the frame shakes, progress bleeds). */
   thrash?: number;
+  /** 0..1 hot streak (long unbroken tracking reels faster; the bar glows gold). */
+  hot?: number;
+}
+
+/** Where the catch card docks: the angler's screen point + other farmers' screen boxes to keep clear. */
+export interface CardAnchor {
+  x: number;
+  y: number;
+  avoid?: { x: number; y: number; w: number; h: number }[];
 }
 
 export interface CatchCard {
@@ -105,6 +114,8 @@ export class FishingOverlay {
   private dpr = 1;
   private cardTimer = 0;
   private remoteBangs = new Map<number, HTMLElement>();
+  /** Measured reel panel height (px, unscaled). */
+  private reelH = 0;
   private remoteTags = new Map<number, HTMLElement>();
 
   constructor(parent: HTMLElement) {
@@ -236,6 +247,7 @@ export class FishingOverlay {
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
     this.canvas.width = Math.round(126 * this.dpr);
     this.canvas.height = Math.round(420 * this.dpr);
+    this.reelH = this.reel.offsetHeight;
   }
 
   closeReel(): void {
@@ -251,9 +263,23 @@ export class FishingOverlay {
   placeReel(x: number, y: number): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const left = x + 150 + 152 < w - 16 ? x + 120 : x - 120 - 152;
-    this.reel.style.left = `${Math.max(12, left)}px`;
-    this.reel.style.top = `${Math.min(h - 250, Math.max(250, y))}px`;
+    const left = Math.max(12, x + 150 + 152 < w - 16 ? x + 120 : x - 120 - 152);
+    // (r7b, critic r6: at 1600 x 900 the "Reel it in!" tag ran into the clock HUD and off the top.)
+    // The panel (centred on `top`) keeps its tag ≥ 12 px below whatever HUD box it would overlap
+    // (the clock plate), and inside the bottom edge; on a short window it scales down to fit.
+    const half = (this.reelH || 490) / 2;
+    let safeTop = 12 + 22;
+    const clock = document.querySelector('.h-clock');
+    if (clock) {
+      const r = clock.getBoundingClientRect();
+      if (r.height > 0 && left < r.right && left + 152 > r.left) safeTop = Math.max(safeTop, r.bottom + 12 + 22);
+    }
+    const lo = safeTop + half;
+    const hi = h - 96 - half;
+    const k = hi >= lo ? 1 : Math.max(0.6, (h - 96 - safeTop) / (half * 2));
+    this.reel.style.setProperty('--reel-k', k.toFixed(3));
+    this.reel.style.left = `${left}px`;
+    this.reel.style.top = `${hi >= lo ? Math.min(hi, Math.max(lo, y)) : safeTop + half * k}px`;
   }
 
   drawReel(v: ReelView, dt: number): void {
@@ -352,14 +378,17 @@ export class FishingOverlay {
     const top = v.bounce < 0;
     const squash = sq;
     const inside = v.inside && !v.slack;
+    // Hot streak (r7b): long unbroken tracking reels faster; the bar warms green → gold and glows.
+    const hot = inside ? Math.max(0, Math.min(1, v.hot ?? 0)) : 0;
     g.save();
-    g.shadowColor = inside ? 'rgba(160,255,140,0.9)' : 'rgba(0,0,0,0)';
-    g.shadowBlur = inside ? 16 : 0;
+    g.shadowColor = inside ? (hot > 0.05 ? `rgba(255,${Math.round(255 - hot * 50)},${Math.round(140 - hot * 60)},0.95)` : 'rgba(160,255,140,0.9)') : 'rgba(0,0,0,0)';
+    g.shadowBlur = inside ? 16 + hot * (10 + Math.sin(this.t * 14) * 4) : 0;
     const bg = g.createLinearGradient(tx, 0, tx + tw, 0);
     if (inside) {
-      bg.addColorStop(0, 'rgba(110,220,110,0.82)');
-      bg.addColorStop(0.5, 'rgba(160,250,140,0.9)');
-      bg.addColorStop(1, 'rgba(90,200,100,0.82)');
+      const mixC = (a: number[], b: number[], al: number): string => `rgba(${Math.round(a[0]! + (b[0]! - a[0]!) * hot)},${Math.round(a[1]! + (b[1]! - a[1]!) * hot)},${Math.round(a[2]! + (b[2]! - a[2]!) * hot)},${al})`;
+      bg.addColorStop(0, mixC([110, 220, 110], [235, 180, 60], 0.82));
+      bg.addColorStop(0.5, mixC([160, 250, 140], [255, 228, 120], 0.9));
+      bg.addColorStop(1, mixC([90, 200, 100], [225, 160, 50], 0.82));
     } else {
       bg.addColorStop(0, 'rgba(130,200,120,0.6)');
       bg.addColorStop(0.5, 'rgba(170,230,150,0.66)');
@@ -387,6 +416,18 @@ export class FishingOverlay {
         g.arc(tx + 12 + i * 14 + Math.sin(this.t * 20 + i) * 2, ky + (top ? -1 : 1) * (2 + (i % 2) * 3), 1.6 + (i % 3), 0, Math.PI * 2);
         g.fill();
       }
+    }
+    if (hot > 0.6) {
+      // Rising sparks off the hot bar.
+      g.save();
+      g.fillStyle = `rgba(255,236,150,${(hot - 0.6) * 2})`;
+      for (let i = 0; i < 4; i++) {
+        const ph = (this.t * 1.4 + i * 0.27) % 1;
+        g.beginPath();
+        g.arc(tx + 14 + i * ((tw - 28) / 3) + Math.sin(this.t * 5 + i * 2) * 3, bTop - ph * 18, 1.8 * (1 - ph) + 0.6, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.restore();
     }
     if (v.slack) {
       // Slack line: the idle bar greys out and earns nothing until you reel again.
@@ -548,12 +589,13 @@ export class FishingOverlay {
     // Any slip (the fish out of the bar, progress draining) jitters the panel a little.
     this.reel.classList.toggle('slip', !v.inside && !v.slack && v.progress >= 0.35 && (v.thrash ?? 0) === 0);
     this.reel.classList.toggle('tense', v.progress > 0.75);
+    this.reel.classList.toggle('hot', hot > 0.6);
     this.reelPerfect.classList.toggle('lost', !v.perfect);
   }
 
   // ── catch card ───────────────────────────────────────────
   /** `at` = the farmer's screen position: the card sits beside them (never over the hero). */
-  showCard(c: CatchCard, at?: { x: number; y: number }): void {
+  showCard(c: CatchCard, at?: CardAnchor): void {
     this.hideCard(true);
     const card = el('div', 'hvf-card');
     if (at) this.placeCard(card, at, true);
@@ -574,19 +616,43 @@ export class FishingOverlay {
     this.cardTimer = 4.5;
   }
 
-  private placeCard(card: HTMLElement, at: { x: number; y: number }, first = false): void {
+  private placeCard(card: HTMLElement, at: CardAnchor, first = false): void {
     const W = 470;
+    const H = 230;
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const right = first ? at.x + 110 + W < w - 16 : card.classList.contains('r');
-    const x = right ? Math.min(at.x + 110, w - 16 - W) : Math.max(16, at.x - 110 - W);
-    if (first) card.classList.add('beside', right ? 'r' : 'l');
-    card.style.left = `${Math.round(x)}px`;
-    card.style.top = `${Math.round(Math.min(h - 330, Math.max(90, at.y - 90)))}px`;
+    // (r7b, critic r6: in co-op the card landed on the other farmer, hiding her and her name tag.)
+    // Try both sides of the angler at a few heights; keep the spot that covers the least of any other
+    // farmer's projected box (ties: the current / preferred side, then the base height).
+    const prefRight = first ? at.x + 110 + W < w - 16 : card.classList.contains('r');
+    const avoid = at.avoid ?? [];
+    let best = { x: 0, y: 0, right: prefRight, cost: Infinity };
+    for (const right of [prefRight, !prefRight]) {
+      const x = right ? Math.min(at.x + 110, w - 16 - W) : Math.max(16, at.x - 110 - W);
+      // A side that would sit over the angler's own fish / body is out.
+      const self = right ? Math.max(0, at.x + 60 - x) : Math.max(0, x + W - (at.x - 60));
+      for (const dy of [0, -150, 140, -260]) {
+        const y = Math.min(h - 330, Math.max(90, at.y - 90 + dy));
+        let cost = self * H * 4 + Math.abs(dy) * 20 + (right === prefRight ? 0 : 900);
+        for (const r of avoid) {
+          const ox = Math.max(0, Math.min(x + W, r.x + r.w) - Math.max(x, r.x));
+          const oy = Math.max(0, Math.min(y + H, r.y + r.h) - Math.max(y, r.y));
+          cost += ox * oy * 6;
+        }
+        if (cost < best.cost) best = { x, y, right, cost };
+      }
+    }
+    if (first) card.classList.add('beside', best.right ? 'r' : 'l');
+    else if (card.classList.contains('r') !== best.right) {
+      card.classList.toggle('r', best.right);
+      card.classList.toggle('l', !best.right);
+    }
+    card.style.left = `${Math.round(best.x)}px`;
+    card.style.top = `${Math.round(best.y)}px`;
   }
 
   /** Keep a docked catch card beside the farmer while the camera settles (e.g. a trophy push-in). */
-  moveCard(at: { x: number; y: number }): void {
+  moveCard(at: CardAnchor): void {
     if (this.card?.classList.contains('beside')) this.placeCard(this.card, at);
   }
 

@@ -19,7 +19,9 @@
  *               even inside the bar); past 75 % progress the fish panics (moves come faster)
  *   sweet spot  a fish centred in the bar reels 1.12× (riding its edge: 0.76×)
  *
- * Pacing targets (auto-pilot ≈ a strong player): commons ≈ 5–7 s, rares ≈ 10–15 s.
+ *   hot streak  staying on the fish without a slip ramps the reel speed up to +40 % (the bar glows)
+ *
+ * Pacing targets (auto-pilot ≈ a strong player): commons ≈ 4–7 s, rares ≈ 9–15 s.
  */
 import type { ReelView } from './fishing';
 
@@ -53,6 +55,8 @@ export interface ReelState extends ReelView {
   thrashT: number;
   /** Seconds spent outside the bar (after the grace period). */
   outT: number;
+  /** Seconds the fish has stayed inside the bar without a break (feeds the hot-streak bonus). */
+  runT: number;
 }
 
 /** Catch-bar physics (track units / s²; the track is 1 tall). */
@@ -65,8 +69,14 @@ export const REEL = {
   start: 0.35,
   /** Seconds idle on the floor before the line goes slack. */
   slackAfter: 0.45,
-  gain: (d: number): number => 0.15 - 0.08 * d,
-  loss: (d: number): number => 0.09 + 0.07 * d,
+  // (r7: 0.15 - 0.08d made a well-tracked common a 15-17 s fight in real play, critic r6; commons now
+  // land in ~5-7 s at 70 % in-bar, a hot streak adds up to +40 %.)
+  gain: (d: number): number => 0.155 - 0.075 * d,
+  /** Hot streak: after HOT_AFTER s inside without a break, gain ramps up to (1 + hot) by HOT_FULL s. */
+  hot: 0.3,
+  hotAfter: 0.9,
+  hotFull: 2.2,
+  loss: (d: number): number => 0.06 + 0.1 * d,
   /** Shiver before a signature move (s). */
   tell: 0.34,
   /** Dash velocity cap (track / s) — above the bar's vmax on purpose. */
@@ -116,13 +126,15 @@ export function newReel(o: { difficulty: number; behavior: ReelBehavior; barH: n
     grace: o.grace ?? 1.2,
     restT: 0,
     low: REEL.start,
-    moveCd: 1.1 + moveGap(o.behavior, o.difficulty, r) * 0.5,
+    moveCd: 0.9 + moveGap(o.behavior, o.difficulty, r) * 0.32,
     tellT: 0,
     dashT: 0,
     dashV: 0,
     thrashCd: o.difficulty >= 0.4 ? 2.2 + r() * 2 : Infinity,
     thrashT: 0,
     outT: 0,
+    runT: 0,
+    hot: 0,
     tell: 0,
     thrash: 0,
   };
@@ -272,10 +284,14 @@ export function stepReel(s: ReelState, dt: number, holdInput: boolean, rand: Ran
     s.inside = s.fish >= s.bar - 0.01 && s.fish <= s.bar + s.barH + 0.01;
     const earning = s.inside && !s.slack;
     if (earning) s.insideT += h;
+    // A thrash breaks the streak's momentum (it bleeds anyway); a slip resets it.
+    s.runT = earning ? s.runT + (s.thrashT > 0 ? 0 : h) : Math.max(0, s.runT - h * 6);
+    const hotK = Math.min(1, Math.max(0, (s.runT - REEL.hotAfter) / (REEL.hotFull - REEL.hotAfter)));
+    s.hot = hotK * hotK * (3 - 2 * hotK);
     if (!o.frozen) {
       // Sweet spot: centred = 1.12×, riding the edge = 0.76×.
       const off = Math.min(1, Math.abs(s.fish - (s.bar + s.barH * 0.5)) / (s.barH * 0.5));
-      if (earning) s.progress += REEL.gain(d) * (1.12 - off * 0.36) * h;
+      if (earning) s.progress += REEL.gain(d) * (1.12 - off * 0.36) * (1 + REEL.hot * (s.hot ?? 0)) * h;
       if (s.thrashT > 0 && s.t >= s.grace) s.progress -= REEL.thrashLoss * h;
       if (!earning && s.t >= s.grace) {
         s.progress -= REEL.loss(d) * h;

@@ -450,6 +450,12 @@ export function beachRockMaterial(kind: 'rock' | 'shelf' = 'rock'): THREE.MeshSt
       }`,
     );
     fs = after(fs, '#include <roughnessmap_fragment>', shelf ? 'roughnessFactor = mix(roughnessFactor, 0.16, hvBRWet);' : 'roughnessFactor = mix(roughnessFactor, 0.4, hvBRWet);');
+    // (r7b, critic r6: at dusk the far rock headland melted into the pink fog with no silhouette.)
+    // The rocks take ~60 % of the distance fog, so they keep a dark, rim-lit shape against the haze.
+    fs = fs.replace(
+      '#include <fog_fragment>',
+      '#ifdef USE_FOG\n  float brFog = smoothstep(fogNear, fogFar, vFogDepth) * 0.6;\n  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, brFog);\n#endif',
+    );
     shader.fragmentShader = fs;
   });
   applyWorldFx(m, { snowUp: 0.62 });

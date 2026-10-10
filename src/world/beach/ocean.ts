@@ -528,7 +528,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
           vec4 vp = viewMatrix * vec4(vW, 1.0);
           float ndcY = vp.y / max(-vp.z, 0.1) / 0.315;
           float speck = smoothstep(0.972, 0.997, ridge) * smoothstep(0.68, 0.88, rip2) * deepK * (1.0 - smoothstep(0.35, 0.75, abs(ndcY))) * (1.0 - farK);
-          lit += mix(uSkyColor, vec3(1.0), 0.5) * speck * 0.24 * cloud * (1.0 - uNight * 0.7) * bandK * (1.0 - goldH * 0.6);
+          lit += mix(uSkyColor, vec3(1.0), 0.5) * speck * 0.24 * cloud * (1.0 - uNight * 0.7) * bandK * max(0.0, 1.0 - goldH * (0.6 + 0.4 * steep));
         }
         // Shallow caustic shimmer on the surface.
         // (r7: no white noise shimmer on the shallow surface any more: the light belongs on the bed,
@@ -539,12 +539,18 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         }
 
         // Reflection: sky gradient + the low sun's glow path.
-        vec3 R = reflect(-V, n);
+        // (r7b: from a steep lens the reflection reads a calmer normal — the wavelet facets mirrored the
+        // bright dusk horizon as dense warm flecks under the pier, critic r6.)
+        vec3 nR = normalize(mix(n, vec3(0.0, 1.0, 0.0), steep * (0.3 + 0.5 * goldH) * (1.0 - uPool)));
+        vec3 R = reflect(-V, nR);
         // (r7: by day the low reflected sky leans to the zenith blue; the warm beige horizon mirrored at
         // grazing angles washed the whole far sea out to an overcast haze, critic r6.)
         float dayBlue = (1.0 - goldH) * (1.0 - uNight);
-        vec3 hzRef = mix(uHorizonColor, uSkyColor * vec3(0.92, 1.0, 1.04), 0.55 * dayBlue);
+        vec3 hzRef = mix(uHorizonColor, uSkyColor * vec3(0.92, 1.0, 1.04), 0.8 * dayBlue);
         vec3 sky = mix(hzRef, uSkyColor, smoothstep(0.0, 0.55, R.y));
+        // (r7b: the far sea mirrors a deeper, richer blue by day — the pale grazing-angle sky turned the
+        // whole far field a lavender-grey overcast sheet from the beach-day lens.)
+        sky = mix(sky, uSkyColor * vec3(0.7, 0.86, 1.0), 0.45 * farK * dayBlue);
         // Night sky in the water: desaturated, and modulated by the waves (keeps the swell readable).
         float skyL = dot(sky, vec3(0.3, 0.55, 0.15));
         sky = mix(sky, vec3(skyL) * vec3(0.8, 0.9, 1.15) * (0.6 + 0.4 * diff), uNight * 0.85);
@@ -560,7 +566,7 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
         // mirror of the mauve sky.)
         // (r6: floor raised to ≈ 0.17 straight down — the steep water under the pier stayed a pale daytime
         // cyan against the pink open sea, a hard tonal step along the deck in beach-sunset.)
-        vec3 c = mix(lit, sky, max(fres * (1.0 - steep * dzK * 0.35), goldH * 0.3 * (1.0 - uPool * 0.5) * (1.0 - steep * 0.45)));
+        vec3 c = mix(lit, sky, max(fres * (1.0 - steep * dzK * 0.35) * (1.0 - 0.3 * farK * dayBlue), goldH * 0.3 * (1.0 - uPool * 0.5) * (1.0 - steep * 0.45)));
 
         // Glints: pinpoint > 1.0 for the bloom, denser under a low sun.
         float lowSun = 1.0 - smoothstep(0.1, 0.55, L.y);
@@ -586,19 +592,26 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
           vec2 toP = normalize(vW.xz - cameraPosition.xz + 1e-4);
           float side = dot(toP, normalize(L.xz + 1e-4));
           float path = smoothstep(0.02, 0.5, side) * goldH * steep * lowSun;
-          float sh = smoothstep(0.42, 0.62, hvNoise(p * 0.9 + n.xz * 2.0 + vec2(t * 0.25, -t * 0.12)));
+          // (r7b: broad, soft swells of warm light — the wavelet-warped 1 m noise drew small squiggly
+          // flecks under the pier.)
+          float sh = smoothstep(0.3, 0.8, hvNoise(p * 0.32 + n.xz * 0.4 + vec2(t * 0.08, -t * 0.05)));
           c += uSunColor * path * (0.05 + 0.08 * sh) * cloud;
           // (r7: a few large stars on the sun's side only, ~1 per 4 m², not the dense pink confetti the
           // fine twinkle cells drew over the steep water under the pier, critic r6.)
-          vec2 sq = p * 1.6 + n.xz * 1.5;
+          // (r7b: sparser still — 1 m cells, 1 in 14 lit, each a short-lived 4-point star — and only out
+          // past ~9 m from the lens: under the pier they still read as confetti.)
+          vec2 sq = p * 0.95 + n.xz * 1.2;
           vec2 sc = floor(sq);
           float shh = hvHash12(sc + 3.1);
-          float stw = fract(shh * 5.7 + t * (0.5 + shh));
-          float star = step(shh, 0.16) * smoothstep(0.5, 0.0, abs(stw - 0.5) * 2.0 - 0.5) * smoothstep(0.16, 0.03, length(fract(sq) - 0.5 - (hvHash22(sc) - 0.5) * 0.6));
-          spec += star * path * smoothstep(0.25, 0.7, side) * (1.2 + 1.6 * sh) * detail;
+          float stw = fract(shh * 5.7 + t * (0.35 + shh * 0.5));
+          vec2 sf = fract(sq) - 0.5 - (hvHash22(sc) - 0.5) * 0.5;
+          float cross4 = smoothstep(0.02, 0.0, abs(sf.x) * abs(sf.y) * 6.0) * smoothstep(0.2, 0.0, length(sf));
+          float star = step(shh, 0.07) * smoothstep(0.5, 0.0, abs(stw - 0.5) * 2.0 - 0.6) * max(smoothstep(0.07, 0.02, length(sf)), cross4 * 0.7);
+          spec += star * path * smoothstep(0.25, 0.7, side) * smoothstep(9.0, 16.0, dist) * (1.6 + 1.6 * sh) * detail;
         }
         // Dusk, steep view: the near open water sinks to a deep plum so the hero reads over it.
-        c = mix(c, c * vec3(0.62, 0.5, 0.66), goldH * steep * dzK * 0.55 * (1.0 - uPool));
+        // (r7b: deeper, 0.55 → 0.75: the pale lilac under the pier still competed with the hero.)
+        c = mix(c, c * vec3(0.58, 0.46, 0.64), goldH * steep * dzK * 0.75 * (1.0 - uPool));
         c += uSunColor * spec * cloud * (1.0 - uNight);
         // Moon glitter path at night (the same twinkles, cool and dim).
         if (uNight > 0.01) {
@@ -757,10 +770,15 @@ function oceanMaterial(terrain: Terrain, level: number, far: boolean, pool = fal
           c += vec3(1.0, 0.62, 0.3) * lg * rip * uLamps * 0.9 * (1.0 - uPool);
         }
         // Horizon: dissolve into the sky's horizon colour (+ the sun's haze).
+        // (r7b: by day it reaches the full haze colour just inside the 400 m far plane, where the
+        // horizon band (createHorizonClouds) carries the same colour on to the horizon line.)
         float haze = smoothstep(70.0, 330.0, dist);
-        vec3 hzc = mix(uHorizonColor, uSkyColor * vec3(0.95, 1.0, 1.02) + uHorizonColor * 0.12, 0.5 * dayBlue) + uSunColor * pow(max(dot(-V, L) * 0.5 + 0.5, 0.0), 12.0) * 0.16;
+        float hazeDay = pow(smoothstep(80.0, 385.0, dist), 1.6);
+        // (r7b: by day the sea meets the sky as a crisp, slightly darker cerulean band under the pale
+        // horizon wash of the cloud band, not a beige haze.)
+        vec3 hzc = mix(uHorizonColor, mix(uSkyColor, vec3(0.5, 0.64, 0.84), 0.55), 0.85 * dayBlue) + uSunColor * pow(max(dot(-V, L) * 0.5 + 0.5, 0.0), 12.0) * 0.16 * (1.0 - 0.6 * dayBlue);
         hzc = mix(hzc, vec3(dot(hzc, vec3(0.3, 0.55, 0.15))) * vec3(0.75, 0.88, 1.2), uNight * 0.8);
-        c = mix(c, hzc, haze * mix(0.72, 0.5, dayBlue));
+        c = mix(c, hzc, mix(haze * 0.72, hazeDay, dayBlue));
 
         // (r7: thinner in the shallows so the warm bed reads through a clear tint.)
         float alpha = mix(0.24, 0.95, smoothstep(0.0, 1.5, depth));
@@ -1081,11 +1099,23 @@ export function createHorizonClouds(): THREE.Mesh {
         float day = (1.0 - smoothstep(0.25, 0.6, lowSun)) * (1.0 - uNight) * (1.0 - uCloudShadow * 0.0);
         float washA = 0.0;
         vec3 wash = vec3(0.0);
-        if (day > 0.0 && el > -0.02 && el < 0.5) {
+        if (day > 0.0 && el > -0.12 && el < 0.95) {
           // Crisp pale blue at the horizon (a clear line against the sea), deepening upward.
-          vec3 hzB = mix(uSkyColor, vec3(0.86, 0.93, 0.98), 0.45) * 1.02;
-          wash = mix(hzB, uSkyColor * 0.95, smoothstep(0.0, 0.32, el));
-          washA = day * 0.88 * smoothstep(-0.02, 0.004, el) * (1.0 - smoothstep(0.3, 0.48, el));
+          vec3 hzB = mix(uSkyColor, vec3(0.86, 0.93, 0.98), 0.5) * 1.02;
+          // (r7b: deepening to a soft cerulean zenith, and over the whole visible sky: the global
+          // dome's afternoon beige showed through above ~17° as an overcast lid.)
+          vec3 zen = mix(uSkyColor, vec3(0.34, 0.56, 0.88), 0.4);
+          wash = mix(hzB, zen, smoothstep(0.0, 0.36, el));
+          washA = day * 0.94 * (1.0 - smoothstep(0.75, 0.95, el));
+          if (el < 0.0) {
+            // (r7b) Below the horizon: the sea past the camera's 400 m far plane, in the ocean shader's
+            // far-haze colour (oceanMaterial hzc by day), so the sea runs on to a true horizon line
+            // instead of stopping at a band of the dome's beige below it.
+            vec3 hzS = mix(uSkyColor, vec3(0.5, 0.64, 0.84), 0.55);
+            hzS += uSunColor * pow(max(dot(d, L) * 0.5 + 0.5, 0.0), 12.0) * 0.064;
+            wash = mix(hzS, hzS * 1.06 + 0.02, smoothstep(-0.03, 0.0, el));
+            washA = day;
+          }
         }
         float band = smoothstep(0.0, 0.03, el) * (1.0 - smoothstep(0.12, 0.34, el));
         // Outside the band (below the horizon / high sky: most of the cylinder's pixels) dens is 0:
@@ -1109,7 +1139,7 @@ export function createHorizonClouds(): THREE.Mesh {
           // and below the tallest possible crown (base + 0.12 + 0.025 + fade), so skip the billow fbm
           // (4 taps) + crown noise everywhere else: zero visual change, most of the band skips them.
           float bank = 0.0;
-          if (day > 0.0 && el < 0.17) bank = smoothstep(0.5, 0.72, hvNoise(vec2(az * 1.9 + 4.0, 1.3)));
+          if (day > 0.0 && el < 0.17) bank = smoothstep(0.42, 0.66, hvNoise(vec2(az * 1.9 + 4.0, 1.3)));
           if (bank >= 0.01) {
             float base = 0.014;
             float bill = hvFbm(vec2(az * 26.0 + uTime * 0.003, el * 34.0));

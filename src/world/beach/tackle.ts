@@ -77,6 +77,8 @@ export interface RodPose {
   crank: number;
 }
 
+/** Dots in the cast arc preview. */
+const ARC_DOTS = 18;
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -124,12 +126,23 @@ export class FishingGear {
   /** Landing reticle on the water while charging a cast. */
   readonly reticle: THREE.Mesh;
   private reticleMat: THREE.ShaderMaterial;
+  /** Dotted arc preview from the rod tip to the reticle while charging (one Points draw). */
+  readonly arc: THREE.Points;
+  private arcMat: THREE.ShaderMaterial;
+  private arcPos = new Float32Array(ARC_DOTS * 3);
+  private arcK = new Float32Array(ARC_DOTS);
   /** Line state: slack 0 (taut) .. 1 (lazy curve on the water). */
   slack = 1;
   /** 0..1: how hard the rope is pulled towards a clean catenary each frame (no kinks while it's moving). */
   ease = 0;
   lineVisible = false;
   waterY = 0;
+  /**
+   * Ripple rings' height over the water: on still water (pond / river) they sit just under the lily
+   * pads (placed 1 cm up) so the pads hide them (critic r6: the rings were drawn across the pads); the
+   * swell of the sea needs them a little higher.
+   */
+  rippleLift = 0.012;
   /** Taut-line hum: sideways vibration amplitude (m) of the line's middle (0 = still). */
   vibrate = 0;
   /** Bite / hook twang (1 → 0): the line snaps tight and wobbles for a beat. */
@@ -326,6 +339,49 @@ export class FishingGear {
     this.reticle.visible = false;
     this.reticle.renderOrder = 6;
     this.group.add(this.reticle);
+
+    // Cast arc preview (r7b, critic r6: the reticle alone was the only read of the throw): round dots
+    // marching from the rod tip along the predicted parabola, fading in / out at the ends.
+    const ag = new THREE.BufferGeometry();
+    ag.setAttribute('position', new THREE.BufferAttribute(this.arcPos, 3).setUsage(THREE.DynamicDrawUsage));
+    ag.setAttribute('aK', new THREE.BufferAttribute(this.arcK, 1).setUsage(THREE.DynamicDrawUsage));
+    this.arcMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      uniforms: { uAlpha: { value: 0 }, uPower: { value: 0 }, uBad: { value: 0 }, uPx: { value: 1 } },
+      vertexShader: /* glsl */ `
+        attribute float aK; varying float vK; uniform float uPx;
+        void main(){
+          vK = aK;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mv;
+          // ~0.16 m dots in world size, never under 4 px.
+          gl_PointSize = clamp(uPx * 0.12 / max(-mv.z, 0.1), 4.0, 14.0) * (0.7 + 0.3 * sin(aK * 3.14159));
+        }`,
+      fragmentShader: /* glsl */ `
+        varying float vK; uniform float uAlpha; uniform float uPower; uniform float uBad;
+        void main(){
+          vec2 d = gl_PointCoord - 0.5;
+          float r = length(d) * 2.0;
+          float a = smoothstep(1.0, 0.7, r);
+          float rim = smoothstep(0.55, 0.85, r) * a;
+          vec3 good = mix(vec3(1.0, 0.96, 0.8), vec3(1.0, 0.84, 0.34), smoothstep(0.85, 1.0, uPower));
+          vec3 c = mix(good, vec3(1.0, 0.42, 0.32), uBad);
+          c = mix(c, c * 0.45, rim);
+          // Faint off the rod (no pearls strung over the deck), full over the water, fading into the ring.
+          float ends = smoothstep(0.05, 0.4, vK) * smoothstep(1.0, 0.88, vK);
+          gl_FragColor = vec4(c, a * ends * uAlpha * 0.8);
+        }`,
+    });
+    this.arcMat.name = 'castArc';
+    this.arc = new THREE.Points(ag, this.arcMat);
+    this.arc.name = 'cast-arc';
+    this.arc.frustumCulled = false;
+    this.arc.visible = false;
+    this.arc.renderOrder = 6;
+    this.arc.userData.noAO = true;
+    this.group.add(this.arc);
 
     // Foam discs (splash aftermath: a white, broken patch that spreads and fizzes out).
     const foamGeo = new THREE.PlaneGeometry(1, 1);
@@ -715,7 +771,7 @@ export class FishingGear {
     r.age = 0;
     r.life = life;
     r.size = size;
-    r.mesh.position.set(p.x, this.waterY + 0.012, p.z);
+    r.mesh.position.set(p.x, this.waterY + this.rippleLift, p.z);
     r.mesh.visible = true;
   }
 
@@ -781,6 +837,34 @@ export class FishingGear {
     this.reticle.scale.set(s, 1, s);
     u.uPower!.value = power;
     u.uBad!.value = bad ? 1 : 0;
+  }
+
+  /**
+   * Dotted arc from `from` (the rod tip) to `to` (the reticle) while charging; null hides (fades).
+   * `pxPerM` = the viewport height / (2 tan(fov / 2)) so the dots keep a world size.
+   */
+  setArc(from: THREE.Vector3 | null, to: THREE.Vector3 | null, power: number, bad: boolean, t: number, dt: number, pxPerM: number): void {
+    const u = this.arcMat.uniforms;
+    u.uAlpha!.value += ((from && to ? 1 : 0) - u.uAlpha!.value) * Math.min(1, dt * 10 || 1);
+    this.arc.visible = u.uAlpha!.value > 0.02;
+    if (!from || !to || !this.arc.visible) return;
+    u.uPower!.value = power;
+    u.uBad!.value = bad ? 1 : 0;
+    u.uPx!.value = pxPerM;
+    const dist = Math.hypot(to.x - from.x, to.z - from.z);
+    const apex = 0.9 + dist * 0.16;
+    const march = (t * 0.9) % (1 / ARC_DOTS);
+    for (let i = 0; i < ARC_DOTS; i++) {
+      const k = Math.min(1, i / ARC_DOTS + march);
+      const y = from.y + (to.y - from.y) * k + apex * 4 * k * (1 - k);
+      this.arcPos[i * 3] = from.x + (to.x - from.x) * k;
+      this.arcPos[i * 3 + 1] = y;
+      this.arcPos[i * 3 + 2] = from.z + (to.z - from.z) * k;
+      this.arcK[i] = k;
+    }
+    const g = this.arc.geometry;
+    g.attributes.position!.needsUpdate = true;
+    g.attributes.aK!.needsUpdate = true;
   }
 
   /** Fish shadow near the bobber (0 = hidden). */
