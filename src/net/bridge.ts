@@ -210,7 +210,13 @@ export class NetBridge {
       }
       case 'froll': {
         if (role !== 'host') return true;
-        const roll = call(this.svc('fishing'), 'hostRoll', from, d[2]);
+        let roll: unknown = null;
+        try {
+          roll = call(this.svc('fishing'), 'hostRoll', from, d[2]);
+        } catch (e) {
+          console.warn(`[net] farmhand ${from}: fishing roll failed`, e);
+        }
+        // Always answer (an explicit null = no bite), so the farmhand's float never waits on a timeout.
         this.link.to(from, ['frolled', d[1], roll ?? null]);
         return true;
       }
@@ -224,7 +230,12 @@ export class NetBridge {
       }
       case 'fclaim': {
         if (role === 'host') {
-          const ok = call(this.svc('fishing'), 'validateCatch', from, d[1]);
+          let ok: unknown = false;
+          try {
+            ok = call(this.svc('fishing'), 'validateCatch', from, d[1]);
+          } catch {
+            ok = false;
+          }
           if (ok === false) console.warn(`[net] farmhand ${from}: catch claim did not match an issued roll`);
         }
         return true;

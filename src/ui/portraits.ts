@@ -696,11 +696,13 @@ function frontHair(id: string, L: NpcLook, f: Face): string {
     case 'spiky': {
       // Messy mop: a rounded crown mass with a few soft flicks (a cowlick, a tuft over each ear)
       // and a thick fringe that sweeps across the brow in one direction.
+      // (r21 critic: "Kit's portrait hair spikes read as devil horns" — the two upright crown flicks are
+      // one soft cowlick lying over to the side, like the model's rounded tufts)
       const flicks: [number, number, number, number, number, number][] = [
-        [cx - 14, t - 2, cx - 34, t - 16, 17, -10],
-        [cx + 4, t - 6, cx - 2, t - 26, 15, -9],
-        [cx + w - 8, t + 16, cx + w + 12, t + 6, 16, 8],
-        [cx - w + 6, t + 20, cx - w - 12, t + 12, 16, -8],
+        [cx - 6, t - 4, cx + 16, t - 13, 14, 9],
+        // (the ear tufts hang and flick out below the root — pointing up and out they were horns / elf ears)
+        [cx + w - 8, t + 18, cx + w + 9, t + 34, 14, 7],
+        [cx - w + 6, t + 22, cx - w - 9, t + 38, 14, -7],
       ];
       const mop = `<path d="M${cx - w - 4} ${t + 44} Q ${cx - w - 10} ${t - 8} ${cx - 6} ${t - 12} Q ${cx + w + 10} ${t - 12} ${cx + w + 4} ${t + 42} Q ${cx} ${t + 12} ${cx - w - 4} ${t + 44} Z" fill="url(#${id}hr)" ${s}/>`;
       const fringe: [number, number, number, number, number, number][] = [
@@ -1008,6 +1010,15 @@ export function paintedPortraitSvg(look: NpcLook, bg: [number, number], mood: Mo
     f.top = f.chin - (f.chin - f.top) * 0.84;
     f.w *= 1.07;
     f.jaw = Math.min(f.jaw, 0.85);
+    // r21 (critic: "Kit's portrait looks like a teenager while the 3D Kit is a bobblehead"): the model's
+    // head-to-body ratio carries over — a big-headed villager (L.head > 1) gets a rounder, shorter, wider
+    // face with the features lower, as the bust of their own model reads
+    const hk = Math.max(0, Math.min(0.35, (L.head ?? 1) - 1));
+    if (hk > 0) {
+      f.top = f.chin - (f.chin - f.top) * (1 - hk * 0.32);
+      f.w *= 1 + hk * 0.22;
+      f.jaw = Math.min(f.jaw, 0.85 - hk);
+    }
   }
   const sw = 58 * Math.min(1.35, Math.max(0.85, L.build)) * personaOf(L).sh * (CH ? 0.86 : 1);
   const iris = L.eyes ?? 0x6a4a2a;

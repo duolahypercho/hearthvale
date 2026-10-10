@@ -322,6 +322,38 @@ body:has(.coop-roster:not(.hv-hidden)) .dlg-insert { top: max(19vh, 150px); }
    the heart strip keep their one size and place. */
 .hv-dialogue.dlg2 .dlg-side .hv-inner:has(.dlg-ribbon) { overflow: visible; }
 .hv-dialogue.dlg2 .dlg-ribbon { top: -35px !important; transform: translateX(-50%) rotate(-2.5deg); box-shadow: 0 3px 0 rgba(60,30,10,.35), 0 6px 14px rgba(30,15,5,.35); }
+/* r21 (critic: "the portrait frame is ~290 px on a 1080p screen and the heart strip lies over its chin,
+   beard and mouth"): the portrait is the star — a ~384 px bust in a thick carved frame (ink line, gilt
+   bead, wood moulding, outer bevel), and the heart meter leaves the face for the name-plate band under
+   it (plaque left, hearts right; a co-op spectator's two labelled rows stack under the plaque). */
+.hv-dialogue.dlg2 { width: min(1320px, calc(100vw - 40px)); }
+.hv-dialogue.dlg2 .dlg-side { width: 424px; }
+.hv-dialogue.dlg2 .dlg-side > .hv-inner { display: grid !important; grid-template-columns: auto 1fr; grid-template-areas: "p p" "n h"; align-items: center; justify-items: center; column-gap: 10px; row-gap: 12px; padding: 16px 16px 12px !important; }
+.hv-dialogue.dlg2 .dlg-side > .hv-inner:has(.dlg-hearts.spec2) { grid-template-columns: 1fr; grid-template-areas: "p" "n" "h"; row-gap: 8px; }
+.hv-dialogue.dlg2 .dlg-portrait { grid-area: p; width: 384px; height: 384px; border-radius: 6px;
+  box-shadow: 0 0 0 2px #2e1608, 0 0 0 5px #f0cf86, 0 0 0 6px #b5843e, 0 0 0 10px #7a4520, 0 0 0 11px #4a250e, 0 5px 14px 9px rgba(40, 20, 8, 0.42); }
+.hv-dialogue.dlg2 .dlg-portrait .layer svg { width: 384px; height: 384px; margin-top: -4px; }
+.hv-dialogue.dlg2 .dlg-portrait::after { background-size: 384px 384px; box-shadow: inset 0 0 28px rgba(70, 36, 12, 0.36), inset 0 3px 6px rgba(30, 15, 5, 0.45); }
+.hv-dialogue.dlg2 .dlg-name { grid-area: n; margin: 4px 0 0 2px !important; justify-self: start; white-space: nowrap; }
+.hv-dialogue.dlg2 .dlg-side > .hv-inner:has(.dlg-hearts.spec2) .dlg-name { justify-self: center; }
+.hv-dialogue.dlg2 .dlg-hearts { grid-area: h; position: relative !important; left: auto !important; top: auto !important; bottom: auto !important; transform: none !important; justify-self: end;
+  margin: 4px 2px 0 0 !important; background: rgba(90, 46, 18, 0.13) !important; border: 0 !important; box-shadow: inset 0 2px 3px rgba(60, 30, 10, 0.3), 0 1px 0 rgba(255, 240, 210, 0.6) !important; padding: 5px 7px !important; border-radius: 9px !important; }
+.hv-dialogue.dlg2 .dlg-hearts.spec2 { justify-self: center; margin: 0 !important; }
+.hv-dialogue.dlg2 .dlg-hearts.spec::after { top: -20px; }
+.hv-dialogue.dlg2 .dlg-side::before { height: 250px; }
+.hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 150px; }
+.hv-dialogue.dlg2 .dlg-hearts .tick { position: absolute; right: -6px; top: -24px; font: 900 16px/1 var(--font-head), sans-serif; color: #e8574a; text-shadow: 0 1px 0 #fff4dc, 0 0 6px rgba(255, 240, 210, .9); pointer-events: none; animation: dlgTick 1500ms var(--ease-out) both; }
+@keyframes dlgTick { 0% { opacity: 0; transform: translateY(8px) scale(.6); } 18% { opacity: 1; transform: translateY(0) scale(1.15); } 70% { opacity: 1; transform: translateY(-6px) scale(1); } 100% { opacity: 0; transform: translateY(-16px); } }
+@media (max-width: 1100px), (max-height: 760px) {
+  .hv-dialogue.dlg2 .dlg-side { width: 300px; }
+  .hv-dialogue.dlg2 .dlg-side > .hv-inner { grid-template-columns: 1fr; grid-template-areas: "p" "n" "h"; row-gap: 6px; padding: 12px 12px 8px !important; }
+  .hv-dialogue.dlg2 .dlg-name { justify-self: center; }
+  .hv-dialogue.dlg2 .dlg-hearts { justify-self: center; }
+  .hv-dialogue.dlg2 .dlg-portrait { width: 268px; height: 268px; }
+  .hv-dialogue.dlg2 .dlg-portrait .layer svg { width: 268px; height: 268px; }
+  .hv-dialogue.dlg2 .dlg-portrait::after { background-size: 268px 268px; }
+  .hv-dialogue.dlg2:not(.narr) .dlg-box .hv-inner { min-height: 120px; }
+}
 `;
 
 
@@ -769,6 +801,37 @@ export class DialoguePanel implements Panel {
         if (!el) continue;
         el.classList.add('pop');
         (el as SVGElement).style.animationDelay = `${(i - i0) * 90}ms`;
+      }
+      // (r21 critic: "the heart meter shows no visible tick-up") — the fill pours in from the old value
+      // to the new one over ~0.9 s, heart by heart, with a "+N" tick over the strip.
+      if (!spec) {
+        const rects: { r: SVGRectElement; a: number; b: number }[] = [];
+        for (let i = i0; i <= i1; i++) {
+          const r = svgs[i]?.querySelector('clipPath rect') as SVGRectElement | null;
+          if (!r) continue;
+          const a = Math.max(0, Math.min(1, (prev - i * PER_HEART) / PER_HEART));
+          const b = Math.max(0, Math.min(1, (pts - i * PER_HEART) / PER_HEART));
+          r.setAttribute('width', String(24 * a));
+          rects.push({ r, a, b });
+        }
+        const t0 = performance.now();
+        const dur = 900;
+        const step = (now: number): void => {
+          const k = Math.min(1, (now - t0) / dur);
+          const n = rects.length;
+          rects.forEach(({ r, a, b }, j) => {
+            const kk = Math.max(0, Math.min(1, k * n - j));
+            const e = 1 - Math.pow(1 - kk, 3);
+            r.setAttribute('width', String(24 * (a + (b - a) * e)));
+          });
+          if (k < 1 && this.hearts.isConnected) requestAnimationFrame(step);
+        };
+        if (rects.length) requestAnimationFrame(step);
+        const tick = document.createElement('span');
+        tick.className = 'tick';
+        const d = pts - prev;
+        tick.textContent = d >= PER_HEART * 0.95 ? `+${Math.round(d / PER_HEART)} ♥` : '+♥';
+        this.hearts.appendChild(tick);
       }
     }
     this.heartPts = pts;

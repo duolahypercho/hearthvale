@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import type { Game } from '../core/game';
-import { CABIN_SITES } from './cabins';
+import { CABIN_SITES, cabinFront } from './cabins';
 import { farmerMaterial } from '../entities/remote-farmer';
 import { MeshBuilder, mat, bevelCylinder } from '../world/geom';
 import type { Facing } from '../core/events';
@@ -116,6 +116,10 @@ export class CoopDemo {
     }
     if (name === 'coop-emote') {
       this.stageBin(mk);
+      return;
+    }
+    if (name === 'coop-cabin') {
+      this.stageRaise(mk);
       return;
     }
     const idle: Bot['script'] = () => {};
@@ -345,6 +349,64 @@ export class CoopDemo {
       pl.setFacing('down');
       (pl as unknown as { targetYaw: number }).targetYaw = S.hostYaw;
       this.hostBias = S.hostYaw;
+      this.game.followPlayer(true);
+    });
+    this.net.emitRoster();
+  }
+
+  /**
+   * `coop-cabin` (r8): a friend has just joined — Briar's cabin is raised in front of everyone. It
+   * springs out of a dust ring beside Fennel's (wood chips flying, a gold sparkle over the ridge on the
+   * landing), Briar pops in on her new doorstep, Fennel cheers, Juniper calls a welcome and the host
+   * watches from the path. `&raise=<s>` holds the still at that point of the raise (default 0.45: half
+   * risen out of the dust, chips in the air; 1.15 = the landing sparkle); `&live=1` raises it again every 5 s.
+   */
+  private stageRaise(mk: (i: number, x: number, z: number, facing: Facing, script: Bot['script']) => Bot): void {
+    const idle: Bot['script'] = () => {};
+    const f1 = cabinFront(1);
+    const f2 = cabinFront(2);
+    const q = new URLSearchParams(location.search);
+    const live = q.get('live') === '1';
+    const holdQ = Number(q.get('raise'));
+    const hold = live ? null : Number.isFinite(holdQ) && holdQ > 0 ? holdQ : 0.45;
+    // Juniper on the grass between the two cabins, Fennel on his own doorstep, Briar on her new one.
+    this.bots = [mk(0, f1.x - 0.6, f2.z + 0.1, 'down', idle), mk(1, f1.x + 0.6, f1.z + 0.5, 'down', idle), mk(2, f2.x, f2.z + 0.25, 'down', idle)];
+    this.bots[0]!.bias = -0.45;
+    this.bots[1]!.bias = -0.35;
+    this.bots[2]!.bias = 0.1;
+    const two = new Map([[0, PRESET_LOOKS[0]!.scarf], [1, PRESET_LOOKS[1]!.scarf]]);
+    const three = new Map([...two, [2, PRESET_LOOKS[2]!.scarf]]);
+    this.net.refreshCabins(two);
+    const line = (id: number, text: string): void => {
+      const p = this.net.remotes.get(id);
+      if (p) this.game.events.emit('net:chat', { id, name: p.name, text, color: hex(p.look.scarf) });
+    };
+    line(3, 'Cabin 2 is all yours, Briar!');
+    const staged = this.stageId;
+    const raise = (): void => {
+      if (!this.active || staged !== this.stageId) return;
+      this.net.refreshCabins(two);
+      this.net.raiseCabin(2, hold);
+      this.net.refreshCabins(three);
+      this.game.events.emit('net:chat', { id: 0, name: '', text: '<b>Briar</b> joined the farm', color: '#c8a060', system: true });
+      this.bots[0]!.p.chat('Welcome, neighbour!', 1e6);
+      this.bots[1]!.p.emote('wow', 1e6);
+      this.bots[2]!.p.emote('heart', 1e6);
+      if (live) this.net.later(5000, raise);
+    };
+    // (after the first frames: a raise during boot would play out under the loading hitch)
+    this.game.events.once('game:ready', () => this.net.later(250, raise));
+    queueMicrotask(() => {
+      if (!this.active) return;
+      const pl = this.game.player;
+      const rig = this.game.rc.rig;
+      const to = { x: f2.x - 2.9, z: f2.z + 1.9 };
+      rig.lookOffset.x -= to.x - pl.position.x;
+      rig.lookOffset.z -= to.z - pl.position.z;
+      pl.teleport(to.x, to.z);
+      pl.setFacing('right');
+      (pl as unknown as { targetYaw: number }).targetYaw = 0.4;
+      this.hostBias = 0.4;
       this.game.followPlayer(true);
     });
     this.net.emitRoster();

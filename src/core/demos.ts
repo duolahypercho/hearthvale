@@ -93,6 +93,8 @@ export const DEMOS: Record<string, DemoDef> = {
   'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -42, pitch: 33, distance: 27, offsetX: 9.5, offsetZ: 1.2 }, showcase: ['npcs'] },
   // r18: one uninterrupted schedule change — 11:58, the square at work; at noon six villagers path (A*) to lunch spots (`&seq=10`).
   'town-commute': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 11.95, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 28, distance: 28, offsetX: -2.9, offsetZ: -5.6 }, showcase: ['npcs'] },
+  // town r21: the lunch rush at 12:20 — the schedules' own noon peak on the plaza lens (no staging)
+  'town-noon': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 12.33, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 31, distance: 29, offsetX: -2.9, offsetZ: -4.6 }, showcase: ['npcs'] },
   'town-square': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 28, distance: 28, offsetX: -2.9, offsetZ: -5.6 }, showcase: ['npcs'] },
   // Town pod: co-op in the square, no server — Juniper chats with Bram, Pip gives Wren strawberries (host paths: talk lock, gift ledger, 'v.g').
   'town-coop': { map: 'town', x: 32.4, z: 28.2, facing: 'up', time: 10.6, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 33, distance: 21, offsetX: -0.2, offsetZ: -4.2 }, showcase: ['npcs'] },
@@ -356,4 +358,6 @@ export const DEMOS: Record<string, DemoDef> = {
   // Co-op social stills: the emote wheel open over the farm (&emote=<id>) / typing a chat line (&say=<text>).
   'coop-emote': { map: 'farm', x: 39.5, z: 19.95, facing: 'down', time: 17.1, season: 'spring', weather: 'sun', camera: { yaw: -6, pitch: 41, distance: 14.6, offsetX: -1.5, offsetZ: -0.75 }, showcase: ['field', 'coop'] },
   'coop-chat': { map: 'farm', x: 19.4, z: 22.3, facing: 'left', time: 17.7, season: 'spring', weather: 'sun', camera: { yaw: 36, pitch: 44, distance: 13.5, offsetX: -1.0, offsetZ: -0.9 }, showcase: ['field', 'coop'] },
+  // Co-op r8: a friend joins — their cabin is raised in front of everyone (&raise=<s> holds the still, &live=1 loops).
+  'coop-cabin': { map: 'farm', x: 56.6, z: 24.0, facing: 'right', time: 16.9, season: 'spring', weather: 'sun', camera: { yaw: -8, pitch: 42, distance: 17, offsetX: 0, offsetZ: 0 }, showcase: ['field', 'coop'] },
 };

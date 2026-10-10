@@ -329,6 +329,13 @@ export abstract class Monster {
 
   protected onHit(_dir: THREE.Vector3): void {}
 
+  /** Staged demos: hold the creature on its mark for `s` seconds (idle animation keeps playing). */
+  hold(s: number): void {
+    this.stun = Math.max(this.stun, s);
+    this.vel.x = 0;
+    this.vel.z = 0;
+  }
+
   /** World position of the damage-number anchor. */
   headPos(out: THREE.Vector3): THREE.Vector3 {
     return out.copy(this.pos).setY(this.pos.y + 1.05);

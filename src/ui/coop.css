@@ -178,6 +178,14 @@
   flex-wrap: wrap;
   gap: 5px 4px;
 }
+.coop-chips.grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
+}
+.coop-chips.grid .coop-chip {
+  text-align: center;
+  white-space: nowrap;
+}
 .coop-how {
   margin: 14px 0 0;
   padding: 10px 14px 10px 30px;

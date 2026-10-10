@@ -162,8 +162,9 @@ const mixHex = (a: number, b: number, t: number): number => new THREE.Color(a).l
  * r11: -0.2 — odessa-4's close single still showed a forehead a quarter of the head tall under it).
  */
 const BANDANA_TILT = -0.2;
-function hairShell(r: number, thetaStart: number, thetaLen: number, grooves: number, depth: number, scallop: number, seed = 0, twist = 0.9): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(r, SEGK === 1 ? Math.max(24, grooves * 4) : Math.max(16, grooves * 2), SEGK === 1 ? 14 : 8, 0, Math.PI * 2, thetaStart, thetaLen);
+function hairShell(r: number, thetaStart: number, thetaLen: number, grooves: number, depth: number, scallop: number, seed = 0, twist = 0.9, hSegs = 14): THREE.BufferGeometry {
+  // (r21 perf: thin bands take fewer rows — Odessa's 0.2 rad hairline band was 88 × 14 quads, 2.5k triangles)
+  const g = new THREE.SphereGeometry(r, SEGK === 1 ? Math.max(24, grooves * 4) : Math.max(16, grooves * 2), SEGK === 1 ? hSegs : Math.max(3, Math.round(hSegs * 0.58)), 0, Math.PI * 2, thetaStart, thetaLen);
   g.rotateY(-Math.PI / 2);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const shade = new Float32Array(pos.count);
@@ -266,6 +267,90 @@ function villagerDepthHooks(mesh: THREE.SkinnedMesh): void {
 }
 
 /** Collects parts weighted to single bones and merges them into one skinned geometry. */
+/** r21: a lifted strand tone (loose hair catching the light). */
+const i0Hi = (c: number): number => shadeHex(c, 1.1);
+
+/**
+ * r21 (critic: "decal blush that reads as wounds", "blush shards poking from the beard edge"): a soft
+ * disc laid ON a surface (head-local coordinates; `zf(x, y)` is the surface depth): rings of vertices
+ * that follow the face's curve instead of a flat polygon cutting through it, with a `fade` attribute
+ * (0 at the centre → 1 at the rim) so RigBuilder.add(…, edge) melts the colour into the skin.
+ */
+function surfDisc(cx: number, cy: number, rx: number, ry: number, zf: (x: number, y: number) => number, lift: number, rings = 5, segs = 18): THREE.BufferGeometry {
+  const pos: number[] = [cx, cy, zf(cx, cy) + lift];
+  const fade: number[] = [0];
+  const idx: number[] = [];
+  for (let k = 1; k <= rings; k++) {
+    const t = k / rings;
+    for (let j = 0; j < segs; j++) {
+      const a = (j / segs) * Math.PI * 2;
+      const x = cx + Math.cos(a) * rx * t;
+      const y = cy + Math.sin(a) * ry * t;
+      pos.push(x, y, zf(x, y) + lift * (1 - 0.5 * t));
+      fade.push(THREE.MathUtils.smoothstep(t, 0.05, 1));
+    }
+  }
+  const at = (k: number, j: number): number => (k === 0 ? 0 : 1 + (k - 1) * segs + (j % segs));
+  for (let k = 0; k < rings; k++)
+    for (let j = 0; j < segs; j++) {
+      if (k === 0) idx.push(0, at(1, j), at(1, j + 1));
+      else idx.push(at(k, j), at(k + 1, j), at(k + 1, j + 1), at(k, j), at(k + 1, j + 1), at(k, j + 1));
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('fade', new THREE.Float32BufferAttribute(fade, 1));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * r21 (critic: "sausage-capsule brows"): a tapered brush stroke laid on the brow ridge — a thick, round
+ * inner head that thins to a fine outer tail along a soft arch, with a raised spine (a lens-shaped
+ * cross-section) so it catches light like a painted stroke, not a capsule glued on.
+ * Head-local; `sx` = side (−1 left, +1 right), the stroke runs from the inner end (x0, y0) outwards.
+ */
+function browStroke(x0: number, y0: number, sx: number, len: number, w0: number, w1: number, arch: number, tilt: number, zf: (x: number, y: number) => number, lift: number, segs = 10, hk = 0.55): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const P = (t: number): [number, number] => [x0 + sx * len * t, y0 + len * (arch * 4 * t * (1 - t) * 0.32 + tilt * t)];
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs;
+    const [x, y] = P(t);
+    const [xa, ya] = P(Math.max(0, t - 0.02));
+    const [xb, yb] = P(Math.min(1, t + 0.02));
+    let nx = -(yb - ya);
+    let ny = xb - xa;
+    const nl = Math.hypot(nx, ny) || 1;
+    nx = (nx / nl) * sx;
+    ny = (ny / nl) * sx;
+    if (ny < 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    // inner head round and full, the tail a fine point
+    const w = (w0 + (w1 - w0) * Math.pow(t, 0.8)) * Math.min(1, 0.55 + t * 3.2) * Math.min(1, (1 - t) * 3.4 + 0.08);
+    const h = w * hk;
+    for (const [k, up] of [[-1, 0], [-0.5, 0.75], [0, 1], [0.5, 0.75], [1, 0]] as const) {
+      const px = x + nx * w * 0.5 * k;
+      const py = y + ny * w * 0.5 * k;
+      pos.push(px, py, zf(px, py) + lift + h * up);
+    }
+  }
+  for (let i = 0; i < segs; i++)
+    for (let k = 0; k < 4; k++) {
+      const a = i * 5 + k;
+      const b = (i + 1) * 5 + k;
+      if (sx > 0) idx.push(a, b, b + 1, a, b + 1, a + 1);
+      else idx.push(a, b + 1, b, a, a + 1, b + 1);
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
 class RigBuilder {
   private parts: THREE.BufferGeometry[] = [];
   /**
@@ -285,10 +370,13 @@ class RigBuilder {
    * as one surface with the skull instead of a darker jagged muzzle where two spheres intersect.
    */
   nrmTo: { c: THREE.Vector3; a: THREE.Vector3; k: number } | null = null;
-  add(bone: number, geo: THREE.BufferGeometry, m: THREE.Matrix4 | undefined, color: number, ao = 1): void {
+  add(bone: number, geo: THREE.BufferGeometry, m: THREE.Matrix4 | undefined, color: number, ao = 1, edge?: number): void {
     let g = geo.index ? geo.clone() : geo.clone();
     // Optional per-vertex tone (hair locks: darker grooves, lit ridges) multiplies the part colour.
     const tone = g.attributes.shade as THREE.BufferAttribute | undefined;
+    // r21: optional per-vertex fade (0 → `color`, 1 → `edge`): soft radial blush that melts into the skin.
+    const fade = edge !== undefined ? (g.attributes.fade as THREE.BufferAttribute | undefined) : undefined;
+    const ce = edge !== undefined ? new THREE.Color(edge) : null;
     for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
     if (!g.attributes.normal) g.computeVertexNormals();
     if (!g.index) {
@@ -334,9 +422,10 @@ class RigBuilder {
       const y = pos.getY(i);
       // Contact darkening towards the feet.
       const a = ao * (0.8 + 0.2 * THREE.MathUtils.smoothstep(y, 0.0, 0.35)) * (tone ? tone.getX(i) : 1);
-      col[i * 3] = c.r * a;
-      col[i * 3 + 1] = c.g * a;
-      col[i * 3 + 2] = c.b * a;
+      const f = fade && ce ? fade.getX(i) : 0;
+      col[i * 3] = (c.r + ((ce?.r ?? 0) - c.r) * f) * a;
+      col[i * 3 + 1] = (c.g + ((ce?.g ?? 0) - c.g) * f) * a;
+      col[i * 3 + 2] = (c.b + ((ce?.b ?? 0) - c.b) * f) * a;
       si[i * 4] = bone;
       sw[i * 4] = 1;
     }
@@ -348,6 +437,15 @@ class RigBuilder {
     void g;
   }
   build(): THREE.BufferGeometry {
+    // (r21 face lab: `globalThis.__rigStats = []` before building a Villager collects every part's
+    // [triangles, centre x / y / z, part id] — how Odessa's 22k were found: the scarf's hairline band)
+    if ((globalThis as { __rigStats?: unknown[] }).__rigStats) {
+      for (const p of this.parts) {
+        p.computeBoundingSphere();
+        const c = p.boundingSphere!.center;
+        (globalThis as unknown as { __rigStats: unknown[] }).__rigStats.push([p.index!.count / 3, +c.x.toFixed(2), +c.y.toFixed(2), +c.z.toFixed(2), (p.attributes.part as THREE.BufferAttribute).getX(0)]);
+      }
+    }
     // Detail prefix (pillar 14, as geom.ts mergeStatic): parts under DETAIL_R (eyes, brows, lids, buttons,
     // small hair locks, trims) merge after every larger part, and `userData.shadowCount` records the index
     // count of the larger prefix. The shadow map and the AO G-buffer draw just that prefix for villagers
@@ -746,6 +844,13 @@ export class Villager {
     // smile under ^^ eyes). The mouth rides on whichever surface is in front, down its whole height.
     const jowlZ = (y: number): number => (fW > 1.01 ? R * 0.04 + R * 0.9 * Math.sqrt(Math.max(0, 1 - ((y - (skullY - R * 0.36)) / (R * 0.62 * faceS[1])) ** 2)) : 0);
     const mouthZ = Math.max(surfZ(0, mouthY), jowlZ(mouthY + 0.006), jowlZ(mouthY - 0.03)) + R * 0.003;
+    /** r21: depth of the visible face (skull or the wide faces' jowl mass in front of it) at (x, y). */
+    const faceZ = (x: number, y: number): number => {
+      const z0 = surfZ(x, y);
+      if (fW <= 1.01) return z0;
+      const u = 1 - (x / (R * faceS[0] * fW * 0.93)) ** 2 - ((y - (skullY - R * 0.36)) / (R * 0.62 * faceS[1])) ** 2;
+      return u > 0 ? Math.max(z0, R * 0.04 + R * 0.9 * Math.sqrt(u)) : z0;
+    };
     const browY = R * ((L.hat ? 1.15 : 1.2) + (FP.eyeY ?? 0) * 0.8);
     const browZ = surfZ(EXo, browY) + R * 0.044;
     const rb = new RigBuilder();
@@ -1047,7 +1152,10 @@ export class Villager {
     const chinK = FP.chin ?? (face === 'heart' ? 0.4 : 0);
     // (r8b: the lower-face masses shade with the skull's own normals — on deep skin tones the jaw
     // block read as a darker jagged muzzle where its sphere cut the skull)
-    rb.nrmTo = { c: new THREE.Vector3(0, headY + skullY * hs, 0), a: new THREE.Vector3(R * faceS[0] * hs, R * faceS[1] * hs, R * faceS[2] * hs), k: 0.82 };
+    rb.nrmTo = { c: new THREE.Vector3(0, headY + skullY * hs, 0), a: new THREE.Vector3(R * faceS[0] * hs, R * faceS[1] * hs, R * faceS[2] * hs), k: 1 };
+    // (r21 critic: "a banded jaw seam across the lower face" on Odessa — at k 0.82 the jowl / jaw spheres kept
+    // a fifth of their own normals and the ink-edge shader drew their intersection as a wavy band: the lower
+    // face now lights wholly as the skull's one surface; only the silhouette carries the jaw)
     if (fW > 1.01) rb.add(B.head, sphG(R, 18, 12), H(0, skullY - R * 0.36, R * 0.04, 0, 0, 0, faceS[0] * fW * 0.93, 0.62 * faceS[1], 0.9), L.skin);
     if (jawK > 0.05) {
       // (r20, blind judge on odessa-4: "her face is crude and blocky next to the painted portrait" — the
@@ -1122,14 +1230,15 @@ export class Villager {
     // darker than the skin (the painter inks them as colour edges).
     {
       const lk = FP.lines ?? (acc.has('wrinkles') ? 0.8 : 0);
-      const lc = mixHex(L.skin, 0x6a2e1e, 0.38 + 0.12 * lk);
+      // (r21: softer — at talk distance the dark crease capsules read as scratches / 'ノ' marks)
+      const lc = mixHex(L.skin, 0x6a2e1e, 0.2 + 0.1 * lk);
       const ex = EXo;
       if (lk >= 0.3)
         for (const sx of [-1, 1])
           for (let i = 0; i < (lk > 0.7 ? 3 : 2); i++) {
             const x = sx * (ex + 0.07 * eyeK + 0.012);
             const y = EY + R * (0.06 - i * 0.07);
-            rb.add(B.head, capG(0.0055, 0.028, 2, 4), H(x, y, surfZ(x, y) - 0.002, 0, sx * 0.6, sx * (1.1 - i * 0.45)), lc);
+            rb.add(B.head, capG(0.0042, 0.024, 2, 4), H(x, y, surfZ(x, y) - 0.003, 0, sx * 0.6, sx * (1.1 - i * 0.45)), lc);
           }
       if (lk >= 0.55)
         for (const sx of [-1, 1]) {
@@ -1161,15 +1270,21 @@ export class Villager {
       const bb = sx < 0 ? B.browL : B.browR;
       const by = browY;
       void hatted;
-      if (arch > 0.12) {
-        // An arched brow: two short capsules meeting in a soft peak two thirds out.
-        rb.add(bb, capG(0.019 * bt, 0.05, 3, 6), H(sx * (EXo - 0.022), by, browZ + R * 0.01, 0, 0, Math.PI / 2 + sx * (0.06 + arch * 0.4), 1, 1, 0.7), browC);
-        rb.add(bb, capG(0.017 * bt, 0.04, 3, 6), H(sx * (EXo + 0.032), by + 0.002, browZ - R * 0.03, 0, sx * 0.3, Math.PI / 2 - sx * (0.22 + arch * 0.8), 1, 1, 0.7), browC);
-      } else rb.add(bb, capG(0.021 * (bt > 1.5 ? bt : Math.min(bt, 1.12)), 0.08 + (bt > 1.3 ? 0.012 : 0), 3, 6), H(sx * EXo, by, browZ, 0, 0, Math.PI / 2 + sx * (0.14 - arch), 1, 1, 0.7), browC);
-      if (bt > 1.5) rb.add(bb, capG(0.016 * bt, 0.05, 3, 6), H(sx * (EXo + 0.03), by + 0.012, browZ - R * 0.03, 0, sx * 0.3, Math.PI / 2 + sx * 0.4, 1, 1, 0.7), shadeHex(browC, 1.12));
+      // r21 (critic: "sausage-capsule brows"): one tapered brush stroke on the brow ridge — a full round
+      // inner head thinning to a fine tail along the villager's own arch; bushy elders get a second,
+      // lighter stroke tucked over the tail. Width per villager (fine lines → the smith's bars).
+      {
+        const w0 = 0.036 * (bt > 1.5 ? bt : Math.min(bt, 1.12));
+        const len = 0.105 + (bt > 1.3 ? 0.014 : 0);
+        const x0 = sx * (EXo - 0.05);
+        const y0 = by - 0.004;
+        const tilt = arch > 0.12 ? -0.04 : 0.1 - arch * 0.6;
+        rb.add(bb, browStroke(x0, y0, sx, len, w0, w0 * 0.34, arch > 0.12 ? 0.25 + arch * 1.2 : 0.12, tilt, surfZ, R * 0.022), H(), browC);
+        if (bt > 1.5) rb.add(bb, browStroke(x0 + sx * len * 0.42, y0 + 0.012, sx, len * 0.62, w0 * 0.7, w0 * 0.3, 0.3, -0.12, surfZ, R * 0.03), H(), shadeHex(browC, 1.12));
+      }
       // Anger crease: two short knit lines between the brows.
       rb.tag = 1;
-      rb.add(B.furrow, capG(0.008, 0.035, 2, 4), H(sx * 0.022, browY - R * 0.1, surfZ(0, browY - R * 0.1) + R * 0.01, 0, 0, sx * 0.3), mixHex(L.skin, 0x5a2a1a, 0.55));
+      rb.add(B.furrow, capG(0.0058, 0.026, 2, 4), H(sx * 0.02, browY - R * 0.1, surfZ(0, browY - R * 0.1) + R * 0.004, 0, 0, sx * 0.42), mixHex(L.skin, 0x5a2a1a, 0.4));
       if (acc.has('freckles'))
         for (let i = 0; i < 4; i++) {
           // On the cheek surface (the face sphere is ~4 % wider than tall), facing out along its normal.
@@ -1185,7 +1300,10 @@ export class Villager {
       if (ck > 0.05) {
         const cx = sx * (EXo + 0.07);
         const cy = EY - R * 0.21;
-        rb.add(B.head, new THREE.CircleGeometry(0.036 + 0.024 * ck, 14), H(cx, cy, surfZ(cx, cy) - 0.006, 0, sx * 0.55, 0, 1.15, 0.85, 1), mixHex(L.skin, 0xf07a6a, 0.12 + 0.55 * ck));
+        // (r21: a soft radial flush laid on the cheek's curve, melting into the skin — the flat disc cut
+        // through the curved face and showed as a pink wedge / shard)
+        const cr = 0.042 + 0.028 * ck;
+        rb.add(B.head, surfDisc(cx, cy, cr * 1.2, cr * 0.85, faceZ, R * 0.006), H(), mixHex(L.skin, 0xf07a6a, 0.14 + 0.5 * ck), 1, L.skin);
       }
       rb.tag = 0;
       if (acc.has('earrings')) rb.add(B.head, sphG(0.022, 8, 6), H(sx * R * 1.0, R * 0.68, 0.02), 0xf2c43a);
@@ -1199,11 +1317,14 @@ export class Villager {
       // Closed line: a shallow arc (0.55 pi of a 5.5 cm circle) whose lowest point is the bone origin —
       // flipped (rotation.z = pi) it is a shallow frown hanging from the same point, never a V.
       const arc = Math.PI * 0.55;
-      const ln = torG(0.055, 0.0068, 4, 14, arc);
+      // (r21: a firmer ink line — Dr. Pell's thin one vanished at talk distance: "a blank pale mannequin")
+      const ln = torG(0.055, 0.0085, 4, 14, arc);
       ln.rotateZ(-Math.PI / 2 - arc / 2);
       ln.translate(0, 0.055, 0);
       rb.add(B.mouth, ln, H(0, mouthY, mz, 0, 0, 0, mW, 1, 1), ink);
-      for (const sx of [-1, 1]) rb.add(B.mouth, sphG(0.0062, 6, 4), H(sx * 0.0272 * mW, mouthY + 0.0068, mz), ink);
+      for (const sx of [-1, 1]) rb.add(B.mouth, sphG(0.0075, 6, 4), H(sx * 0.0272 * mW, mouthY + 0.0068, mz), ink);
+      // a soft lower-lip shade under the line (reads as a mouth, not a scratch, on pale skin)
+      rb.add(B.mouth, new THREE.CircleGeometry(0.018, 12, Math.PI, Math.PI), H(0, mouthY - 0.004, mz - 0.0015, 0, 0, 0, mW * 1.25, 0.5, 1), mixHex(L.skin, 0xa04a40, 0.32));
       // Open grin "D": flat upper lip with a band of teeth, a round dark interior, a tongue.
       const D = new THREE.CircleGeometry(0.036, 14, Math.PI, Math.PI);
       rb.add(B.mouthO, D, H(0, mouthY + 0.006, mz, 0, 0, 0, mW, 1, 1), 0x3a0c0a);
@@ -1217,11 +1338,19 @@ export class Villager {
       rb.add(B.mouthR, new THREE.CircleGeometry(0.019, 14), H(0, mouthY - 0.004, mz, 0, 0, 0, 1, 1.15, 1), 0x3a0c0a);
       rb.add(B.mouthR, new THREE.CircleGeometry(0.01, 8, Math.PI, Math.PI), H(0, mouthY - 0.012, mz + 0.0015, 0, 0, 0, 1, 0.8, 1), 0xd8645e);
       rb.add(B.mouthR, torG(0.0195, 0.0052, 3, 16), H(0, mouthY - 0.004, mz + 0.001, 0, 0, 0, 1, 1.15, 1), ink);
-      // Gritted teeth: a white bar framed in ink, the bite line across, tooth gaps.
-      rb.add(B.mouthT, roundedBox(0.088, 0.036, 0.004, 0.012, 2), H(0, mouthY - 0.004, mz - 0.0005, 0, 0, 0, mW, 1, 1), ink);
-      rb.add(B.mouthT, roundedBox(0.076, 0.024, 0.004, 0.008, 2), H(0, mouthY - 0.004, mz + 0.0015, 0, 0, 0, mW, 1, 1), 0xf6eee0);
-      rb.add(B.mouthT, roundedBox(0.074, 0.0034, 0.003, 0.0012, 1), H(0, mouthY - 0.004, mz + 0.0035, 0, 0, 0, mW, 1, 1), 0x6a4a3a);
-      for (const tx of [-0.026, -0.009, 0.009, 0.026]) rb.add(B.mouthT, roundedBox(0.0022, 0.022, 0.003, 0.001, 1), H(tx * mW, mouthY - 0.004, mz + 0.0032), 0x9a8270);
+      // Gritted teeth (r21 critic: "a postage-stamp teeth sticker"): a wide rounded grimace — a dark mouth
+      // shape with soft corners, the upper and lower teeth as two shallow white crescents meeting at the bite,
+      // an ink lip line round it, corners pulled down a touch.
+      {
+        const gm = new THREE.CircleGeometry(0.03, 20);
+        rb.add(B.mouthT, gm, H(0, mouthY - 0.004, mz - 0.001, 0, 0, 0, 1.45 * mW, 0.58, 1), 0x3a0c0a);
+        const up = new THREE.CircleGeometry(0.027, 16, 0, Math.PI);
+        rb.add(B.mouthT, up, H(0, mouthY - 0.006, mz + 0.0012, 0, 0, 0, 1.45 * mW, 0.42, 1), 0xf1e8da);
+        const lo = new THREE.CircleGeometry(0.025, 16, Math.PI, Math.PI);
+        rb.add(B.mouthT, lo, H(0, mouthY - 0.0035, mz + 0.0012, 0, 0, 0, 1.45 * mW, 0.36, 1), 0xe6dccb);
+        rb.add(B.mouthT, torG(0.03, 0.0052, 3, 22), H(0, mouthY - 0.004, mz + 0.0008, 0, 0, 0, 1.45 * mW, 0.58, 1), ink);
+        for (const tx of [-0.017, 0, 0.017]) rb.add(B.mouthT, roundedBox(0.0018, 0.012, 0.002, 0.0008, 1), H(tx * mW, mouthY - 0.0065, mz + 0.0022), 0xb8a898);
+      }
     }
     rb.tag = 0;
     if (L.glasses) {
@@ -1232,50 +1361,108 @@ export class Villager {
     }
     const beard = L.beard === true ? 'full' : L.beard;
     rb.tag = 6;
+    // r21 (critic: "a flat glued-on beard slab", "moustache sausages"): a full beard is a VOLUME grown
+    // out of the face — a shell over the skull from sideburn to sideburn whose thickness ramps up from
+    // a soft, broken hairline (temples → under the cheekbones → the mouth corners → under the lower lip)
+    // to a full chin that hangs below the jaw, combed into strands; the moustache is two tapered
+    // strokes laid on the upper lip that wrap round the face and droop past the mouth corners.
+    const paleB = ((L.hair >> 16) & 255) + ((L.hair >> 8) & 255) + (L.hair & 255) > 560;
+    const moustache = (k: number): void => {
+      for (const sx of [-1, 1]) {
+        const x0 = sx * 0.008;
+        const y0 = mouthY + R * 0.105;
+        rb.add(B.head, browStroke(x0, y0, sx, 0.09 * k * (FP.mouth ?? 1), 0.046 * k, 0.026 * k, -0.25, -0.2, faceZ, R * 0.014, 10, 0.8), H(), shadeHex(L.hair, paleB ? 0.88 : 0.9));
+      }
+    };
     if (beard === 'full') {
-      const bg = lumpy(0.2, 3, 0.12, rng, 2);
-      bg.scale(1.35, 0.9, 0.7);
-      // The mouth cut through the beard: a soft hollow scooped out where the lips sit, so the face
-      // talks, laughs and gasps through it (r4 critic: "a white mask with no mouth").
-      {
-        const pa = bg.attributes.position as THREE.BufferAttribute;
-        const my = R * 0.62 - R * 0.5;
-        for (let i = 0; i < pa.count; i++) {
-          const z = pa.getZ(i);
-          if (z <= 0) continue;
-          const f = Math.exp(-((pa.getX(i) / 0.085) ** 2 + ((pa.getY(i) - my) / 0.05) ** 2));
-          pa.setZ(i, z - f * 0.085);
+      const cY = skullY;
+      const ax = R * faceS[0];
+      const ay = R * faceS[1];
+      const az = R * faceS[2];
+      const phiM = Math.asin(Math.max(-0.95, Math.min(0.95, (mouthY - cY) / ay)));
+      const deg = Math.PI / 180;
+      // hairline elevation (rad) per azimuth: sideburn → cheek → mouth corner → under the lip
+      const top = (th: number): number => {
+        const a = Math.abs(th) / deg;
+        const k = [[0, phiM / deg - 11], [16, phiM / deg - 4], [30, phiM / deg + 2], [52, -16], [78, -2], [100, 14]] as const;
+        let v: number = k[k.length - 1]![1];
+        for (let q = 0; q < k.length - 1; q++)
+          if (a <= k[q + 1]![0]) {
+            const t = THREE.MathUtils.smoothstep(a, k[q]![0], k[q + 1]![0]);
+            v = k[q]![1] + (k[q + 1]![1] - k[q]![1]) * t;
+            break;
+          }
+        // a broken, hairy edge
+        return (v + 1.7 * Math.sin(th * 23 + 1.3) + 0.9 * Math.sin(th * 41)) * deg;
+      };
+      const NT = 34;
+      const NP = 18;
+      const th0 = -104 * deg;
+      const th1 = 104 * deg;
+      const ph0 = -96 * deg;
+      const ph1 = 22 * deg;
+      const pos: number[] = [];
+      const tone: number[] = [];
+      const idx: number[] = [];
+      const T = R * (0.1 + 0.02 * (L.build ?? 1));
+      for (let a = 0; a <= NT; a++) {
+        const th = th0 + ((th1 - th0) * a) / NT;
+        const pt = top(th);
+        for (let b = 0; b <= NP; b++) {
+          const ph = ph0 + ((ph1 - ph0) * b) / NP;
+          const nx = Math.sin(th) * Math.cos(ph);
+          const ny = Math.sin(ph);
+          const nz = Math.cos(th) * Math.cos(ph);
+          // thickness: −(inside) above the hairline → full a little below it; thickest round the chin
+          const ramp = THREE.MathUtils.smoothstep(pt - ph, -0.02, 0.32);
+          const chin = THREE.MathUtils.smoothstep(-ph, 0.35, 1.25) * Math.cos(th) ** 2;
+          const side = 0.55 + 0.45 * Math.cos(th);
+          // (well inside the skull above the hairline: its 24×16 facets sag inside the true ellipsoid, a shallow
+          // sink let the shell poke through between them as dark flecks on the cheeks and forehead)
+          let t = -R * 0.07 * (1 - ramp) + (T * side + T * 0.6 * chin) * ramp;
+          t *= 1 + 0.12 * Math.sin(th * 13 + ph * 7) * ramp;
+          const sx0 = cY + ay * ny;
+          let x = ax * nx;
+          let y = sx0;
+          let z = az * nz;
+          // (wide faces: the beard grows from the jowl mass in front of the skull, not inside it)
+          if (fW > 1.01 && nz > 0) z = Math.max(z, faceZ(x, y) - R * 0.004);
+          // offset along the ellipsoid normal
+          let gx = x / (ax * ax);
+          let gy = (y - cY) / (ay * ay);
+          let gz = z / (az * az);
+          const gl = Math.hypot(gx, gy, gz) || 1;
+          gx /= gl;
+          gy /= gl;
+          gz /= gl;
+          x += gx * t;
+          y += gy * t;
+          z += gz * t;
+          // the chin's hang: the full beard drops below the jaw and curls slightly forward
+          const hang = R * (0.2 + 0.06 * (L.build ?? 1)) * chin * ramp;
+          y -= hang;
+          z += hang * 0.35 * Math.cos(th);
+          pos.push(x, y, z);
+          // combed strands: grooves fanning down, darker underneath and at the roots
+          const groove = Math.abs(Math.sin(th * 16 + ph * 2.2));
+          tone.push((0.78 + 0.22 * groove) * (0.82 + 0.18 * THREE.MathUtils.smoothstep(ph, -1.2, 0.0)) * (0.9 + 0.1 * ramp));
         }
-        pa.needsUpdate = true;
-        smoothNormals(bg);
-        // Combed strands: vertical grooves fanning down from the cheeks, darker underneath.
-        const tone = new Float32Array(pa.count);
-        for (let i = 0; i < pa.count; i++) {
-          const x = pa.getX(i);
-          const y = pa.getY(i);
-          const a = Math.atan2(x, Math.max(0.02, pa.getZ(i)));
-          const groove = Math.abs(Math.sin(a * 9 + y * 10));
-          tone[i] = (0.8 + 0.2 * groove) * (0.84 + 0.16 * THREE.MathUtils.smoothstep(y, -0.16, 0.05));
+      }
+      for (let a = 0; a < NT; a++)
+        for (let b = 0; b < NP; b++) {
+          const i0 = a * (NP + 1) + b;
+          const i1 = (a + 1) * (NP + 1) + b;
+          idx.push(i0, i1, i1 + 1, i0, i1 + 1, i0 + 1);
         }
-        bg.setAttribute('shade', new THREE.BufferAttribute(tone, 1));
-      }
-      rb.add(B.head, bg, H(0, R * 0.5, R * 0.62), L.hair);
-      // Moustache as two sweeping wings over the hollow (not one bar).
-      // (r10: a pale moustache droops as a soft walrus, flattened against the lip and a shade darker
-      // than the beard — Tobias's upswept white wings read as tusks flanking a white nose)
-      const paleB = ((L.hair >> 16) & 255) + ((L.hair >> 8) & 255) + (L.hair & 255) > 560;
-      for (const sx of [-1, 1]) {
-        const st = capG(0.03, 0.075, 3, 8);
-        st.rotateZ(Math.PI / 2 + sx * (paleB ? -0.38 : 0.32));
-        if (paleB) st.scale(1.05, 1.0, 0.62);
-        rb.add(B.head, st, H(sx * (paleB ? 0.052 : 0.048), R * (paleB ? 0.72 : 0.76), R * (paleB ? 0.97 : 1.0)), shadeHex(L.hair, paleB ? 0.84 : 0.92));
-      }
+      const bg = new THREE.BufferGeometry();
+      bg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      bg.setAttribute('shade', new THREE.Float32BufferAttribute(tone, 1));
+      bg.setIndex(idx);
+      bg.computeVertexNormals();
+      rb.add(B.head, bg, H(), L.hair);
+      moustache(1.08);
     } else if (beard === 'mustache') {
-      for (const sx of [-1, 1]) {
-        const st = capG(0.026, 0.07, 3, 8);
-        st.rotateZ(Math.PI / 2 + sx * 0.35);
-        rb.add(B.head, st, H(sx * 0.045, R * 0.72, R * 0.97), shadeHex(L.hair, 0.85));
-      }
+      moustache(0.85);
     } else if (beard === 'stubble') {
       // Stubble (r7 blocker fix): a skin-tagged band on the jaw only, well below the mouth corners —
       // the r6 hair-tagged shell rode up over the eyes and the painter lit it as pale hair.
@@ -1335,8 +1522,10 @@ export class Villager {
       rb.add(eye, sphG(0.022 * irisK, 12, 6), E(ixo, iy - 0.017 * irisK, zf + 0.0005, -0.12, 0, 0, 1.15, 0.62, 0.36), mixHex(irisC, 0xfff4d0, 0.42));
       rb.add(eye, sphG(0.0145 * irisK, 10, 6), E(ixo, iy + 0.004, zf + 0.0035, -0.12, 0, 0, 1, 1.25, 0.36), 0x140c0a);
       // Catch-lights stay round (counter-scaled) whatever the cut.
-      rb.add(eye, sphG(0.0145, 8, 6), E(ex + 0.014, EY + 0.02 * Math.min(1, 0.8 / eh), zf + 0.009, 0, 0, 0, 1 / ew, 1 / eh, 0.5), 0xffffff);
-      if (shape !== 'beady' && shape !== 'narrow') rb.add(eye, sphG(0.008, 6, 4), E(ex - 0.012, EY - 0.024, zf + 0.009, 0, 0, 0, 1 / ew, 1 / eh, 0.5), mixHex(0xffffff, irisC, 0.2));
+      // (r21 critic: "eye glints blown out to white that look like tears" — smaller, an ivory a step under
+      // white so the sun key can't push them past the bloom threshold, set high in the iris)
+      rb.add(eye, sphG(0.0105, 8, 6), E(ex + 0.012, EY + 0.017 * Math.min(1, 0.8 / eh), zf + 0.008, 0, 0, 0, 1 / ew, 1 / eh, 0.5), 0xe4dfd6);
+      if (shape !== 'beady' && shape !== 'narrow') rb.add(eye, sphG(0.0055, 6, 4), E(ex - 0.012, EY - 0.022, zf + 0.008, 0, 0, 0, 1 / ew, 1 / eh, 0.5), mixHex(0xd8d4cc, irisC, 0.3));
       // Upper lash line: a heavy ink arc hugging the top of the eye, thicker at the outer corner, and a flick.
       {
         const lw = (LASH_W[this.def.id] ?? 1) * (L.lashes ? 1.15 : 1);
@@ -1379,8 +1568,10 @@ export class Villager {
       const bx = sx * (EXo + 0.06);
       const by = EY - R * 0.21;
       const bz = surfZ(bx, by);
-      rb.add(B.blush, new THREE.CircleGeometry(0.075, 16), H(bx, by, bz - R * 0.01, 0, sx * 0.5, 0, 1.2, 0.8, 1), mixHex(L.skin, 0xf04a5a, 0.72));
-      for (let i = 0; i < 3; i++) rb.add(B.blush, capG(0.006, 0.035, 2, 4), H(bx + sx * (i - 1) * 0.03, by, bz + R * 0.02, 0, sx * 0.5, 0.5), mixHex(L.skin, 0xa8283a, 0.8));
+      // (r21 critic: "red blush shards poking from the beard edge read as blood or fangs" — a soft radial
+      // flush on the cheek's curve (no hatch strokes), fading into the skin; under a beard it stays above it)
+      void bz;
+      rb.add(B.blush, surfDisc(bx, by + (beardFull ? R * 0.05 : 0), 0.085, 0.058, faceZ, R * 0.012), H(), mixHex(L.skin, 0xf05a64, 0.62), 1, L.skin);
     }
     rb.tag = 0;
     // ── held props (built at the hand, in rig space)
@@ -1527,7 +1718,8 @@ export class Villager {
       const SHELL: Partial<Record<string, [number, number, number, number]>> = {
         bun: [12, 0.06, 0.08, 0.4],
         short: [13, 0.075, 0.15, 1.1],
-        bob: [11, 0.07, 0.2, 0.7],
+        // (r21 critic: Wren's 3D bob "a helmet cap" — deeper, more grooves: separated strands)
+        bob: [15, 0.1, 0.2, 0.9],
         curly: [10, 0.05, 0.06, 0.6],
         ponytail: [12, 0.06, 0.1, 0.4],
         long: [12, 0.06, 0.1, 0.5],
@@ -1548,7 +1740,7 @@ export class Villager {
       const scarf = L.hat === 'bandana';
       // (under a beanie the shell stops above the eyes: r6 Rowan's temple locks hung over the far eye)
       // (r8: under a beanie it stops above the ear — the side of the shell read as a dark disc on the cheek)
-      const cap = hairShell(R * (scarf ? 1.035 : 1.07), top, (L.hat === 'beanie' ? Math.PI * 0.38 : Math.PI * 0.55) - top, gv, top > 0 ? dp * 0.4 : dp, scarf ? 0.02 : top > 0 || hatted ? sc * 0.3 : sc, (L.hair % 97) * 0.13, tw);
+      const cap = hairShell(R * (scarf ? 1.035 : 1.07), top, (L.hat === 'beanie' ? Math.PI * 0.38 : Math.PI * 0.55) - top, gv, top > 0 ? dp * 0.4 : dp, scarf ? 0.02 : top > 0 || hatted ? sc * 0.3 : sc, (L.hair % 97) * 0.13, tw, top > 0 ? 7 : 14);
       // (r10: under a flat cap the shell tips further back — its front edge ran across the forehead
       // under the brim as a white sweatband on Tobias)
       rb.add(B.head, cap, scarf ? H(0, R * 0.98, -0.03, BANDANA_TILT, 0, 0, 0.97, 0.76, 0.98) : H(0, R * 0.98, -0.02, L.hat === 'flatcap' ? -0.64 : -0.25, 0, 0), hair);
@@ -1558,7 +1750,7 @@ export class Villager {
         const polar = Math.PI * 0.44;
         // (r18: the band starts at the scarf's hem — from 0.06 rad above it the grooved shell poked out
         // through the flattened cloth dome as a dark rectangular patch over Odessa's brow)
-        const band = hairShell(R * 1.04, polar - 0.005, 0.2, 22, 0.012, 0.03, (L.hair % 89) * 0.11, 0.3);
+        const band = hairShell(R * 1.04, polar - 0.005, 0.2, 22, 0.012, 0.03, (L.hair % 89) * 0.11, 0.3, 3);
         rb.add(B.head, band, H(0, R * 0.98, -0.03, BANDANA_TILT, 0, 0), hair);
       }
       // A glossy sheen band across the crown (reads as combed, not a plastic dome) and a darker
@@ -1629,6 +1821,10 @@ export class Villager {
           rb.add(B.head, lock, H(Math.sin(a) * r, R * 0.78 - len * 0.18, Math.cos(a) * r - 0.02), i % 3 === 1 ? hi : hair);
         }
         // (the fringe is the shared teardrop locks above: a choppy edge, not three lumps)
+        // r21: a few loose strands springing off the crown and the parting — the bob reads as hair, not a cap
+        if (!L.hat)
+          for (const [ax, az, ry, rr] of [[0.05, 0.25, 0.4, 0.06], [0.2, -0.25, 1.9, 0.07]] as const)
+            rb.add(B.head, torG(rr, 0.011, 3, 8, Math.PI * 0.75), H(ax * R, R * 2.0 + Math.abs(az) * 0.05, az * R, 0.3, ry, 0.4), i0Hi(hair));
         break;
       case 'cap': {
         // Baker's toque.
@@ -1701,12 +1897,29 @@ export class Villager {
           const down = new THREE.Vector3(Math.cos(th) * Math.sin(az), -Math.sin(th), Math.cos(th) * Math.cos(az));
           // (front tufts stand up off the brow instead of flopping into the eyes — r7 portrait gate)
           const front = Math.abs(az) < 0.75 && pol >= 0.18;
-          const flop = dir.clone().multiplyScalar(front ? 1.0 : 0.55).addScaledVector(down, front ? 0.38 : 0.85).normalize();
+          // (r21: the side / back locks lie down along the scalp — standing off it the rounded tufts read as
+          // pigtails / a dog's ears beside Kit's face)
+          const sideT = !front && Math.abs(az) > 1.2;
+          const flop = dir.clone().multiplyScalar(front ? 1.0 : sideT ? 0.28 : 0.55).addScaledVector(down, front ? 0.38 : sideT ? 1.0 : 0.85).normalize();
           q.setFromUnitVectors(up, flop);
           const pos = c.clone().addScaledVector(dir, R * 1.0).addScaledVector(flop, len * 0.3);
-          const cone = coneG(0.11, len * 1.35, 8);
-          cone.scale(1, 1, 0.6);
-          rb.add(B.head, cone, H().multiply(new THREE.Matrix4().compose(pos, q, new THREE.Vector3(1, 1, 1))), i % 3 === 0 ? hi : hair);
+          // (r21 critic: "Kit's hair spikes read as devil horns" — each tuft is a soft flame-shaped lock:
+          // full at the root, narrowing to a ROUNDED tip that curls forward, flattened like a clump of
+          // hair, never a cone point)
+          const lock = sphG(1, 10, 8);
+          const pa = lock.attributes.position as THREE.BufferAttribute;
+          for (let v = 0; v < pa.count; v++) {
+            const y = pa.getY(v);
+            const t = (y + 1) / 2;
+            const k = 1 - 0.62 * t * t;
+            pa.setXYZ(v, pa.getX(v) * k, y, pa.getZ(v) * k + t * t * 0.55);
+          }
+          lock.computeVertexNormals();
+          // (side locks slimmer and shorter: wide rounded flaps over the ears read as a dog's ears)
+          const sideL = Math.abs(az) > 1.2;
+          lock.scale(sideL ? 0.075 : 0.1, len * (sideL ? 0.5 : 0.62), 0.062);
+          lock.translate(0, len * 0.22, 0);
+          rb.add(B.head, lock, H().multiply(new THREE.Matrix4().compose(pos, q, new THREE.Vector3(1, 1, 1))), i % 3 === 0 ? hi : hair);
         });
         break;
       }
@@ -1748,7 +1961,7 @@ export class Villager {
             q.setFromUnitVectors(up, tan.clone().negate());
             const side = i % 2 ? 1 : -1;
             const r = 0.05 * (1 - t * 0.42);
-            const lobe = sphG(r, 8, 6);
+            const lobe = sphG(r, 7, 5);
             lobe.scale(0.78, 1.55, 0.7);
             lobe.rotateZ(side * 0.62);
             lobe.translate(side * r * 0.42, 0, 0);
@@ -1787,8 +2000,10 @@ export class Villager {
         // at a covered button, a band round the head and a stiff curved peak.
         // (r19: from the plaza lens the eight-panel dome with its seams read as a green umbrella / a
         // mushroom cap — the seams are gone (the crown must stay this tall: lower, the hair showed through))
-        const crown = sphG(R * 1.1, 24, 10, 0, Math.PI * 2, 0, Math.PI * 0.42);
-        rb.add(B.head, crown, H(0, R * 1.15, 0.04, -0.22, 0, 0, 1.03, 0.8, 1.15), c);
+        // (r21: the crown reaches down over the band — from a talk lens a skin-coloured gap showed between
+        // the crown's rim and the band, the cap read as a lid floating over his head)
+        const crown = sphG(R * 1.1, 24, 10, 0, Math.PI * 2, 0, Math.PI * 0.5);
+        rb.add(B.head, crown, H(0, R * 1.17, 0.04, -0.22, 0, 0, 1.03, 0.8, 1.15), c);
         // One front seam where the top panel folds over the peak.
         rb.add(B.head, torG(R * 0.92, 0.007, 3, 16, Math.PI), H(0, R * 1.45, R * 0.44, Math.PI / 2 - 0.1, 0, 0, 1.05, 0.5, 1), shadeHex(c, 0.72));
         rb.add(B.head, bevelCylinder(R * 1.06, R * 1.07, 0.07, 0.02, 24), H(0, R * 1.25, 0.0, -0.2, 0, 0), shadeHex(c, 0.78));
@@ -1933,7 +2148,7 @@ export class Villager {
    * A received gift held up in both hands at the chest for the reaction line (r6 critic: the juice
    * was invisible in stills). `url` = the item's icon; dropped after `dur` s or by the next gift.
    */
-  private heldIcon: THREE.Sprite | THREE.Group | null = null;
+  private heldIcon: THREE.Sprite | THREE.Group | THREE.Mesh | null = null;
   private heldT = 0;
   holdIcon(url: string, dur = 3.4, itemId?: string): void {
     this.dropIcon();
@@ -1946,8 +2161,9 @@ export class Villager {
       const m = new THREE.Mesh(produceGeometry(crop), heldMat);
       const g = new THREE.Group();
       g.add(m);
-      g.scale.setScalar(1.55 / this.scaleS);
-      g.rotation.set(-0.25, 0.5, 0);
+      // (r21 critic: "the held strawberry reads as a red ball" — bigger, its leafy cap tipped forward to the lens)
+      g.scale.setScalar((crop === 'strawberry' || crop === 'blueberry' ? 2.1 : 1.55) / this.scaleS);
+      g.rotation.set(0.5, 0.5, 0);
       g.position.set(0, 0.12 * (this.def.look.torso ?? 1), 0.36 + (this.def.look.belly ?? 0) * 0.12);
       g.userData.liftT = 0;
       this.bones[B.spine]!.add(g);
@@ -1957,12 +2173,17 @@ export class Villager {
       return;
     }
     const tex = iconTexture(url);
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-    s.center.set(0.5, 0.25);
-    s.scale.setScalar(0.4 / this.scaleS);
-    s.position.set(0, 0.2 * (this.def.look.torso ?? 1), 0.32 + (this.def.look.belly ?? 0) * 0.1);
-    s.renderOrder = 3;
-    s.userData.noAO = true;
+    // (r21 critic: "the amethyst isn't visible in Linus's hands" — the item card is a cut-out held up in
+    // front of the chest (alpha-tested, unlit so the icon's own colours read, facing out of the body),
+    // bigger and clear of the raised forearms, not a sprite lost between them)
+    const card = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide, toneMapped: false }));
+    card.scale.setScalar(0.5 / this.scaleS);
+    card.position.set(0, 0.26 * (this.def.look.torso ?? 1), 0.44 + (this.def.look.belly ?? 0) * 0.12);
+    card.rotation.set(-0.25, 0, 0.08);
+    card.renderOrder = 3;
+    card.userData.noAO = true;
+    card.userData.card = true;
+    const s = card;
     this.bones[B.spine]!.add(s);
     this.heldIcon = s;
     this.heldT = dur;
@@ -1974,6 +2195,10 @@ export class Villager {
     if (!this.heldIcon) return;
     this.heldIcon.removeFromParent();
     if ((this.heldIcon as THREE.Sprite).isSprite) (this.heldIcon as THREE.Sprite).material.dispose();
+    else if ((this.heldIcon as THREE.Mesh).isMesh) {
+      ((this.heldIcon as THREE.Mesh).material as THREE.Material).dispose();
+      (this.heldIcon as THREE.Mesh).geometry.dispose();
+    }
     this.heldIcon = null;
   }
 
@@ -2114,6 +2339,7 @@ export class Villager {
     if (this.heldIcon) {
       this.heldT -= dt;
       if ((this.heldIcon as THREE.Sprite).isSprite) this.heldIcon.position.y = 0.2 * (this.def.look.torso ?? 1) + Math.sin(this.t * 3) * 0.012;
+      else if (this.heldIcon.userData.card) this.heldIcon.position.y = 0.26 * (this.def.look.torso ?? 1) + Math.sin(this.t * 3) * 0.012;
       else {
         // lifted from the waist to the chest over 0.3 s (ease-out-back), then a slow proud bob
         const u = (this.heldIcon.userData.liftT = Math.min(1, (this.heldIcon.userData.liftT as number) + dt / 0.3));

@@ -97,10 +97,11 @@ function apply(game: Game): void {
     const gain = g.uGain!.value as THREE.Vector3;
     gain.lerp(_v.set(0.97, 0.98, 1.06), 0.7 * dusk);
     const lift = g.uLift!.value as THREE.Vector3;
-    lift.lerp(_v.set(0.03, 0.035, 0.07), 0.5 * dusk);
+    // (r21 critic: "the blue hour reads murky purple-grey with low value contrast" — less raised black)
+    lift.lerp(_v.set(0.03, 0.035, 0.07), 0.28 * dusk);
     // (r19: saturation and contrast held — the desaturated, flattened dusk was the 'uniform wash')
-    g.uSaturation!.value *= 1 + 0.04 * dusk;
-    g.uContrast!.value *= 1 + 0.03 * dusk;
+    g.uSaturation!.value *= 1 + 0.13 * dusk;
+    g.uContrast!.value *= 1 + 0.1 * dusk;
     g.uVignette!.value *= 1 - 0.2 * dusk;
   }
   if (night > 0.002) {
@@ -116,7 +117,8 @@ function apply(game: Game): void {
     g.uVignette!.value *= 1 - 0.3 * k;
   }
   // Bloom: kept for the few hottest focal lights (lamp glass, the forge mouth), not the lit ground.
-  rc.post.setBloom((0.3 + L.night * 0.22) * (1 - 0.3 * Math.max(dusk, night * 0.6)), 0.94);
+  // (r21: the lamps and windows carry the dusk frame — bloom held up through the blue hour)
+  rc.post.setBloom((0.3 + L.night * 0.22) * (1 - 0.12 * Math.max(dusk, night * 0.6)), 0.94);
 }
 
 const _v = new THREE.Vector3();

@@ -59,8 +59,13 @@ export interface FishingRecord {
 
 export interface FishingApi {
   state(): FishingState;
-  /** Fishing skill level (0..10) and total XP. */
+  /**
+   * Fishing skill level, 0-based (0..10) — every UI (catch card, reel panel, tackle shop) shows it
+   * 1-based as "Lv level()+1"; `levelLabel()` returns that display string.
+   */
   level(): number;
+  /** The display form of level(): "Lv 1" .. "Lv 11". */
+  levelLabel(): string;
   xp(): number;
   /** Rod tier (0 bamboo, 1 fiberglass, 2 iridium). */
   rodTier(): number;
@@ -135,6 +140,24 @@ export interface FishRollReq {
   streak: number;
   /** The angler has landed a fish but never opened a chest: this cast's fight is guaranteed one. */
   firstChest?: boolean;
+}
+
+/** Host side: coerce an untrusted farmhand roll request into a valid one (defaults for junk). */
+export function sanitizeRollReq(req: unknown): FishRollReq {
+  const o = (req && typeof req === 'object' ? req : {}) as Record<string, unknown>;
+  const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+  return {
+    rid: num(o.rid, 0),
+    map: typeof o.map === 'string' ? o.map : 'beach',
+    depth: num(o.depth, 1),
+    power: num(o.power, 0.5),
+    baited: o.baited === true,
+    lure: o.lure === true,
+    level: num(o.level, 0),
+    tier: num(o.tier, 0),
+    streak: num(o.streak, 0),
+    firstChest: o.firstChest === true,
+  };
 }
 
 export interface FishClaim {
@@ -371,6 +394,10 @@ export class FishingSystem implements System, FishingApi {
     return fishingLevel(this.totalXp);
   }
 
+  levelLabel(): string {
+    return `Lv ${this.level() + 1}`;
+  }
+
   xp(): number {
     return this.totalXp;
   }
@@ -475,15 +502,25 @@ export class FishingSystem implements System, FishingApi {
   }
 
   hostRoll(from: number, req: FishRollReq): FishRoll {
-    const roll = this.rollFor(req);
+    // r9 (critic r8): host-authoritative code never trusts a farmhand's numbers — a missing / NaN
+    // field falls back to a default instead of throwing (ROD_TIERS[NaN] crashed the 'froll' reply).
+    const clean = sanitizeRollReq(req);
+    let roll: FishRoll;
+    try {
+      roll = this.rollFor(clean);
+    } catch (e) {
+      console.warn('[fishing] hostRoll failed, replying with no bite', e);
+      roll = { rid: clean.rid, fishId: null, luck: 0, treasure: false, wait: 5, nibbles: [] };
+    }
     const now = performance.now();
     for (const [k, v] of this.issued) if (now - v.at > 10 * 60 * 1000) this.issued.delete(k);
-    this.issued.set(`${from}:${req.rid}`, { roll, claimed: false, at: now });
+    this.issued.set(`${from}:${clean.rid}`, { roll, claimed: false, at: now });
     return roll;
   }
 
   validateCatch(from: number, claim: FishClaim): boolean {
-    const e = this.issued.get(`${from}:${claim.rid}`);
+    if (!claim || typeof claim !== 'object' || typeof claim.fishId !== 'string' || !Number.isFinite(Number(claim.rid))) return false;
+    const e = this.issued.get(`${from}:${Number(claim.rid)}`);
     if (!e || e.claimed || !e.roll.fishId || e.roll.fishId !== claim.fishId) return false;
     if (claim.treasure && !e.roll.treasure) return false;
     e.claimed = true;
@@ -949,9 +986,11 @@ export class FishingSystem implements System, FishingApi {
     // Farmhand: the host rolls the fish; the float just sits until it answers (or gives up).
     const rid = req.rid;
     this.pendingRid = rid;
-    const give = (r: FishRoll): void => {
+    const give = (r: FishRoll | null): void => {
       if (this.pendingRid !== rid || this.st !== 'waiting') return;
-      this.applyRoll(r);
+      // (The host replies null when it could not roll: nothing bites, the float just sits a while.)
+      const ok = !!r && typeof r === 'object' && Number.isFinite(r.wait) && Array.isArray(r.nibbles) && (r.fishId === null || !!fishDef(r.fishId));
+      this.applyRoll(ok ? r! : { rid, fishId: null, luck: 0, treasure: false, wait: 5, nibbles: [] });
     };
     setTimeout(() => give({ rid, fishId: null, luck: 0, treasure: false, wait: 5, nibbles: [] }), ROLL_TIMEOUT);
     this.roller(req).then(give, () => give({ rid, fishId: null, luck: 0, treasure: false, wait: 3, nibbles: [] }));
@@ -1823,7 +1862,7 @@ export class FishingSystem implements System, FishingApi {
     // distance so it always reads (≈ the staged catch demo's on-screen size; 1 at close range).
     if (st === 'caught') {
       const cd = game.rc.camera.position.distanceTo(_w.copy(game.player.position).setY(game.player.position.y + 2.4));
-      this.heldBoost = THREE.MathUtils.clamp(cd / 15, 1, 1.35);
+      this.heldBoost = THREE.MathUtils.clamp(cd / 13, 1, 1.5);
     } else this.heldBoost = 1;
     const heldRaw = this.gear.heldRoot.children.length ? this.gear.heldRoot.children[0]!.scale.x : 1;
     const heldScale = heldRaw * this.heldBoost;
@@ -1868,8 +1907,9 @@ export class FishingSystem implements System, FishingApi {
         const lift = Math.sin(t * 3) * 0.05;
         const spread = presentSpread(heldRaw);
         // (Smaller fish ride higher, up at the chest, rather than at the belt.)
-        ar = TROPHY_ARMS.x - (1 - spread) * 0.55 + lift;
-        al = TROPHY_ARMS.x - (1 - spread) * 0.55 + lift;
+        // (r9: a small fish goes right up to the chin, critic r8: at the belt it was a sliver.)
+        ar = TROPHY_ARMS.x - (1 - spread) * 0.95 + lift;
+        al = TROPHY_ARMS.x - (1 - spread) * 0.95 + lift;
         arz = TROPHY_ARMS.z * spread;
         alz = -TROPHY_ARMS.z * spread;
         torsoX = trophy ? 0.1 : 0.06;
@@ -2030,9 +2070,12 @@ export class FishingSystem implements System, FishingApi {
         if (sp > 0.35 && this.wakeT <= 0) {
           this.wakeT = 0.05;
           _fxp.set(pos.x, this.waterY + 0.03, pos.z);
-          this.gear.fx.emit(_fxp, { color: 0xf2fbff, count: 2, speed: 0.25, size: 0.055, gravity: 0, life: 0.9, up: 0.02, spread: 0.12 });
-          if (Math.random() < 0.3) this.gear.ripple(_fxp, 0.7, 0.9);
+          this.gear.fx.emit(_fxp, { color: 0xf2fbff, count: 1, speed: 0.2, size: 0.045, gravity: 0, life: 0.8, up: 0.02, spread: 0.1 });
         }
+        // r9: a V-wake trailing the float away from the pull (critic r8: rings born at the moving
+        // float stacked into a white coil).
+        _fxp.set(pos.x - game.player.position.x, 0, pos.z - game.player.position.z).normalize();
+        this.gear.setWake(pos, _fxp.x, _fxp.z, 0.45 + Math.min(1, sp / 1.6) * 0.55, dt);
         this.lastFloat.copy(pos);
         // r8: the fight breaks the surface. A thrash throws a splash crown at the float (the fish
         // rolling at the top; the periodic fight splashes hold off), a hard dart kicks up a spit of
@@ -2053,7 +2096,7 @@ export class FishingSystem implements System, FishingApi {
         tiltX = Math.sin(t * 1.7) * 0.08;
         tiltZ = Math.cos(t * 2.1) * 0.08;
       }
-      if (Math.random() < dt * (st === 'reeling' ? 3 : 0.35)) this.gear.ripple(pos, st === 'reeling' ? 1.1 : 0.6, 1.3);
+      if (st !== 'reeling' && Math.random() < dt * 0.35) this.gear.ripple(pos, 0.6, 1.3, true);
     } else if (st === 'caught') {
       // Fish arcs from the float into the farmer's hands.
       pos.lerpVectors(this.bob, this.holdPt, this.catchArc);
@@ -2063,6 +2106,7 @@ export class FishingSystem implements System, FishingApi {
     bob.rotation.set(tiltX, 0, tiltZ);
     if (st !== 'reeling') {
       this.lastFloat.set(0, 0, 0);
+      this.gear.setWake(null, 0, 0, 0, dt);
       this.reelOff *= Math.exp(-dt * 4);
       this.reelDuck = 0;
       if (st !== 'bite') this.rodBend = 0.84;
@@ -2127,8 +2171,19 @@ export class FishingSystem implements System, FishingApi {
         const bobY = Math.sin(t * 3) * 0.03;
         // Pop on arrival (overshoot + settle), then a gentle bob.
         this.heldT += dt;
-        const pop = 1 + 0.28 * Math.exp(-this.heldT * 5) * Math.sin(this.heldT * 16 + 0.6);
+        const fresh = this.result.isNew;
+        const pop = 1 + (heldFishScale(this.result.def, this.result.lengthCm) < 1 ? 0.4 : 0.28) * Math.exp(-this.heldT * 5) * Math.sin(this.heldT * 16 + 0.6);
         this.gear.heldRoot.scale.setScalar(pop * this.heldBoost);
+        // Celebration light on the skin: a warm rim + fill (stronger for a new species), fading in.
+        this.gear.glowHeld(Math.min(1, this.heldT * 4) * (fresh ? 0.85 : 0.6));
+        if (fresh && this.heldT - dt <= 0) {
+          // A new species: one bright burst of stars round the fish as it lands in the hands.
+          for (let i = 0; i < 16; i++) {
+            const a = (i / 16) * Math.PI * 2;
+            _fxp.copy(this.holdPt).add(_w.set(Math.cos(a) * 0.35, Math.sin(a) * 0.35 + 0.1, 0.15));
+            this.gear.fx.emitDir(_fxp, Math.cos(a), Math.sin(a) * 0.3, { color: i % 2 ? 0xfff2b0 : 0xffffff, count: 1, speed: 1.6, size: 0.1, gravity: 0.6, life: 0.8 });
+          }
+        }
         // Hanging from the fist, swinging a little (a pendulum that the hop / lift keep alive).
         void bobY;
         const big = heldFishScale(this.result.def, this.result.lengthCm) >= TROPHY_SCALE;
@@ -2138,13 +2193,13 @@ export class FishingSystem implements System, FishingApi {
           const sk = Math.min(1, this.heldT / 0.4);
           const spin = (1 - (1 - sk) ** 3) * Math.PI * 2 - Math.PI * 2;
           this.gear.presentHeld(this.fist, game.rc.camera, spin, Math.sin(t * 2.2) * 0.05 + Math.sin(t * 9) * 0.02, this.holdPt);
-          if (this.heldT < 0.5 && Math.random() < dt * (big ? 30 : 18)) {
+          if (this.heldT < (fresh ? 0.8 : 0.5) && Math.random() < dt * (big ? 30 : 18) * (fresh ? 1.8 : 1)) {
             _fxp.copy(this.holdPt).add(_w.set((Math.random() - 0.5) * 1.6, Math.random() * 0.6 - 0.1, (Math.random() - 0.5) * 0.4));
-            this.gear.fx.emit(_fxp, { color: 0xfff6c8, count: 2, speed: 0.6, size: 0.06, gravity: -0.2, life: 0.7, up: 0.5 });
+            this.gear.fx.emit(_fxp, { color: 0xfff6c8, count: 2, speed: 0.6, size: fresh ? 0.09 : 0.06, gravity: -0.2, life: 0.7, up: 0.5 });
           }
         } else this.gear.hangHeld(this.fist, game.rc.camera, Math.sin(t * 2.6) * 0.1 + Math.sin(t * 7.3) * 0.03, this.holdPt);
         // (The sunburst stays soft behind a trophy: it was blooming the fish into a glowing blob.)
-        this.gear.setGlory(_w.copy(this.holdPt).setY(this.holdPt.y + 0.05), game.rc.camera, Math.min(1, this.heldT * 3) * (big ? 0.28 : 0.5), t, (2.4 + (this.result.lengthCm / 100) * 0.8) * this.heldBoost);
+        this.gear.setGlory(_w.copy(this.holdPt).setY(this.holdPt.y + 0.05), game.rc.camera, Math.min(1, this.heldT * 3) * (big ? 0.28 : fresh ? 0.62 : 0.5), t, (2.4 + (this.result.lengthCm / 100) * 0.8) * this.heldBoost * (fresh ? 1.25 : 1));
 
         if (Math.random() < dt * 4) {
           _fxp.set(this.holdPt.x + (Math.random() - 0.5) * 1.4, this.holdPt.y + 0.2 + Math.random() * 0.7, this.holdPt.z + 0.2);

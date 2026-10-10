@@ -457,7 +457,8 @@ const ARC_SPAN = THREE.MathUtils.degToRad(135);
 const ARC_OUT = 1.62;
 const ARC_CORE = 0.3;
 /** Impact hold of the crescent (s): long enough to read as a shape, not a one-frame flicker. */
-const HOLD = 0.125;
+// (r8: 125 -> 180 ms: a 200 ms capture cadence never misses the crescent)
+const HOLD = 0.18;
 
 /**
  * The big readable shape of a sword hit: a thick 135° crescent around the farmer in the facing

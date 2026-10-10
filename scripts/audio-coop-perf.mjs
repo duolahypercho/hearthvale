@@ -120,6 +120,10 @@ async function main() {
       await page.mouse.click(320, 180);
       await page.waitForFunction(() => window.__game.game.services.audio?.state().running, null, { timeout: 30000 }).catch(() => {});
       pages.push(page);
+      // (Round 21: booting four games at load 100+ took ~20 min of game time — the day ended and every
+      // farmer was in the farmhouse behind the day-end card when Bo and Cy were measured. The host's
+      // clock is put back to the morning after each boot and before each measurement.)
+      await pages[0].evaluate(() => window.__game.setTime(9)).catch(() => {});
       // (Round 19: on a machine at load 60-400 the relay handshake can miss net/system.ts's answer
       // window — "the co-op server did not answer" ended the r12 run before it measured anything.
       // Host / join retry up to 5 times, 5 s apart.)
@@ -176,6 +180,7 @@ async function main() {
     })();
     for (let m = 0; m < N; m++) {
       measured = m;
+      await pages[0].evaluate(() => window.__game.setTime(9)).catch(() => {});
       for (let i = 0; i < N; i++) {
         const big = i === m;
         await pages[i].setViewportSize(big ? { width: W, height: H } : SMALL);

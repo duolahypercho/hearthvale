@@ -24,7 +24,7 @@ import type { Facing } from '../core/events';
 import { NPCS, NPC_IDS, pickGroup, heartEvent, seasonLook, memoryBefore, choiceFlags, type NpcId, type NpcLook, type NpcDef, type Activity, type Ask, type HeartEvent, type CutStep, type Place, type Who, type Emote } from '../data/npcs';
 import { itemDef } from '../data/items';
 import { Villager, BUBBLE_LAYER, auditPortraits, buildCat, buildCandle, buildPainting, MOOD_GESTURE, ReactionFx, VILLAGER_FILL, dressFarmerWinter, buildLedger, buildLetter, buildKidMap, buildSparks, buildLanternCage, buildChair, buildPie, buildRose, buildTeacup } from '../entities/villager';
-import { SPOTS, NEW_BUILDINGS, EXTRA_PROPS, FESTOON_POLES, BRIDGES } from '../world/town/layout';
+import { SPOTS, NEW_BUILDINGS, EXTRA_PROPS, FESTOON_POLES, BRIDGES, WATER_Y } from '../world/town/layout';
 import { BUILDINGS, TOWN_PROPS } from '../data/town-layout';
 import type { Festoons } from '../world/town/festoons';
 import { itemIconUrl } from '../ui/icons';
@@ -218,7 +218,8 @@ const STAGES: Record<string, Mark[]> = {
     ['wren', 59.6, 21.6, 133, 'paint'],
     // (r13: Kit tears down the lane towards the lens — running away he showed only the back of his head)
     // (r14: his run starts west of the laundry line — at 48.6, 27.0 the washing hung across his face)
-    ['kit', 46.0, 25.8, 0, 'play', 'exclaim', { walk: [40.8, 29.8], run: true }],
+    // (r21 critic: an unexplained '!' over Kit — overhead marks now carry a reason: none while he just runs)
+    ['kit', 46.0, 25.8, 0, 'play', undefined, { walk: [40.8, 29.8], run: true }],
     ['linus', 46.6, 31.2, 0, 'idle', undefined, { walk: [38.6, 33.4] }],
     // (r14: she starts on the road, not behind the bridge's west abutment — only her bandana showed)
     ['odessa', 53.0, 27.0, 0, 'carry', undefined, { walk: [51.8, 26.0] }],
@@ -234,7 +235,7 @@ const STAGES: Record<string, Mark[]> = {
     ['linus', 61.3, 36.6, 0, 'fish', undefined, { free: true }],
     ['marigold', 71.6, 23.2, 70, 'chat', 'music', { free: true }],
     ['hazel', 72.7, 23.7, -100, 'chat', undefined, { free: true }],
-    ['kit', 69.6, 28.8, 0, 'play', 'exclaim', { walk: [73.6, 31.2], run: true }],
+    ['kit', 69.6, 28.8, 0, 'play', undefined, { walk: [73.6, 31.2], run: true }],
     ['odessa', 72.4, 19.6, 0, 'carry', undefined, { walk: [76.4, 18.8] }],
     ['june', 78.4, 30.6, -40, 'chat', undefined, { free: true }],
     ['bram', 79.7, 30.3, 60, 'chat', 'heart', { free: true }],
@@ -257,25 +258,42 @@ const STAGES: Record<string, Mark[]> = {
   // Kit kicking his heels on the steps, a knot of four outside the bakery talking among themselves
   // (profiles, one back), Marigold and Hazel heading home arm in arm, Linus crossing the foreground
   // to the clinic road, Wren catching the lamplight at her easel.
+  // r21 (critic: "four villagers bunch at the bakery door facing the camera like a photo line"; "the
+  // black-hooded figure by the Lantern Hall is an unreadable blob"): the knot breaks into conversational
+  // pairs with their own facings — Bram and June at the bakery door, Odessa and Rowan a few steps on
+  // under the market lamp (one profile, one back three-quarter) — and Tobias turns side-on to the lens
+  // as he reaches up to the hall lantern.
   'town-evening': [
-    ['tobias', 33.6, 15.2, 170, 'idle', undefined, { free: true }],
+    ['tobias', 33.6, 15.2, 115, 'idle', undefined, { free: true }],
     ['kit', 31.3, 14.1, 20, 'sit'],
-    // (r16 critic: "three of the four in Bram's knot have their backs to the lens" — the knot is an
-    // open horseshoe to the lens now: no free marks, every face cheats round within 70° of it)
-    ['bram', 41.4, 22.6, 70, 'chat', 'music'],
-    ['june', 43.0, 22.2, -60, 'chat'],
-    // (r10: the knot opened up — Odessa had stood square in front of Bram and Rowan in front of June)
-    ['rowan', 44.0, 23.8, -140, 'chat'],
-    // (r17: she stood square between the lens and Bram — his own bark pointed at a hidden head; she
-    // comes round to his left at his depth, crate on her hip, the knot reading left to right)
-    ['odessa', 39.75, 22.5, 100, 'carry'],
+    ['bram', 41.5, 22.5, 62, 'chat', 'music'],
+    ['june', 42.9, 22.9, -75, 'chat', undefined, { free: true }],
+    ['odessa', 45.9, 25.1, 80, 'chat', undefined, { free: true }],
+    ['rowan', 47.3, 25.5, -125, 'chat', undefined, { free: true }],
     // (r11: the lens swings 26° round to the bakery and the market row — the plaza no longer a
     // symmetric stage between two storefronts; Marigold and Hazel set off home across the plaza, Wren
     // drifts over to join the bakery knot, Linus crosses the near foreground to the clinic road)
     ['marigold', 29.0, 17.6, 0, 'idle', 'heart', { walk: [21.4, 21.4] }],
     ['hazel', 29.8, 18.4, 0, 'idle', undefined, { walk: [22.0, 22.2] }],
-    ['linus', 37.5, 27.5, 0, 'idle', undefined, { walk: [33.4, 40.0] }],
+    // (r21 critic: Linus crossed the foreground behind the hotbar — he leaves along the east lane instead)
+    ['linus', 41.2, 26.4, 0, 'idle', undefined, { walk: [43.6, 33.8] }],
     ['wren', 35.1, 17.2, 0, 'idle', undefined, { walk: [39.4, 23.2] }],
+  ],
+  // r21 (critic: "town-coop lines the villagers up in an evenly spaced ring facing outward — a staged
+  // lineup"): the square behind the two farmhands is knots of two and three people talking to each other
+  // — a trio by the notice board, the smith and the innkeeper at the bakery corner, the lamplighter and
+  // the carpenter under the Hall — and a kid at hopscotch; Bram and Wren are the farmhands' pairs.
+  'town-coop': [
+    ['marigold', 28.3, 20.7, 55, 'chat', undefined, { free: true }],
+    ['hazel', 29.7, 20.3, -45, 'chat', undefined, { free: true }],
+    ['linus', 29.2, 21.8, 165, 'chat', undefined, { free: true }],
+    ['odessa', 41.7, 21.8, 80, 'chat', undefined, { free: true }],
+    ['june', 43.1, 22.3, -80, 'chat', 'music', { free: true }],
+    ['tobias', 33.0, 18.7, 70, 'idle', undefined, { free: true }],
+    ['rowan', 34.4, 19.3, -100, 'chat', undefined, { free: true }],
+    ['kit', 36.3, 27.6, -20, 'play'],
+    ['bram', 41.9, 20.8, -15, 'knead'],
+    ['wren', 24.8, 23.3, 75, 'paint'],
   ],
   // r5 hero: the river crossing — the market row, the painter at her easel on the west bank, two old
   // friends leaning on the stone bridge, a kid on the bank, the inn terrace and the forge yard beyond.
@@ -283,7 +301,7 @@ const STAGES: Record<string, Mark[]> = {
     ['wren', 59.6, 21.6, 133, 'paint'],
     ['tobias', 63.0, 24.6, 70, 'chat', 'music'],
     ['linus', 64.3, 25.1, -100, 'chat'],
-    ['kit', 60.3, 29.4, 40, 'play', 'exclaim'],
+    ['kit', 60.3, 29.4, 40, 'play', 'music'],
     ['marigold', 55.8, 22.7, 20, 'chat'],
     ['hazel', 54.5, 23.3, 80, 'chat', 'heart'],
     ['bram', 50.4, 22.5, -10, 'idle'],
@@ -297,7 +315,7 @@ const STAGES: Record<string, Mark[]> = {
   'town-memories': [
     ['marigold', 23.9, 22.4, 35, 'idle', 'heart'],
     ['hazel', 29.9, 17.2, -150, 'water', 'music'],
-    ['kit', 28.7, 21.5, -35, 'play', 'exclaim'],
+    ['kit', 28.7, 21.5, -35, 'play', undefined],
     ['tobias', 32.6, 19.6, -30, 'idle'],
     ['wren', 21.8, 24.6, 50, 'read'],
     ['rowan', 30.4, 22.3, -25, 'read'],
@@ -327,7 +345,7 @@ const STAGES: Record<string, Mark[]> = {
     ['bram', 41.6, 21.7, 30, 'carry', undefined, { free: true }],
     ['marigold', 47.4, 24.9, -35, 'sweep'],
     // (Kit by the plaza snowman, clear of the market knot; Odessa / Rowan pulled in from under the clock)
-    ['kit', 37.0, 19.5, -20, 'play', 'exclaim'],
+    ['kit', 37.0, 19.5, -20, 'play', undefined],
     ['tobias', 45.2, 27.6, -60, 'idle', 'music', { free: true }],
     ['odessa', 54.3, 25.1, 70, 'chat', 'idea', { free: true }],
     ['rowan', 55.9, 25.4, -95, 'chat'],
@@ -344,7 +362,7 @@ const STAGES: Record<string, Mark[]> = {
     // and Kit plays in it below the fountain)
     ['marigold', 27.4, 27.6, 25, 'sweep'],
     ['wren', 25.0, 23.4, 75, 'paint'],
-    ['kit', 35.7, 27.1, -30, 'play', 'exclaim'], // (r10: clear of the bowl — at 30.4, 26.3 the rim cut him off at the chest)
+    ['kit', 35.7, 27.1, -30, 'play', undefined], // (r10: clear of the bowl — at 30.4, 26.3 the rim cut him off at the chest)
     ['tobias', 31.2, 19.6, -40, 'idle', 'music'],
     // (r7: chat pairs side by side across the view, ~1.6 m apart — the r6 diagonal pairs overlapped
     // on screen: Rowan's beanie in Odessa's face, Bram hidden behind Linus)
@@ -616,7 +634,7 @@ export class NpcSystem implements System {
       setTownSeed();
       this.seq = null;
       // (r18 'town-commute': the town runs its own schedule — at noon the villagers path to lunch)
-      this.staged = showcase.includes('npcs') && name !== 'town-commute';
+      this.staged = showcase.includes('npcs') && name !== 'town-commute' && name !== 'town-noon';
       this.festival = showcase.includes('festival');
       if (this.active) this.restage = name;
     });
@@ -811,6 +829,8 @@ export class NpcSystem implements System {
       if (ph) fails.push(`lens in / behind a prop (${ph})`);
       const bh = this.buildingHits(tc.position, acts);
       if (bh) fails.push(`${bh} sight line(s) behind a building`);
+      const rt = this.roofTop(tc, _pt.set(t.v.position.x, t.v.position.y + t.v.headTop * 0.6, t.v.position.z));
+      if (rt > 0.45) fails.push(`a roof slab across the top of the frame (${(rt * 100).toFixed(0)} %)`);
     } finally {
       pl.position.set(save.x, map.heightAt(save.x, save.z), save.z);
     }
@@ -1134,10 +1154,13 @@ export class NpcSystem implements System {
       // r7 juice: a real hop with squash on a loved gift, the heart emote, a sparkle where it landed,
       // and the hearts bursting from just over the head (not a metre above it).
       v.squash(reaction === 'love' ? 1.8 : reaction === 'like' ? 1.3 : reaction === 'dislike' ? 0.7 : 1.1);
-      if (reaction === 'love') v.emote('heart', 2.6);
-      else if (reaction === 'like') v.emote('music', 2.2);
+      // (r21 critic: three heart signals stacked on Wren — burst, emote bubble and the card's chip: the
+      // burst carries a loved / liked gift on its own now; only a shrug or a frown gets an emote)
+      if (reaction === 'neutral') v.emote('dots', 1.6);
       if (reaction !== 'dislike') this.fx.burst(to.clone(), 'neutral');
-      this.fx.burst(new THREE.Vector3(v.position.x, v.position.y + v.headTop * 0.86, v.position.z), reaction);
+      // (r21: the burst rises from well above the hair — at 0.86 of the head it clipped through Wren's bob
+      // like a row of hair clips)
+      this.fx.burst(new THREE.Vector3(v.position.x, v.position.y + v.headTop + 0.32, v.position.z), reaction);
       // Liked gifts are held up at the chest through the reaction line (until the box closes when it is
       // the local farmer's talk); a disliked one is shrugged at.
       if (url && reaction !== 'dislike') v.holdIcon(url, this.talking === a ? 1e9 : 3.6, itemId);
@@ -1367,9 +1390,39 @@ export class NpcSystem implements System {
   }
 
   private place(p: Place): { x: number; z: number; yaw: number } | null {
-    if (typeof p === 'string') return this.spot(p);
-    const c = NpcSystem.clearOf(p[0], p[1]);
-    return { x: c.x, z: c.z, yaw: 0 };
+    const s = typeof p === 'string' ? this.spot(p) : { ...NpcSystem.clearOf(p[0], p[1]), yaw: 0 };
+    if (!s) return null;
+    // (r21 blocker: wren-2's farmer mark stood in the river among the cattails — every mark lands on dry ground)
+    const l = this.landOf(s.x, s.z);
+    return { x: l.x, z: l.z, yaw: s.yaw };
+  }
+
+  /** Feet in / at the water: the ground under the point (or anywhere within `pad` of it) at or below the waterline. */
+  wetAt(x: number, z: number, pad = 0.4): boolean {
+    const map = this.game.world.current;
+    if (!map || map.id !== 'town') return false;
+    const dry = WATER_Y + 0.16;
+    if (map.heightAt(x, z) < dry) return true;
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      if (map.heightAt(x + Math.cos(a) * pad, z + Math.sin(a) * pad) < dry) return true;
+    }
+    return false;
+  }
+
+  /** The nearest dry, walkable standing point (≥ 0.4 m from the water's edge) to (x, z). */
+  landOf(x: number, z: number): { x: number; z: number } {
+    if (!this.wetAt(x, z)) return { x, z };
+    const map = this.game.world.current!;
+    for (let r = 0.2; r <= 4.01; r += 0.2)
+      for (let k = 0; k < 24; k++) {
+        const a = (k / 24) * Math.PI * 2;
+        const qx = x + Math.cos(a) * r;
+        const qz = z + Math.sin(a) * r;
+        if (!map.grid.isWalkable(Math.floor(qx), Math.floor(qz)) || this.wetAt(qx, qz)) continue;
+        return NpcSystem.clearOf(qx, qz);
+      }
+    return { x, z };
   }
 
   /** Push a standing point out of any small prop's footprint (A-boards, barrels, lamp posts…). */
@@ -1664,7 +1717,7 @@ export class NpcSystem implements System {
     }
     this.clearBots();
     if (name === 'town-coop') {
-      this.applyMarks(STAGES['town-square']!);
+      this.applyMarks(STAGES['town-coop']!);
       // (the square's own chatter and held bubbles stay quiet: the frame is about the two farmhands)
       for (const a of this.agents.values()) {
         a.v.hush();
@@ -1950,7 +2003,36 @@ export class NpcSystem implements System {
     return w === 'player' ? this.game.player.position : this.agents.get(w)!.v.position;
   }
 
+  /**
+   * r21 (critic: "every talk lens shows the player from behind with the straw-hat brim covering the head,
+   * so the player never gets a face"): during a live talk the farmer faces the villager with a stage cheat
+   * of up to ~26° open towards the lens — the farmer's cheek, nose and smile read in a three-quarter back
+   * view instead of the back of the hat (the villager already cheats ~25° the other way).
+   */
+  private cheatFarmer(): void {
+    const t = this.talking;
+    if (this.camMode !== 'talk' || !t) return;
+    const pl = this.game.player as unknown as { position: THREE.Vector3; yaw: number; targetYaw: number };
+    const cam = this.game.rc.camera.position;
+    const to = Math.atan2(t.v.position.x - pl.position.x, t.v.position.z - pl.position.z);
+    const toC = Math.atan2(cam.x - pl.position.x, cam.z - pl.position.z);
+    const d = Math.atan2(Math.sin(toC - to), Math.cos(toC - to));
+    pl.targetYaw = to + THREE.MathUtils.clamp(d, -0.45, 0.45);
+    // (eased here too: a paused demo still / a sequence clock doesn't run the player's own turn)
+    const e = Math.atan2(Math.sin(pl.targetYaw - pl.yaw), Math.cos(pl.targetYaw - pl.yaw));
+    pl.yaw += e * 0.25;
+  }
+
+  /** r21: villagers whose last `face` step turned them to another actor (a painter off her easel). */
+  private facedActor = new WeakSet<object>();
   private faceTo(w: Who, to: Facing | Who): void {
+    {
+      const fa = w !== 'player' ? this.agents.get(w) : undefined;
+      if (fa) {
+        if (to in FACING_YAW) this.facedActor.delete(fa);
+        else this.facedActor.add(fa);
+      }
+    }
     let yaw: number;
     if (to in FACING_YAW) yaw = FACING_YAW[to as Facing];
     else {
@@ -2421,6 +2503,43 @@ export class NpcSystem implements System {
             const inFoot = x > r[0] && x < r[2] && z > r[1] && z < r[3];
             const gy = y - map.heightAt(x, z);
             if (gy < b.h && (inFoot || gy > 2.8)) {
+              covered = true;
+              break;
+            }
+          }
+        }
+        if (covered) hit++;
+      }
+    return hit / n;
+  }
+
+  /**
+   * r21 (critic: "the forge roof slab cutting across the top of the Odessa frame"): share of the frame's
+   * top band (above the faces) that a roof / eave fills up to a little past the subject — the actors'
+   * own porch roof hanging into the top of a close talk lens reads as a dark slab across the shot.
+   */
+  roofTop(cam: THREE.Camera, subject: THREE.Vector3): number {
+    const map = this.game.world.current;
+    if (!map) return 0;
+    const blk = NpcSystem.BLOCKERS;
+    const o = cam.position;
+    const maxT = o.distanceTo(subject) + 2.5;
+    let hit = 0;
+    let n = 0;
+    for (let iy = 0; iy < 2; iy++)
+      for (let ix = 0; ix < 9; ix++) {
+        n++;
+        const d = _rcDir.set(-0.92 + (ix / 8) * 1.84, 0.97 - iy * 0.12, 0.5).unproject(cam).sub(o).normalize();
+        let covered = false;
+        for (let t = 1.2; t < maxT && !covered; t += 0.35) {
+          const x = o.x + d.x * t;
+          const y = o.y + d.y * t;
+          const z = o.z + d.z * t;
+          for (const b of blk) {
+            const r = b.r;
+            if (b.h < 2.5 || x < r[0] - 0.6 || x > r[2] + 0.6 || z < r[1] - 0.6 || z > r[3] + 0.6) continue;
+            const gy = y - map.heightAt(x, z);
+            if (gy > 2.2 && gy < b.h) {
               covered = true;
               break;
             }
@@ -3229,7 +3348,10 @@ export class NpcSystem implements System {
       // (the owner opens up in any standing work too — the anvil, the watering can — but not at the
       // easel or the rod, where the prop direction is the pose)
       const own = a.def.id === owner;
-      const workOk = own ? a.activity !== 'sit' && a.activity !== 'paint' && a.activity !== 'fish' : a.activity === 'idle' || a.activity === 'chat';
+      // (r21 critic on wren-2: "Wren's 3D face is hidden by her hair" — a painter who has turned to talk
+      // to someone opens up too; only while she still faces her easel does the brush direction hold the pose)
+      const turned = a.activity === 'paint' && this.facedActor.has(a);
+      const workOk = own ? a.activity !== 'sit' && (a.activity !== 'paint' || turned) && a.activity !== 'fish' : a.activity === 'idle' || a.activity === 'chat';
       if (!a.scripted || a.inside || a.v.isMoving || !workOk) continue;
       const v = a.v;
       const toC = Math.atan2(cam.x - v.position.x, cam.z - v.position.z);
@@ -3428,7 +3550,9 @@ export class NpcSystem implements System {
       // edge now sits at most ~0.6 m over the speaker's head, sliding sideways rather than up)
       const g = 0.26 + bot;
       const cands: [number, number][] = [];
-      for (const oy of [g, g + 0.3]) for (const ox of [0, -0.28 * w, 0.28 * w, -0.48 * w, 0.48 * w]) cands.push([ox, oy]);
+      // (r21 critic: "June's bubble tail points across a crowd" — a bubble stacks UP over its speaker before it
+      // slides sideways: straight-up candidates first, lateral slides cost more, the full side spots most)
+      for (const oy of [g, g + 0.3, g + 0.55]) for (const ox of [0, -0.22 * w, 0.22 * w, -0.4 * w, 0.4 * w]) cands.push([ox, oy]);
       cands.push([-(w / 2 + 0.5), bot + 0.05], [w / 2 + 0.5, bot + 0.05]);
       const last = this.bubblePick.get(a.def.id) ?? 0;
       let best = 0;
@@ -3445,7 +3569,7 @@ export class NpcSystem implements System {
         for (const pb of placed) cost += overlap(bx, pb) * 40 + overlap(pb, bx) * 10;
         if (bx.x0 < -asp * 0.97 || bx.x1 > asp * 0.97) cost += 30;
         if (bx.y1 > 0.94) cost += 30;
-        cost += (oy - g) * 1.2 + (Math.abs(ox) / w) * 1.6 + (i !== last ? 0.6 : 0);
+        cost += (oy - g) * 1.6 + (Math.abs(ox) / w) * 5 + (i !== last ? 0.6 : 0);
         if (cost < bestC) {
           bestC = cost;
           best = i;
@@ -3897,6 +4021,24 @@ export class NpcSystem implements System {
     return null;
   }
 
+  /**
+   * r21 (critic: "the keepsake inset repeats the easel that is already visible"): the painted insert card
+   * only when the thing it shows isn't already on screen as the scene's own prop.
+   */
+  private insertNow(ev: HeartEvent, text: string | undefined): { kind: string; caption: string } | null {
+    const card = NpcSystem.insertFor(ev, text);
+    if (!card || !ev.props) return card;
+    const cam = this.game.rc.camera;
+    cam.updateMatrixWorld();
+    for (let i = 0; i < ev.props.length; i++) {
+      const o = this.eventProps[i];
+      if (!o || ev.props[i]!.kind !== card.kind || !o.visible) continue;
+      const p = o.getWorldPosition(_propW).project(cam);
+      if (p.z < 1 && Math.abs(p.x) < 0.88 && p.y > -0.45 && p.y < 0.85) return null;
+    }
+    return card;
+  }
+
   /** Memory-gated script step (`if` / `unless` flags, data/npcs.ts StepCond). */
   private stepOn(s: CutStep): boolean {
     if (!s.if && !s.unless) return true;
@@ -4026,7 +4168,7 @@ export class NpcSystem implements System {
     this.guardView(true);
     const s = ev.script[mark];
     if (!s || !box) return;
-    box.insert?.(NpcSystem.insertFor(ev, 'say' in s ? s.text : 'narrate' in s ? s.narrate : 'choice' in s ? s.q : undefined));
+    box.insert?.(this.insertNow(ev, 'say' in s ? s.text : 'narrate' in s ? s.narrate : 'choice' in s ? s.q : undefined));
     if ('choice' in s) {
       void box.choose(s.choice, s.q, s.options.map((o) => o.text), 'thinking');
       this.holdChoice(s.choice);
@@ -4090,7 +4232,7 @@ export class NpcSystem implements System {
       }
       this.shotFor(ev, i);
       if (talky) this.eventNet(['v.l', id, i]);
-      if (talky) box?.insert?.(NpcSystem.insertFor(ev, 'say' in s ? s.text : 'narrate' in s ? s.narrate : 'choice' in s ? s.q : undefined));
+      if (talky) box?.insert?.(this.insertNow(ev, 'say' in s ? s.text : 'narrate' in s ? s.narrate : 'choice' in s ? s.q : undefined));
       if ('say' in s) {
         boxOpen = true;
         this.addressFarmer(ev, s);
@@ -4351,6 +4493,9 @@ export class NpcSystem implements System {
               const clash = this.propClash(a);
               if (clash) out.fails.push(`${ev.id}#${i}: ${a.def.id} ${clash}`);
             }
+            // (r21 blocker) Feet on dry ground: nobody — the farmer included — stands in the river or within
+            // 0.4 m of its edge (wren-2's farmer among the cattails with boots under the waterline).
+            for (const a of acts) if (this.wetAt(a.x, a.z, 0.35)) out.fails.push(`${ev.id}#${i}: ${a.id}'s feet in / at the water (${a.x.toFixed(1)},${a.z.toFixed(1)})`);
             for (const a of acts) {
               if ((this.shot.kind === 'close' || ots) && a.id !== this.shot.speaker) continue;
               const t = this.treeHits(cam.position, new THREE.Vector3(a.x, a.y + a.head - 0.3, a.z)).length;
@@ -4905,6 +5050,7 @@ export class NpcSystem implements System {
       v.update(dt, h, simulate);
     }
     this.separate(dt);
+    this.cheatFarmer();
     this.placeBubbles();
     this.emoteSafe();
     this.updatePrompt(dt, game);
@@ -5002,9 +5148,14 @@ export class NpcSystem implements System {
     this.keyLight.intensity += (target - this.keyLight.intensity) * (1 - Math.exp(-4 * dt));
     if (this.keyLight.intensity < 0.01 && !want) this.keyLight.intensity = 0;
     // Faces lifted out of the night (albedo-relative lens-side fill in the villager shader).
-    const fill = want * Math.max(Math.min(1, night * 1.25) * 0.55, 0.06);
+    // r21 (critic: "villagers in the middle distance become dark silhouettes at the blue hour — the hooded
+    // figure by the Lantern Hall is an unreadable blob"): a character-only fill on every villager from dusk
+    // on (the same albedo-relative lens-side lift, weaker than a talk's), so the town's people read
+    // against the cobalt square without lifting the whole frame.
+    const amb = Math.min(1, night * 1.6) * 0.3;
+    const fill = Math.max(want * Math.max(Math.min(1, night * 1.25) * 0.55, 0.06), amb);
     VILLAGER_FILL.value += (fill - VILLAGER_FILL.value) * (dt > 0 ? 1 - Math.exp(-4 * dt) : 1);
-    if (VILLAGER_FILL.value < 0.002 && !want) VILLAGER_FILL.value = 0;
+    if (VILLAGER_FILL.value < 0.002 && !want && amb < 0.002) VILLAGER_FILL.value = 0;
   }
 
   /** Idle life at the spot: wander, play laps, chat, glance at the player, emotes. */
@@ -5625,7 +5776,7 @@ export class NpcSystem implements System {
     if (!st) return;
     if (kind === 'v.l') {
       // (the host's insert card rides along: it is keyed off the same line text)
-      box.insert?.(NpcSystem.insertFor(he.ev, 'say' in st ? st.text : 'narrate' in st ? st.narrate : 'choice' in st ? st.q : undefined));
+      box.insert?.(this.insertNow(he.ev, 'say' in st ? st.text : 'narrate' in st ? st.narrate : 'choice' in st ? st.q : undefined));
       if ('say' in st) void box.say(st.say, st.text, st.mood);
       else if ('narrate' in st) void box.narrate(st.narrate);
       else if ('choice' in st) {

@@ -489,6 +489,39 @@ adapts it to game events.
   Run: `node scripts/audio-coop-perf.mjs --out shots/audio-r13/coop-perf.json` (not re-measured this round:
   the machine sat at load 240-640 under other teams' perf runs and the four clients had not finished
   booting after 25 min, so the run was stopped rather than measure the contention).
+- **Round 21** (audio pod r14, critic r6 fixes): **the verdict can't be false-green** — a per-effect SFX
+  flag (HARSH, HOT, TOO-LOUD / TOO-QUIET-vs-set, THUD) now flags the reel job itself as
+  `SFX-<flag>(<effect>)`, which is a hard fail, fails the manifest and the exit code (r13's manifest passed
+  with `bundle`, `leave` and `hit:bat@2` HARSH in `report.sfx`). The three are fixed: the bundle and
+  farewell harp runs sit an octave lower (2-5 kHz share 42 → 17 %, 49 → 18 %; the bundle lands on a soft
+  low root), the bat's death squeal starts at 2.4 kHz, quieter, and the body tumbles in wing flops
+  (36 → 24 %). **Variation after the bridge** (`Tune.late`, `composer.ts`): an A / B that comes back after
+  the first C takes its own bars ('' = as written; hooks stay, `again` and `Aend` still win) — the player
+  has been somewhere and the tune comes back changed, with written appoggiaturas and suspensions where the
+  first statement sat on the chord tone. The Harvest Reel's returns turn on the dorian B, lean a C on
+  the G chord (4-3), put a D' over the C chord (9-8) and its last A is **lifted a whole step**
+  (appoggiaturas 13 → 18, 0 clashes); **Lamplit Seam** (mine-2) was A B A B A, every strain literal — the
+  second B is now a **cello bridge** in F major with a borrowed Bb and G minor (the dorian B natural goes
+  dark down the seam) and the A / B after it are varied (strong-beat chord tones 81 → 75 %,
+  appoggiaturas 2 → 7, 140 → 188 s); Amber Waltz's returns sigh G→F and D→C over its sequence and Bb→A
+  on the tonic, Hush of Snow's last A leans C#→B and a lydian D#→C# (strong-beat chord tones 100 → 92 /
+  96 %). Compose critic: all 47 clean. Hear them: `?demo=audio-mine&floor=2&theme=mine-2&from=C`,
+  `?demo=audio&theme=festival-harvest&from=A3` (the varied return; `&from=outro` for the lifted A's end),
+  `?demo=audio&theme=fall&from=A3`. **Co-op**: a farmhand's music follows the host's day — net `applyCal`
+  sets the calendar without a `day:start`, so a farmhand kept its own save's playlist position;
+  `MusicDirector.resync` reseeds and crossfades to the song the host's day opens with. The coop-perf
+  harness booted the host at x=30.5 z=22.5, now inside a farm collider: the host never walked, which was
+  every `VOICED` failure since r12b (farmhands "missing remote footsteps"); it starts at the farm spawn,
+  key-probes that every client moves and prints what a failing client sees of its partners.
+  **A level jump after the cello bridge** (found comparing whole-song renders with the 30 s openings:
+  full-fall's first 30 s read -18.2 LUFS against the opening's -20.8, full-mine-2 -19.7 against -22.0):
+  the bowed strings' body insert is a two-channel IR, and joining a track a mono voice already plays on
+  it turned the whole track stereo — which its panner passes ~3 dB hotter than mono (equal-power pan
+  law). In game the clarinet came back ~2.6 dB louder after Amber Waltz's and Lamplit Seam's cello
+  bridges (also Hoarfrost, Cinder Hymn's cello B, two town songs); offline, a whole-song render
+  scheduled the cello up front and was louder from bar one. `music.ts` folds a bowed insert that joins a
+  mono track to mono with the pan law made up (`BODY_INSERTS`): the mine-2 melody stem's first 30 s is
+  -21.16 LUFS with or without the bridge scheduled (was -21.16 / -18.29).
 - **Instruments** (`src/audio/instruments.ts`): mallets are modal notes pre-rendered once per pitch
   (kalimba tine inharmonics + buzz + box body, marimba, music box comb modes + case, celesta, glockenspiel,
   vibraphone with motor tremolo, hand bells, steel pan);
@@ -1071,8 +1104,59 @@ actors such as Pip the shop cat).
   231 / 1.15 M, winter 60 / 210 / 1.05 M, heart event 60 / 189 / 0.91 M, dialogues 60 — no new lights, the
   work light is 6 draws for the event only.
 
+- **Round 21** — *Heart-event footing* (critic blocker: wren-2's farmer stood IN the river among the
+  cattails): every event mark lands on dry ground (`NpcSystem.landOf` / `wetAt`: the ground under the
+  feet and 0.4 m round them ≥ 16 cm over the waterline, on a walkable tile, else the nearest such point),
+  and `auditEvents()` fails any beat with an actor's feet in / at the water. wren-2 is re-blocked: the
+  farmer comes up the bank on Wren's landward side and the lens looks down the bank from the north, so
+  the Kettle Bridge's arch reads side-on over the water behind the pair (it was the deck end-on, ~40 % of
+  the frame); a painter who has turned to talk opens to the lens like any owner (`facedActor`). An event's
+  painted insert card only shows when the thing it paints isn't already on screen (`insertNow`).
+  *Faces* (critic: "capsule brows, slab beards, decal blush that reads as wounds, mannequin-blank faces"):
+  brows are tapered brush strokes laid on the brow ridge (`browStroke`: a round inner head thinning to a
+  fine tail along the villager's arch, a raised spine); cheek warmth and the blush mood are soft radial
+  discs that follow the face's curve and fade into the skin (`surfDisc` + RigBuilder's per-vertex `fade`
+  to an edge colour; the flat circles cut through the cheek as pink wedges, the hatch strokes poked out of
+  Bram's beard as "fangs"); a full beard is a volume grown out of the face (`beard === 'full'`: a shell
+  over the skull / jowls from sideburn to sideburn whose thickness ramps from a broken hairline — temples →
+  under the cheekbones → the mouth corners → under the lower lip — to a chin that hangs below the jaw,
+  combed into strands) with a moustache of two tapered strokes wrapping the upper lip (no sausages);
+  the lower face lights wholly as the skull's surface (Odessa's banded jaw seam); eye glints smaller and
+  ivory (no blown-white "tears"); gritted teeth are a rounded grimace (no postage stamp); the closed mouth
+  line is firmer with a soft lower-lip shade (Dr. Pell has a mouth in every mood); crow's feet / the anger
+  crease are softer. Tobias's flat cap crown reaches down over its band (a skin gap showed). *Hair*: Kit's
+  tufts are rounded flame locks lying along the scalp (cone points read as devil horns; the portrait's two
+  crown flicks became one cowlick and the ear tufts hang), Wren's bob has deeper strand grooves and two
+  loose strands. *Portraits*: a big-headed villager (`look.head` > 1) gets a rounder, shorter, wider painted
+  face so the card is the bust of their own model (Kit read as a teenager). *Face lab*:
+  `src/world/town/lab/faces.html?npc=…&moods=…&s=…&pitch=…&yaw=…` renders the 3D faces as the talk lens sees
+  them (~300 px) without a game boot and gates every villager's full mesh under 20k triangles.
+  *Dialogue box* (critic: "~290 px portrait with the heart strip over the chin"): a 384 px portrait (268 px
+  on small screens) in a thick carved frame (ink line, gilt bead, wood moulding, bevel), the heart meter
+  moved off the face into the name-plate band under it (plaque left, hearts right; a spectator's two
+  labelled rows stack under the plaque), and on a gift / heart-event answer the fill pours into the hearts
+  over ~0.9 s with a "+♥" tick. *Gifts*: one heart signal (the burst rises from above the hair; no extra
+  heart emote), produce held cap-forward and berries bigger, non-produce gifts held up as an unlit cut-out
+  card in front of the hands. *Talks*: the farmer faces the villager with a ~26° stage cheat to the lens
+  (a three-quarter back view with the cheek and nose, not the hat brim); a live talk lens with a roof slab
+  across its top band re-blocks (`roofTop` in `talkFrameFails`). *Street life*: noon is the peak — Bram
+  serves at the bakery door with June in the queue, Odessa and Hazel lunch north of the fountain
+  (`plaza_lunch`), Rowan and Marigold chat at the fountain, Kit plays hopscotch (`plaza_hop`), Linus reads
+  the notice board, Tobias on his bench (`town-noon` demo, 12:20, the schedules' own peak);
+  `town-coop` has its own blocking in knots of two and three (no ring); bark bubbles stack straight up
+  over their speaker before sliding sideways (short tails), and unexplained "!" marks are gone from the
+  staged demos. *Blue hour*: a character-only fill on every villager from dusk (the albedo-relative
+  lens-side lift, weaker than a talk's), less raised black, more contrast / saturation, bloom held, richer
+  gold lamp pools; `town-evening` breaks the bakery line-up into pairs (Bram and June at the door, Odessa
+  and Rowan under the market lamp), Tobias turns side-on at the hall lantern and Linus leaves along the
+  east lane (not behind the toolbar). *Winter*: the flower carts are tarped over with the winter trade on
+  top (a chestnut brazier with paper cones, knitted hats and mittens, preserves). *Perf*: Odessa's mesh
+  22.0k → ~19k (the scarf's hairline band 2.5k → 0.5k, the under-scarf shell rows halved, plait lobes
+  lighter); shot logs (1920×1080 High, vsync-capped, ten teams on the GPU): town-day 60 fps / 230 calls /
+  1.26 M tris, town-evening 60, town-noon 60.
+
 Demos: `town-day` (the square in full swing, villagers spread over the steps, stalls and benches), `town-river`
-(the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (20:06, the blue hour: lamps lit, the bakery and market row), `town-commute` (r18: noon on the plaza, the schedule runs — `&seq=10`), `town-winter` (the establishing lens in snow,
+(the stone bridge, market row, river and inn terrace in one frame), `town-establish` (the Kettle Bridge with the forge and the inn either side, r12), `town-evening` (20:06, the blue hour: lamps lit, the bakery and market row), `town-commute` (r18: noon on the plaza, the schedule runs — `&seq=10`), `town-noon` (r21: 12:20, the lunch rush on the plaza), `town-winter` (the establishing lens in snow,
 its own winter blocking), `town-winter-square` (the plaza in snow), `town-coop` (two scripted farmhands: Juniper chats with Bram, Pip gives Wren strawberries — the host
 paths a real farmhand's intents take), `town-rain`,
 `town-east`, `town-south`, `town-cast`, `town-dialogue` (`&npc=<id>&mood=<mood>` · `&gift=<item>` · `&ask=1` ·
@@ -2049,7 +2133,20 @@ Friends on other machines open the game from the host's address; the relay defau
   to your right). Static stagings turn each farmer (and the host) toward the lens itself plus a small social bias and
   pin their eyes on it (`RemoteFarmer.gaze`), so no one reads in profile at the frame's edge or glances away in a still,
   `coop-dayend`, `coop-lobby` (creator + lobby; your lobby card follows the creator live; a "Cabins on your farm" row
-  draws each farmhand's cabin roofed in their colour, free slots greyed). Emote bubbles are drawn in a small overlay pass after post-processing
+  draws each farmhand's cabin roofed in their colour, free slots greyed), `coop-cabin` (r8: a friend has just
+  joined — Briar's cabin is raised beside Fennel's, Juniper calls a welcome, Fennel cheers, Briar's heart on her new
+  doorstep; `&raise=<s>` holds the still at that point of the raise — default 0.45, half risen in the dust; 1.25 =
+  the landing sparkle — and `&live=1` raises it again every 5 s). **Cabin raising** (r8, `net/cabins.ts`): when a
+  new farmer joins live, every machine (host via `hello`, farmhands via the roster) raises that farmer's cabin: it
+  springs out of the ground to a 10 % overshoot at 1.1 s and settles with a damped squash-and-stretch, inside a
+  billowing earth-dust skirt (smoke-puff billows lit by the sun / sky like the chimney smoke, one Points draw),
+  thrown turf and wood shavings, a gold sparkle over the ridge on the landing, with axe-tap / thump / chime cues
+  at the cabin's position (`audio.playAt`). The rising cabin is its own small mesh (~6k tris, 3 draws) for ~2.3 s
+  and then merges back into the shared cabin mesh; a rejoin, a map change or loading a farm never animates.
+  `services.net.raisingCabins()` lists cabins mid-raise. The creator's chip rows that wrap become even grids
+  (equal-width chips, no lone orphan on the second line). `mp-shots.mjs` writes `<dir>/evidence.json` (every still's
+  URL, draws, tris, fps, p95, page errors, git rev) so a reviewer without a local server or GPU can judge the pack
+  from files. Emote bubbles are drawn in a small overlay pass after post-processing
   (`renderEmoteOverlay`, from `game.afterRender`) so tilt-shift / bloom never smear them.
   `MP_TIMEOUT_MIN` raises mp-test's wall-clock guard on a saturated machine (default 25). Debug: `services.net` (`host()`, `join(code)`, `kick(id)`,
   `players()`, `stats()`, `simulateDrop()`), `services.net.sync.digest()` (per-tile farm state that must match).

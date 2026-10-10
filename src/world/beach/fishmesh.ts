@@ -165,6 +165,11 @@ export interface FishMesh {
   group: THREE.Group;
   /** Wiggle the body (0 = still); call per frame. */
   flex(t: number, amount: number): void;
+  /**
+   * r9: celebration light on the skin (0 = off): a warm fresnel rim + a fill of the fish's own
+   * colour, so a small silver catch reads against the farmer's shirt (no scene light is added).
+   */
+  glow(k: number): void;
 }
 
 const _v = new THREE.Vector3();
@@ -215,6 +220,21 @@ export function buildFishMesh(def: FishDef): FishMesh {
 
   const bodyMat = new THREE.MeshStandardMaterial({ map: skin(def), roughness: 0.36, metalness: 0.1, envMapIntensity: 1.0 });
   bodyMat.name = 'fishSkin';
+  const uRim = { value: 0 };
+  bodyMat.onBeforeCompile = (sh) => {
+    sh.uniforms.uRim = uRim;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uRim;')
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        if (uRim > 0.0) {
+          float rimF = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 2.2);
+          totalEmissiveRadiance += vec3(1.0, 0.9, 0.7) * rimF * uRim * 0.9 + diffuseColor.rgb * uRim * 0.35;
+        }`,
+      );
+  };
+  bodyMat.customProgramCacheKey = () => 'fishSkinRim';
   const body = new THREE.Mesh(bodyGeo, bodyMat);
   body.castShadow = true;
 
@@ -392,6 +412,9 @@ export function buildFishMesh(def: FishDef): FishMesh {
       flexBody(t, amount);
       apply(finGeo.attributes.position as THREE.BufferAttribute, finBase, t, amount);
       apply(eyes.geometry.attributes.position as THREE.BufferAttribute, eyeBase, t, amount);
+    },
+    glow(k) {
+      uRim.value = k;
     },
   };
 }

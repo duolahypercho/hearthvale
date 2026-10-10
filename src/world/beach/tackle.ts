@@ -44,7 +44,9 @@ export function heldFishScale(def: FishDef, lengthCm: number): number {
   // reads in the fist: 20 cm → 0.52 m, 50 → 0.83, 100 → 1.34, 150 → 1.85.
   void def;
   const m = lengthCm / 100;
-  return THREE.MathUtils.clamp((0.24 + m * 0.79) * 1.3, 0.6, 1.9);
+  // r9 (critic r8: a 30 cm herring read as a grey sliver at belt height in real play): never
+  // presented under 0.72 m — the chibi farmer shows off a small catch the way a kid does.
+  return THREE.MathUtils.clamp((0.24 + m * 0.79) * 1.3, 0.72, 1.9);
 }
 
 /** A held fish this long (m) or more is a trophy (a bigger hop, a wider sunburst). */
@@ -114,7 +116,13 @@ export class FishingGear {
   private tipMat: THREE.MeshStandardMaterial;
   /** 0..1 extra tip glow (set by the fishing system on a bite / nibble). */
   tipFlash = 0;
-  private ripples: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; age: number; life: number; size: number }[] = [];
+  private ripples: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; age: number; life: number; size: number; ambient: boolean }[] = [];
+  /** Seconds since the gear was made (ripple spacing). */
+  private clock = 0;
+  private lastAmbient = -1;
+  /** r9: a V-shaped wake trailing the float while a fish drags it (replaces stacked rings). */
+  private wake: THREE.Mesh;
+  private wakeMat: THREE.ShaderMaterial;
   private shadow: THREE.Mesh;
   private shadowMat: THREE.MeshBasicMaterial;
   private held: { def: FishDef; mesh: FishMesh } | null = null;
@@ -283,7 +291,9 @@ export class FishingGear {
     this.bobber.add(bobMesh, tip, cap);
     this.bobber.scale.setScalar(1.7);
 
-    // Ripple rings (shader: soft ring at radius r, fading).
+    // Ripple rings (shader: a thin soft ring at radius r). r9 (critic r8: rings stacked into an opaque
+    // white slinky): fade (1 - r/rmax)^2, start ≈ 0.35 opacity, hairline strokes; each ring stays where
+    // it was born on the water plane.
     const ringGeo = new THREE.PlaneGeometry(1, 1);
     ringGeo.rotateX(-Math.PI / 2);
     for (let i = 0; i < 10; i++) {
@@ -296,19 +306,58 @@ export class FishingGear {
           varying vec2 vUv; uniform float uAge; uniform float uAlpha; uniform vec3 uSky; uniform vec3 uSun;
           void main(){
             float r = length(vUv - 0.5) * 2.0;
-            float rr = uAge * 0.92;
-            float ring = smoothstep(0.07, 0.0, abs(r - rr)) + 0.55 * smoothstep(0.05, 0.0, abs(r - rr * 0.62)) * step(0.2, uAge);
-            float a = ring * (1.0 - uAge) * uAlpha * smoothstep(1.0, 0.92, r);
-            vec3 c = mix(uSky, vec3(1.0), 0.65) + uSun * 0.25;
-            gl_FragColor = vec4(c, a * 0.8);
+            float rr = 0.12 + uAge * 0.8;
+            float w = 0.022 + uAge * 0.02;
+            float ring = smoothstep(w, 0.0, abs(r - rr)) + 0.4 * smoothstep(w * 0.8, 0.0, abs(r - rr * 0.64)) * step(0.25, uAge);
+            float fade = (1.0 - uAge) * (1.0 - uAge);
+            float a = ring * fade * uAlpha * smoothstep(1.0, 0.9, r);
+            vec3 c = mix(uSky, vec3(1.0), 0.55) + uSun * 0.18;
+            gl_FragColor = vec4(c, a);
           }`,
       });
       const m = new THREE.Mesh(ringGeo, mat);
       m.visible = false;
       m.renderOrder = 4;
-      this.ripples.push({ mesh: m, mat, age: 1, life: 1, size: 1 });
+      this.ripples.push({ mesh: m, mat, age: 1, life: 1, size: 1, ambient: false });
       this.group.add(m);
     }
+
+    // Wake: apex at the float (local origin), two arms opening ≈ 20° behind it along local +Z, a
+    // churned seam down the middle; noise scrolls backwards so it reads as moving water.
+    const wakeGeo = new THREE.PlaneGeometry(1, 1);
+    wakeGeo.rotateX(-Math.PI / 2);
+    wakeGeo.translate(0, 0, 0.5);
+    this.wakeMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: { uT: globalUniforms.uTime, uAlpha: { value: 0 }, uSize: { value: new THREE.Vector2(1.4, 1.9) }, uSky: globalUniforms.uSkyColor, uSun: globalUniforms.uSunColor },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: /* glsl */ `
+        varying vec2 vUv; uniform float uT; uniform float uAlpha; uniform vec2 uSize; uniform vec3 uSky; uniform vec3 uSun;
+        float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float n(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
+          return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
+        void main(){
+          float lx = (vUv.x - 0.5) * uSize.x;
+          float lz = (1.0 - vUv.y) * uSize.y;
+          float k = lz / uSize.y;
+          float brk = n(vec2(lx * 7.0, lz * 5.0 - uT * 4.0));
+          float arm = smoothstep(0.035 + k * 0.05, 0.0, abs(abs(lx) - lz * 0.36 - 0.04)) * (0.55 + 0.45 * brk);
+          float seam = smoothstep(0.07 + k * 0.08, 0.0, abs(lx)) * smoothstep(0.35, 0.75, n(vec2(lx * 11.0, lz * 9.0 - uT * 5.0))) * 0.7;
+          float fade = (1.0 - k) * (1.0 - k) * smoothstep(0.0, 0.06, lz);
+          float a = max(arm, seam) * fade * uAlpha;
+          vec3 c = mix(uSky, vec3(1.0), 0.6) + uSun * 0.18;
+          gl_FragColor = vec4(c, a);
+        }`,
+    });
+    this.wakeMat.name = 'floatWake';
+    this.wake = new THREE.Mesh(wakeGeo, this.wakeMat);
+    this.wake.name = 'float-wake';
+    this.wake.visible = false;
+    this.wake.renderOrder = 4;
+    this.wake.frustumCulled = false;
+    this.wake.scale.set(1.4, 1, 1.9);
+    this.group.add(this.wake);
 
     // Cast reticle: soft double ring + 4 ticks, pulsing; red over dry land.
     this.reticleMat = new THREE.ShaderMaterial({
@@ -787,13 +836,41 @@ export class FishingGear {
     this.line.visible = this.lineVisible;
   }
 
-  ripple(p: THREE.Vector3, size = 1, life = 1.4): void {
+  /**
+   * An expanding ring born at `p` on the water plane (it stays there). `ambient` rings (the float's
+   * idle bob) are spaced ≥ 0.35 s apart with at most 3 alive and start fainter, so a float that is
+   * moving never strings them into a coil; splash rings always fire.
+   */
+  ripple(p: THREE.Vector3, size = 1, life = 1.4, ambient = false): void {
+    if (ambient) {
+      if (this.clock - this.lastAmbient < 0.35) return;
+      let alive = 0;
+      for (const x of this.ripples) if (x.mesh.visible && x.ambient) alive++;
+      if (alive >= 3) return;
+      this.lastAmbient = this.clock;
+    }
     const r = this.ripples.reduce((best, x) => (x.age / x.life > best.age / best.life ? x : best), this.ripples[0]!);
     r.age = 0;
     r.life = life;
     r.size = size;
+    r.ambient = ambient;
+    r.mat.uniforms.uAlpha!.value = ambient ? 0.35 : 0.55;
     r.mesh.position.set(p.x, this.waterY + this.rippleLift, p.z);
     r.mesh.visible = true;
+  }
+
+  /**
+   * The float's wake while a fish drags it: `p` the float, (bx, bz) the direction the wake trails
+   * (away from the pull), `strength` 0..1 (0 / null fades it out).
+   */
+  setWake(p: THREE.Vector3 | null, bx: number, bz: number, strength: number, dt: number): void {
+    const u = this.wakeMat.uniforms.uAlpha!;
+    const want = p ? THREE.MathUtils.clamp(strength, 0, 1) * 0.42 : 0;
+    u.value += (want - u.value) * Math.min(1, dt * 6);
+    this.wake.visible = u.value > 0.01;
+    if (!p) return;
+    this.wake.position.set(p.x, this.waterY + this.rippleLift, p.z);
+    if (bx * bx + bz * bz > 1e-6) this.wake.rotation.y = Math.atan2(bx, bz);
   }
 
   /**
@@ -963,16 +1040,27 @@ export class FishingGear {
     const r = this.heldRoot;
     r.position.copy(center);
     this.faceHeld(camera, wiggle);
-    r.rotateX(0.32);
-    r.rotateY(0.5 + spin);
+    // A small fish is held up flank-square to the lens (all of its length reads); a trophy turns
+    // three-quarter with its back tipped to the camera.
+    const sm = THREE.MathUtils.clamp((1.15 - r.scale.x * (this.held?.mesh.group.scale.x ?? 1)) / 0.45, 0, 1);
+    r.rotateX(0.32 - sm * 0.22);
+    r.rotateY(0.5 - sm * 0.36 + spin);
     _b.copy(camera.position).sub(center).setY(0).normalize();
     r.position.addScaledVector(_b, 0.16 + r.scale.x * 0.05);
     return out.copy(r.position);
   }
 
+  /** Celebration light on the held fish (0 = off). */
+  glowHeld(k: number): void {
+    this.held?.mesh.glow(k);
+  }
+
   /** Show a fish held above the head (null to hide). */
   hold(def: FishDef | null, lengthCm = 40): void {
-    if (this.held) this.heldRoot.remove(this.held.mesh.group);
+    if (this.held) {
+      this.held.mesh.glow(0);
+      this.heldRoot.remove(this.held.mesh.group);
+    }
     this.held = null;
     if (!def) return;
     let mesh = this.meshCache.get(def.id);
@@ -986,6 +1074,7 @@ export class FishingGear {
   }
 
   update(dt: number, t: number, h: number): void {
+    this.clock += dt;
     for (const r of this.ripples) {
       if (!r.mesh.visible) continue;
       r.age += dt / r.life;
@@ -993,7 +1082,7 @@ export class FishingGear {
         r.mesh.visible = false;
         continue;
       }
-      const s = r.size * (0.35 + r.age * 1.1);
+      const s = r.size * (0.6 + r.age * 0.8);
       r.mesh.scale.set(s, 1, s);
       r.mat.uniforms.uAge!.value = r.age;
     }

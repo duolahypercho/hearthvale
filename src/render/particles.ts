@@ -50,7 +50,8 @@ function pointMaterial(map: THREE.Texture, additive: boolean): THREE.ShaderMater
   });
 }
 
-class PointPool {
+/** (exported for co-op cabin dust: net/cabins.ts) */
+export class PointPool {
   readonly points: THREE.Points;
   readonly pos: Float32Array;
   readonly size: Float32Array;

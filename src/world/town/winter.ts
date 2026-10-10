@@ -135,10 +135,62 @@ function winterGoods(b: MeshBuilder, rng: Rng, x: number, y: number, z: number, 
   }
 }
 
-export function buildSnowmen(rng: Rng, spots: [number, number, number][], h: (x: number, z: number) => number, goods: [number, number, number][] = []): THREE.Group {
+/**
+ * r21 (critic: "market stalls are still full of fresh green produce and seedlings in Winter 1"): the
+ * flower cart in winter — a snow-crusted burlap tarp lashed over the summer pots, and on it the winter
+ * trade: a roasting brazier of chestnuts with paper cones, knitted hats and mittens, jars of preserves.
+ */
+function winterCart(b: MeshBuilder, rng: Rng, x: number, y: number, z: number, rot: number): void {
+  const W = new THREE.Matrix4().makeTranslation(x, y, z).multiply(new THREE.Matrix4().makeRotationY(rot));
+  const add = (geo: THREE.BufferGeometry, m: THREE.Matrix4, tint: number): void => {
+    b.add('white', geo, W.clone().multiply(m), { tint });
+  };
+  // the tarp: a lumpy burlap mound over the bed, tied down with two ropes
+  const tarp = lumpySphere(0.5, 2, 0.08, rng, 1.6);
+  tarp.scale(1.74, 0.64, 1.0);
+  add(tarp, mat(0, 0.9, 0, 0, 0, -0.05), 0xa88a5e);
+  for (const rx of [-0.45, 0.4]) {
+    const rope = new THREE.TorusGeometry(0.46, 0.014, 4, 18, Math.PI);
+    add(rope, mat(rx, 0.9, 0, 0, Math.PI / 2, 0), 0x6a5236);
+  }
+  const crust = lumpySphere(0.4, 1, 0.12, rng, 1.6);
+  crust.scale(2.0, 0.22, 0.9);
+  add(crust, mat(-0.05, 1.19, -0.08, 0, 0, -0.05), SNOW);
+  // a chestnut brazier at the handle end: iron drum, glowing coals, chestnuts, paper cones
+  add(new THREE.CylinderGeometry(0.17, 0.14, 0.24, 12), mat(0.52, 1.26, 0.05), 0x2e2a2a);
+  add(new THREE.CylinderGeometry(0.15, 0.15, 0.02, 12), mat(0.52, 1.385, 0.05), 0xe8602a);
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    add(new THREE.SphereGeometry(0.03, 6, 4), mat(0.52 + Math.cos(a) * 0.08 * (i % 2 ? 1 : 0.5), 1.41, 0.05 + Math.sin(a) * 0.08 * (i % 2 ? 1 : 0.5)), 0x5a2e1a);
+  }
+  for (let i = 0; i < 3; i++) add(new THREE.ConeGeometry(0.045, 0.14, 8), mat(0.25 + i * 0.07, 1.3, 0.3, Math.PI, 0, 0.2), 0xf2e6c8);
+  // knitted goods: rolled hats with pompoms, a pair of mittens
+  const wool = [0xc8412f, 0x3f6f9a, 0xe8b04a];
+  for (let i = 0; i < 3; i++) {
+    const hx = -0.55 + i * 0.26;
+    add(new THREE.SphereGeometry(0.1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat(hx, 1.22, 0.12), wool[i]!);
+    add(new THREE.TorusGeometry(0.095, 0.03, 6, 14), mat(hx, 1.225, 0.12, Math.PI / 2, 0, 0), shadeTint(wool[i]!));
+    add(new THREE.SphereGeometry(0.04, 6, 5), mat(hx, 1.34, 0.12), 0xf2ece0);
+  }
+  for (const mx of [-0.2, -0.08]) {
+    const mit = lumpySphere(0.06, 1, 0.1, rng, 2);
+    mit.scale(0.8, 1.34, 0.5);
+    add(mit, mat(mx, 1.22, -0.22, -1.2, 0, 0), 0x5a8a4a);
+  }
+  // preserves
+  const jar = [0xc8412f, 0xe8a03a, 0x7a3a6a];
+  for (let i = 0; i < 3; i++) {
+    add(new THREE.CylinderGeometry(0.05, 0.05, 0.12, 10), mat(0.05 + i * 0.12, 1.24, -0.25), jar[i]!);
+    add(new THREE.CylinderGeometry(0.06, 0.056, 0.025, 10), mat(0.05 + i * 0.12, 1.315, -0.25), 0xf2e6d0);
+  }
+}
+const shadeTint = (c: number): number => new THREE.Color(c).multiplyScalar(0.8).getHex();
+
+export function buildSnowmen(rng: Rng, spots: [number, number, number][], h: (x: number, z: number) => number, goods: [number, number, number][] = [], carts: [number, number, number][] = []): THREE.Group {
   const b = new MeshBuilder();
   spots.forEach(([x, z, rot], i) => snowman(b, rng, x, h(x, z) - 0.04, z, rot, i));
   for (const [x, z, rot] of goods) winterGoods(b, rng, x, h(x, z), z, rot);
+  for (const [x, z, rot] of carts) winterCart(b, rng, x, h(x, z), z, rot);
   const g = b.build({ name: 'snowmen' });
   g.userData.perfTag = 'props';
   return g;

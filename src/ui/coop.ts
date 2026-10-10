@@ -471,6 +471,7 @@ class CoopScreen extends Screen {
       probe.style.visibility = 'hidden';
       probe.style.width = `${opts.offsetWidth}px`;
       body.appendChild(probe);
+      this.balanceChips(probe);
       h = Math.max(h, probe.offsetHeight);
       probe.remove();
     }
@@ -484,6 +485,7 @@ class CoopScreen extends Screen {
   private renderMakerOptions(body: HTMLElement): void {
     const opts = this.buildMakerOptions(body);
     body.appendChild(opts);
+    this.balanceChips(opts);
     this.pinOptsHeight(body, opts);
     // A measure taken before the web fonts land wraps the chip rows differently (r5: the panels still
     // jumped ~9 px between tabs): measure again once they're in, and never pin below what's on screen.
@@ -501,6 +503,25 @@ class CoopScreen extends Screen {
     }
   }
   private fontsPinned = false;
+
+  /**
+   * (r8) A chip row that wraps becomes an even grid (equal-width chips, rows as full as they can be):
+   * the flex wrap left a lone orphan on the second line ('Apron', 'None').
+   */
+  private balanceChips(root: HTMLElement): void {
+    for (const row of root.querySelectorAll<HTMLElement>('.coop-chips')) {
+      row.classList.remove('grid');
+      const chips = [...row.children] as HTMLElement[];
+      if (chips.length < 3) continue;
+      const top = chips[0]!.offsetTop;
+      if (chips.every((c) => c.offsetTop === top)) continue;
+      const maxW = Math.max(...chips.map((c) => c.offsetWidth));
+      const fit = Math.max(1, Math.floor((row.clientWidth + 4) / (maxW + 4)));
+      const rows = Math.ceil(chips.length / fit);
+      row.style.setProperty('--cols', String(Math.ceil(chips.length / rows)));
+      row.classList.add('grid');
+    }
+  }
 
   private buildMakerOptions(body: HTMLElement): HTMLElement {
     const opts = el('div', 'coop-opts');

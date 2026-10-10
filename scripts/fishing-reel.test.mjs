@@ -4,6 +4,9 @@
  *   - idle play never lands a fish: every behaviour × difficulty, no input for 60 s → escaped
  *   - pacing: a human-like bot (100 ms late, 5 % sloppy) lands commons in ~5–10 s and
  *     most rares (fishing is forgiving: slow drain, roomy bar, long grace)
+ *   - risk (r9, critic r8: the bot landed 12/12 v.rares, the only cost was time): the same bot
+ *     lands ≈ 85 % of rares (d 0.72), 60–75 % of very rares (d 0.78–0.8), and a legend (d 0.95)
+ *     well under half the time
  *   - depth: a perfect PD bot can't coast through fish with signature moves (dash / dive / thrash)
  *   - the treasure chest never shows up before 1.5 s
  *
@@ -74,8 +77,8 @@ export function runReelTests(log = console.log) {
     ['common', 0.3, 'dart', 4, 10, 1],
     ['uncommon', 0.45, 'dart', 6, 30, 2],
     ['rare', 0.6, 'sinker', 6.5, 30, 3],
-    ['rare', 0.6, 'mixed', 8, 35, 3],
-    ['v.rare', 0.78, 'sinker', 10, 45, 5],
+    ['rare', 0.6, 'mixed', 6, 35, 3],
+    ['v.rare', 0.78, 'sinker', 8, 45, 6],
   ]) {
     const times = [];
     let lost = 0;
@@ -88,6 +91,25 @@ export function runReelTests(log = console.log) {
     rows.push(`${label.padEnd(9)} d=${d} ${behavior.padEnd(7)} median ${m.toFixed(1)} s  (${times.length}/12 landed)`);
     if (times.length && !(m >= lo && m <= hi)) fails.push(`pacing ${label} d=${d} ${behavior}: median ${m.toFixed(1)} s outside ${lo}-${hi} s`);
     if (lost > maxLost) fails.push(`pacing ${label} d=${d} ${behavior}: lost ${lost}/12 (max ${maxLost})`);
+  }
+  // 2a. Risk bands (40 fights per row, the human bot): [label, rows, lo, hi].
+  for (const [label, set, lo, hi] of [
+    ['rare', [[0.72, 'mixed'], [0.72, 'dart']], 0.75, 0.93],
+    ['v.rare', [[0.78, 'mixed'], [0.78, 'sinker'], [0.8, 'dart'], [0.8, 'sinker']], 0.58, 0.8],
+    ['legend', [[0.95, 'mixed']], 0.05, 0.5],
+  ]) {
+    let landed = 0;
+    let n = 0;
+    for (const [d, behavior] of set) {
+      for (let seed = 1; seed <= 40; seed++) {
+        const r = fight({ d, behavior, seed: seed * 104729, auto: false, hold: human(seed), maxT: 90 });
+        n++;
+        if (r.end === 'caught') landed++;
+      }
+    }
+    const rate = landed / n;
+    rows.push(`risk ${label.padEnd(7)} human bot lands ${Math.round(rate * 100)} % (${set.map(([d, b]) => `${b} ${d}`).join(', ')})`);
+    if (rate < lo || rate > hi) fails.push(`risk ${label}: human bot landed ${Math.round(rate * 100)} %, want ${Math.round(lo * 100)}-${Math.round(hi * 100)} %`);
   }
   // 2b. Real-loop pacing (critic r6: a laggy scripted controller took 15-17 s on commons in real play):
   // input polled every 60 ms (held between polls), the fish seen 350 ms late with no lead, 15 % sloppy polls —
@@ -112,7 +134,7 @@ export function runReelTests(log = console.log) {
   for (const [label, d, behavior, lo, hi] of [
     ['laggy common', 0.2, 'smooth', 4, 9],
     ['laggy common', 0.25, 'mixed', 4, 10],
-    ['laggy common', 0.3, 'dart', 4, 25], // a darter shakes a laggy player off (~60 % in-bar): slow but landed
+    ['laggy common', 0.3, 'dart', 4, 11.5], // r9: a darting common makes short, soft darts (was a 22 s median)
   ]) {
     const times = [];
     let inside = 0;
@@ -158,7 +180,7 @@ export function runReelTests(log = console.log) {
     }
     if (seenAt >= 0 && seenAt < 1.5 - 1e-6) fails.push(`treasure appeared at ${seenAt.toFixed(2)} s (< 1.5 s)`);
   }
-  log(`reel sim: start ${REEL.start}, gain 0.155-0.075d (+${REEL.hot * 100} % hot streak), loss 0.06+0.1d, dash ${REEL.dashV}, tell ${REEL.tell} s\n  ${rows.join('\n  ')}`);
+  log(`reel sim: start ${REEL.start}-${REEL.hardStart}(d-0.4), gain 0.155-0.075d+${REEL.hardGain}(d-0.4) (+${REEL.hot * 100} % hot streak), loss 0.06+0.1d+${REEL.hardLoss}(d-0.4) (slip x${REEL.slip}), dash ${REEL.dashV}, tell ${REEL.tell} s\n  ${rows.join('\n  ')}`);
   return fails;
 }
 

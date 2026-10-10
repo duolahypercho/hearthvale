@@ -57,6 +57,8 @@ export interface ReelState extends ReelView {
   outT: number;
   /** Seconds the fish has stayed inside the bar without a break (feeds the hot-streak bonus). */
   runT: number;
+  /** Seconds the fish has been outside the bar without a break (a long slip bleeds harder on rares). */
+  outRun: number;
 }
 
 /** Catch-bar physics (track units / s²; the track is 1 tall). */
@@ -71,12 +73,12 @@ export const REEL = {
   slackAfter: 0.45,
   // (r7: 0.15 - 0.08d made a well-tracked common a 15-17 s fight in real play, critic r6; commons now
   // land in ~5-7 s at 70 % in-bar, a hot streak adds up to +40 %.)
-  gain: (d: number): number => 0.155 - 0.075 * d,
+  gain: (d: number): number => 0.155 - 0.075 * d + Math.max(0, d - 0.4) * REEL.hardGain,
   /** Hot streak: after HOT_AFTER s inside without a break, gain ramps up to (1 + hot) by HOT_FULL s. */
   hot: 0.3,
   hotAfter: 0.9,
   hotFull: 2.2,
-  loss: (d: number): number => 0.06 + 0.1 * d,
+  loss: (d: number): number => 0.06 + 0.1 * d + Math.max(0, d - 0.4) * REEL.hardLoss,
   /** Shiver before a signature move (s). */
   tell: 0.34,
   /** Dash velocity cap (track / s) — above the bar's vmax on purpose. */
@@ -86,12 +88,27 @@ export const REEL = {
   perfectSlip: 0.25,
   /** Extra progress bleed per second while the fish thrashes. */
   thrashLoss: 0.035,
+  /**
+   * r9 (critic r8: a human-like bot landed 12/12 v.rares, the only cost was time): a slip on a hard
+   * fish bleeds harder the longer it lasts — up to (1 + slip·(d-0.4)) × the loss after `slipRamp` s.
+   */
+  slip: 2,
+  slipRamp: 0.7,
+  /**
+   * r9: past d = 0.4 fights get higher-stakes, not just longer — faster gain and a harder drain per
+   * unit of difficulty over 0.4, and the fight opens nearer the edge (start − hardStart·(d − 0.4)).
+   */
+  hardGain: 0.2,
+  hardLoss: 0.15,
+  hardStart: 0.5,
+  /** Past 75 % a hard fish (d > 0.4) fights for its life: moves come faster and dash harder. */
+  panicV: 1.0,
 };
 
 /** Seconds between signature moves for a behaviour at difficulty d (Infinity = none). */
 function moveGap(b: ReelBehavior, d: number, r: Rand): number {
-  const base = b === 'dart' ? 3.6 : b === 'sinker' ? 3.0 : b === 'floater' ? 3.2 : b === 'mixed' ? (d >= 0.3 ? 3.6 : Infinity) : d >= 0.5 ? 4 : Infinity;
-  return base * (0.95 + d * 0.35) * (0.8 + r() * 0.6);
+  const base = b === 'dart' ? (d < 0.35 ? 4.5 : 3.6) : b === 'sinker' ? 3.0 : b === 'floater' ? 3.2 : b === 'mixed' ? (d >= 0.3 ? 3.6 : Infinity) : d >= 0.5 ? 4 : Infinity;
+  return base * (d < 0.45 ? 0.95 + d * 0.35 : 1.11 - (d - 0.45) * 0.6) * (0.8 + r() * 0.6);
 }
 
 export type Rand = () => number;
@@ -112,7 +129,8 @@ export function newReel(o: { difficulty: number; behavior: ReelBehavior; barH: n
     fishV: 0,
     fishTarget: 0.5,
     retarget: 0.45,
-    progress: REEL.start,
+    // (r9: a hard fish opens the fight closer to the edge — an early slip can lose it.)
+    progress: REEL.start - Math.max(0, o.difficulty - 0.4) * REEL.hardStart,
     // The chest appears 1.5–3 s in (negative prog = countdown).
     treasure: r() < o.treasureOdds ? { pos: 0.15 + r() * 0.7, prog: -(1.5 + r() * 1.5), got: false } : null,
     holding: false,
@@ -125,7 +143,7 @@ export function newReel(o: { difficulty: number; behavior: ReelBehavior; barH: n
     insideT: 0,
     grace: o.grace ?? 1.2,
     restT: 0,
-    low: REEL.start,
+    low: REEL.start - Math.max(0, o.difficulty - 0.4) * REEL.hardStart,
     moveCd: 0.9 + moveGap(o.behavior, o.difficulty, r) * 0.32,
     tellT: 0,
     dashT: 0,
@@ -134,6 +152,7 @@ export function newReel(o: { difficulty: number; behavior: ReelBehavior; barH: n
     thrashT: 0,
     outT: 0,
     runT: 0,
+    outRun: 0,
     hot: 0,
     tell: 0,
     thrash: 0,
@@ -144,11 +163,15 @@ export function newReel(o: { difficulty: number; behavior: ReelBehavior; barH: n
 function startMove(s: ReelState, r: Rand): void {
   const b = s.behavior;
   let dir: number;
-  let v = Math.min(REEL.dashV, (b === 'mixed' ? 1.6 : 1.8) + s.difficulty * (b === 'mixed' ? 1.2 : 1.4));
+  // (r9: a darting common, d < 0.35, makes shorter, softer dashes — critic r8: a laggy player took
+  // a median 22 s to land one.)
+  const soft = s.difficulty < 0.35 ? 0.85 : 1;
+  let v = Math.min(REEL.dashV, (b === 'mixed' ? 1.6 : 1.8) + s.difficulty * (b === 'mixed' ? 1.2 : 1.4)) * soft;
   let len = 0.1 + r() * 0.06;
   if (b === 'sinker') {
     dir = s.fish > 0.25 ? -1 : 1;
-    v = 1.5;
+    // (A deep-water monster dives harder than the bar can follow without a read.)
+    v = 1.5 + Math.max(0, s.difficulty - 0.45) * 2.2;
     len = 0.28;
   } else if (b === 'floater') {
     dir = s.fish < 0.75 ? 1 : -1;
@@ -159,7 +182,11 @@ function startMove(s: ReelState, r: Rand): void {
     const room = s.fish < 0.3 ? 1 : s.fish > 0.7 ? -1 : r() < 0.5 ? 1 : -1;
     dir = room;
   }
-  s.tellT = REEL.tell;
+  // The last stand: past 75 % a hard fish's signature moves get faster and longer (a real risk at the end).
+  const fury = s.progress > 0.75 ? Math.min(0.5, Math.max(0, s.difficulty - 0.4) * 2) : 0;
+  v = Math.max(v, Math.min(REEL.dashV + REEL.panicV * fury, v * (1 + fury)));
+  len *= 1 + fury * 0.8;
+  s.tellT = REEL.tell * (1 - fury * 0.25);
   s.dashV = dir * v;
   s.dashT = len;
 }
@@ -175,9 +202,10 @@ function retarget(s: ReelState, r: Rand): void {
       s.retarget = 0.9 + r() * 1.2 - d * 0.5;
       break;
     case 'dart':
-      // Sudden dashes across the track, then a breather (so a dash is readable and catchable).
-      tgt = x < 0.45 ? r() * 0.3 + (s.fish > 0.5 ? 0.1 : 0.6) : clamp(s.fish + (r() - 0.5) * 0.3, 0.08, 0.95);
-      s.retarget = 0.55 + r() * 0.9 - d * 0.25;
+      // Sudden dashes across the track, then a breather (so a dash is readable and catchable); a
+      // darting common (d < 0.35) only darts half as far.
+      tgt = x < 0.45 ? (d < 0.35 ? clamp(s.fish + (s.fish > 0.5 ? -1 : 1) * (0.15 + r() * 0.15), 0.08, 0.95) : r() * 0.3 + (s.fish > 0.5 ? 0.1 : 0.6)) : clamp(s.fish + (r() - 0.5) * 0.3, 0.08, 0.95);
+      s.retarget = 0.55 + r() * 0.9 - d * 0.25 + (d < 0.35 ? 0.45 : 0);
       break;
     case 'sinker':
       // Hugs the lower half, but never lies on the floor and rises now and then (≥ 30 % of picks).
@@ -237,7 +265,7 @@ export function stepReel(s: ReelState, dt: number, holdInput: boolean, rand: Ran
     s.slack = s.restT > REEL.slackAfter;
 
     // Fish AI: signature move (tell → burst), else a spring towards the swim target.
-    const panic = s.progress > 0.75 ? 1.6 : 1;
+    const panic = s.progress > 0.75 ? 1.6 + Math.max(0, d - 0.4) * 1.2 : 1;
     if (s.tellT <= 0 && s.dashT <= 0) {
       s.moveCd -= h * panic;
       if (s.moveCd <= 0 && s.t > s.grace) startMove(s, rand);
@@ -259,7 +287,7 @@ export function stepReel(s: ReelState, dt: number, holdInput: boolean, rand: Ran
     } else {
       s.retarget -= h;
       if (s.retarget <= 0) retarget(s, rand);
-      const k = 5 + d * 22 * (s.behavior === 'dart' ? 1.2 : s.behavior === 'smooth' ? 0.6 : 1);
+      const k = 5 + d * 22 * (s.behavior === 'dart' ? (d < 0.35 ? 0.9 : 1.2) : s.behavior === 'smooth' ? 0.6 : 1);
       s.fishV += (s.fishTarget - s.fish) * k * h;
       s.fishV *= Math.exp(-h * (4.2 - d * 1.6));
       s.fishV += Math.sin(s.t * (7 + d * 9)) * d * 0.9 * h; // jitter
@@ -293,8 +321,10 @@ export function stepReel(s: ReelState, dt: number, holdInput: boolean, rand: Ran
       const off = Math.min(1, Math.abs(s.fish - (s.bar + s.barH * 0.5)) / (s.barH * 0.5));
       if (earning) s.progress += REEL.gain(d) * (1.12 - off * 0.36) * (1 + REEL.hot * (s.hot ?? 0)) * h;
       if (s.thrashT > 0 && s.t >= s.grace) s.progress -= REEL.thrashLoss * h;
+      s.outRun = earning ? 0 : s.outRun + h;
       if (!earning && s.t >= s.grace) {
-        s.progress -= REEL.loss(d) * h;
+        const slipK = 1 + REEL.slip * Math.max(0, d - 0.35) * Math.min(1, s.outRun / REEL.slipRamp);
+        s.progress -= REEL.loss(d) * slipK * h;
         // Perfect forgives a blink (≤ 0.12 s outside in the whole fight), not a lost fish.
         s.outT += h;
         if (s.outT > REEL.perfectSlip) s.perfect = false;

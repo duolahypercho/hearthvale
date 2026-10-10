@@ -361,6 +361,11 @@ export const SPOTS: Record<string, [number, number, Facing | number]> = {
   hall_lantern: [33.3, 14.3, 'up'],
   planters_hall: [28.6, 15.3, 'up'],
   plaza_play: [36.4, 32.4, 'down'],
+  // r21: the lunch rush north of the fountain (in the plaza lens's middle, not in front of the toolbar)
+  plaza_lunch: [31.2, 20.6, 'down'],
+  plaza_hop: [36.8, 21.6, 'down'],
+  // (Rowan's lunchtime chat partner spot: up-right of Marigold at fountain_w, not stacked behind her)
+  fountain_wn: [29.7, 23.9, 'left'],
   market_produce: [50.4, 23.1, 'up'],
   market_flowers: [55.6, 23.2, 'up'],
   // (facing south-east over the river to the Kettle Bridge — what she paints, and towards the lens)

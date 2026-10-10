@@ -885,7 +885,8 @@ export class TownMap implements GameMap {
     this.root.add(this.festoons.group);
     // Winter: snowmen on the plaza lawns and in the schoolyard (hidden the rest of the year).
     const goods = EXTRA_PROPS.filter((p) => p.kind === 'produce').map((p) => [p.x, p.z, p.rot ?? 0] as [number, number, number]);
-    this.snowmen = buildSnowmen(this.rng.fork('snowmen'), SNOWMEN, (x, z) => this.terrain.heightAt(x, z), goods);
+    const carts = ([...TOWN_PROPS, ...EXTRA_PROPS] as { kind: string; x: number; z: number; rot?: number }[]).filter((p) => p.kind === 'flowerCart').map((p) => [p.x, p.z, p.rot ?? 0] as [number, number, number]);
+    this.snowmen = buildSnowmen(this.rng.fork('snowmen'), SNOWMEN, (x, z) => this.terrain.heightAt(x, z), goods, carts);
     this.snowmen.visible = false;
     this.root.add(this.snowmen);
   }
@@ -1160,8 +1161,9 @@ export class TownMap implements GameMap {
     // (r15: the ground pools read gold, not orange, and a touch quieter — the lamp glass stays the hot spot)
     const pool = this.pools.group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | undefined;
     if (pool) {
-      if (pool.material.color.getHex() !== 0xffc489) pool.material.color.setHex(0xffc489);
-      pool.material.opacity *= 0.72;
+      // (r21: a richer, more saturated gold at dusk — "push saturation into the lamp pools")
+      if (pool.material.color.getHex() !== 0xffb46a) pool.material.color.setHex(0xffb46a);
+      pool.material.opacity *= 0.9;
     }
     if (FAR_CLUTTER_M > 0) {
       // Hysteresis (±2 m) so a cell on the edge never flickers while the lens drifts.

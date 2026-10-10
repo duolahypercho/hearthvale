@@ -39,6 +39,8 @@ function treeBarkMaterial(): THREE.MeshStandardMaterial {
 }
 
 const foliageMats = new Map<TreeSpecies, THREE.MeshStandardMaterial>();
+/** 1 while the blossom canopy wears its spring pink (set by TreeField.setSeason), else 0. */
+const uBlossomPink = { value: 1 };
 function foliageMaterial(species: TreeSpecies): THREE.MeshStandardMaterial {
   let m = foliageMats.get(species);
   if (m) return m;
@@ -59,6 +61,14 @@ function foliageMaterial(species: TreeSpecies): THREE.MeshStandardMaterial {
     shader.uniforms.uSunColor = globalUniforms.uSunColor;
     let fs = shader.fragmentShader;
     if (!fs.includes('uniform vec3 uSunDir;')) fs = before(fs, 'void main() {', 'uniform vec3 uSunDir;\nuniform vec3 uSunColor;');
+    if (species === 'blossom') {
+      shader.uniforms.uNight = globalUniforms.uNight;
+      shader.uniforms.uLamps = globalUniforms.uLamps;
+      shader.uniforms.uBlossomPink = uBlossomPink;
+      if (!fs.includes('uniform float uNight;')) fs = before(fs, 'void main() {', 'uniform float uNight;');
+      if (!fs.includes('uniform float uLamps;')) fs = before(fs, 'void main() {', 'uniform float uLamps;');
+      fs = before(fs, 'void main() {', 'uniform float uBlossomPink;');
+    }
     fs = after(
       fs,
       '#include <color_fragment>',
@@ -78,7 +88,13 @@ function foliageMaterial(species: TreeSpecies): THREE.MeshStandardMaterial {
         float flo = smoothstep(0.42, 0.7, clus) * (0.65 + 0.35 * smoothstep(0.3, 0.7, pet));
         diffuseColor.rgb *= mix(vec3(0.74, 0.44, 0.6), vec3(1.1, 1.06, 1.06), clamp(flo + top * 0.25, 0.0, 1.0));
         float under = smoothstep(0.1, -0.6, normalize(vHvWorldNormal).y);
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.62, 0.5, 0.66), under * 0.7);`
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.62, 0.5, 0.66), under * 0.7);
+        // Night: pale pink albedo under the blue moon + night grade read as a glowing violet mass.
+        // Fold the petals toward a dim low-blue albedo: the moonlit grade passes ~10x more blue than
+        // red, so this lands on screen as a cool grey-mauve at an oak canopy's night value.
+        float nb = smoothstep(0.25, 0.9, max(uNight, uLamps * 0.8)) * uBlossomPink;
+        float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+        diffuseColor.rgb = mix(diffuseColor.rgb, lum * vec3(0.8, 0.42, 0.1), nb);`
             : ''
         }
       }`,
@@ -387,6 +403,7 @@ export class TreeField {
       if (!m) continue;
       const c = FOLIAGE_COLORS[sp][season];
       if (c !== null) m.color.setHex(c);
+      if (sp === 'blossom') uBlossomPink.value = season === 'spring' ? 1 : 0;
       for (const mesh of this.pool.meshesFor(m)) mesh.visible = c !== null;
     }
   }

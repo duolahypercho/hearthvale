@@ -624,13 +624,14 @@ export class FishingOverlay {
     // (r7b, critic r6: in co-op the card landed on the other farmer, hiding her and her name tag.)
     // Try both sides of the angler at a few heights; keep the spot that covers the least of any other
     // farmer's projected box (ties: the current / preferred side, then the base height).
-    const prefRight = first ? at.x + 110 + W < w - 16 : card.classList.contains('r');
+    const prefRight = first ? at.x + 170 + W < w - 16 : card.classList.contains('r');
     const avoid = at.avoid ?? [];
     let best = { x: 0, y: 0, right: prefRight, cost: Infinity };
     for (const right of [prefRight, !prefRight]) {
-      const x = right ? Math.min(at.x + 110, w - 16 - W) : Math.max(16, at.x - 110 - W);
+      // (r9: 170 px clear of the anchor — the held fish is the first read, the card the second.)
+      const x = right ? Math.min(at.x + 170, w - 16 - W) : Math.max(16, at.x - 170 - W);
       // A side that would sit over the angler's own fish / body is out.
-      const self = right ? Math.max(0, at.x + 60 - x) : Math.max(0, x + W - (at.x - 60));
+      const self = right ? Math.max(0, at.x + 110 - x) : Math.max(0, x + W - (at.x - 110));
       for (const dy of [0, -150, 140, -260]) {
         const y = Math.min(h - 330, Math.max(90, at.y - 90 + dy));
         let cost = self * H * 4 + Math.abs(dy) * 20 + (right === prefRight ? 0 : 900);

@@ -8,7 +8,8 @@ import { MeshBuilder, roundedBox, bevelCylinder, mat, groundAO } from '../world/
 import type { GameMap } from '../world/map';
 import { EmoteBubble } from '../entities/remote-emotes';
 import { globalUniforms } from '../render/uniforms';
-import { SmokeEmitter } from '../render/particles';
+import { SmokeEmitter, BurstFX, PointPool } from '../render/particles';
+import { textures } from '../render/textures';
 import { materials } from '../render/materials';
 
 /** Footprint top-left tile of each cabin slot (3×3 tiles, door on the south side). */
@@ -274,6 +275,88 @@ function buildCabin(b: MeshBuilder, cx: number, y: number, cz: number, accent: n
   b.add(W_, bevelCylinder(0.22, 0.2, 0.5, 0.04, 9), at(-W / 2 - 0.3, 0, D * 0.3), { tint: 0x8a5a34 });
 }
 
+/**
+ * (r8) The dust a raised cabin kicks up: soft smoke-puff billows (not hard dots) that roll outward low
+ * over the grass, swell, rise a little and thin out, lit like the chimney smoke (sun + sky tint), so
+ * the cloud has value and reads as dust in the light rather than a flat cream decal. One Points draw.
+ */
+class DustCloud {
+  readonly object: THREE.Points;
+  private pool: PointPool;
+  private age: Float32Array;
+  private life: Float32Array;
+  private vel: Float32Array;
+  private s0: Float32Array;
+  private lum: Float32Array;
+  private next = 0;
+  live = 0;
+
+  constructor(count = 160) {
+    this.pool = new PointPool(count, textures.smokePuff().map, false);
+    this.object = this.pool.points;
+    this.object.name = 'cabin-dust';
+    this.object.renderOrder = 5;
+    this.age = new Float32Array(count).fill(99);
+    this.life = new Float32Array(count).fill(1);
+    this.vel = new Float32Array(count * 3);
+    this.s0 = new Float32Array(count);
+    this.lum = new Float32Array(count);
+  }
+
+  /** A ring of billows round (x, z): radius rx / rz, `n` puffs, outward speed `sp`. */
+  ring(x: number, y: number, z: number, rx: number, rz: number, n: number, sp: number, size: number, life: number): void {
+    for (let k = 0; k < n; k++) {
+      const i = this.next;
+      this.next = (this.next + 1) % this.pool.n;
+      const a = (k / n) * Math.PI * 2 + Math.random() * 0.4;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      this.pool.pos[i * 3] = x + ca * rx * (0.85 + Math.random() * 0.3);
+      this.pool.pos[i * 3 + 1] = y + 0.15 + Math.random() * 0.35;
+      this.pool.pos[i * 3 + 2] = z + sa * rz * (0.85 + Math.random() * 0.3);
+      const v = sp * (0.6 + Math.random() * 0.7);
+      this.vel[i * 3] = ca * v;
+      this.vel[i * 3 + 1] = 0.25 + Math.random() * 0.45;
+      this.vel[i * 3 + 2] = sa * v;
+      this.age[i] = 0;
+      this.life[i] = life * (0.75 + Math.random() * 0.5);
+      this.s0[i] = size * (0.7 + Math.random() * 0.6);
+      this.lum[i] = 0.82 + Math.random() * 0.3;
+    }
+    this.live = Math.max(this.live, life * 1.3);
+  }
+
+  update(dt: number, viewH: number): void {
+    this.pool.setViewportHeight(viewH);
+    if (this.live > 0) this.live -= dt;
+    const sun = globalUniforms.uSunColor.value as THREE.Color;
+    const sky = globalUniforms.uSkyColor.value as THREE.Color;
+    for (let i = 0; i < this.pool.n; i++) {
+      const a = (this.age[i]! += dt);
+      const t = a / this.life[i]!;
+      if (t >= 1) {
+        this.pool.alpha[i] = 0;
+        continue;
+      }
+      const drag = Math.exp(-dt * 2.6);
+      this.vel[i * 3]! *= drag;
+      this.vel[i * 3 + 2]! *= drag;
+      this.vel[i * 3 + 1]! *= Math.exp(-dt * 1.4);
+      this.pool.pos[i * 3]! += this.vel[i * 3]! * dt;
+      this.pool.pos[i * 3 + 1]! += this.vel[i * 3 + 1]! * dt;
+      this.pool.pos[i * 3 + 2]! += this.vel[i * 3 + 2]! * dt;
+      this.pool.size[i] = this.s0[i]! * (0.75 + 1.1 * Math.sqrt(t));
+      this.pool.alpha[i] = Math.min(1, t * 9) * Math.pow(1 - t, 1.5) * 0.95;
+      // warm earth dust lit by the sun, cooled by the sky in the shade side
+      const l = this.lum[i]!;
+      this.pool.color[i * 3] = (0.92 * sun.r * 0.66 + 0.8 * sky.r * 0.34) * l;
+      this.pool.color[i * 3 + 1] = (0.76 * sun.g * 0.66 + 0.7 * sky.g * 0.34) * l;
+      this.pool.color[i * 3 + 2] = (0.55 * sun.b * 0.66 + 0.6 * sky.b * 0.34) * l;
+    }
+    this.pool.flush();
+  }
+}
+
 export class Cabins {
   private group: THREE.Group | null = null;
   private key = '';
@@ -282,6 +365,136 @@ export class Cabins {
   private lamps: THREE.PointLight[] = [];
   /** A thin wisp from every cabin's chimney pot (1 draw each, only while the farm is on screen). */
   private smoke: SmokeEmitter[] = [];
+  /**
+   * (r8) Cabin raising: a friend joining live gets their cabin built in front of everyone — it springs
+   * up out of a dust ring (squash on landing, wood chips, a gold sparkle over the ridge, an axe-tap /
+   * thump / chime cue) and then merges into the shared cabin mesh. Runs on every machine (host and
+   * farmhands each see the new farmer's cabin rise). Slots asked for by `raise()` only animate when they
+   * are new on the map already on screen (never on load, a map change or a rejoin).
+   */
+  private raising = new Map<number, { t: number; group: THREE.Group; x: number; y: number; z: number; hold: number | null; cue: number }>();
+  private wantRaise = new Set<number>();
+  private holdRaise: number | null = null;
+  private mapRef: GameMap | null = null;
+  private lastSlots = new Map<number, number>();
+  private fx: BurstFX | null = null;
+  private dust: DustCloud | null = null;
+  private fxLive = 0;
+  /** Positional cue hook (NetSystem wires it to the audio service). */
+  onCue: ((name: string, x: number, z: number) => void) | null = null;
+
+  /** Animate `slot`'s cabin the next time it appears (a farmer just joined). `hold` freezes it at that time (stills). */
+  raise(slot: number, hold: number | null = null, force = false): void {
+    this.wantRaise.add(slot);
+    this.holdRaise = hold;
+    // force: raise it even though it already stands / the map just loaded (the joining farmer's own cabin)
+    if (force) {
+      this.forceRaise.add(slot);
+      this.key = '';
+    }
+  }
+  private forceRaise = new Set<number>();
+
+  /** Slots whose cabin is rising right now (tests / demos). */
+  raisingSlots(): number[] {
+    return [...this.raising.keys()];
+  }
+
+  private clearRaising(): void {
+    for (const r of this.raising.values()) {
+      r.group.removeFromParent();
+      r.group.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    }
+    this.raising.clear();
+  }
+
+  private burst(map: GameMap): BurstFX {
+    if (!this.fx) this.fx = new BurstFX(360);
+    if (this.fx.object.parent !== map.root) map.root.add(this.fx.object);
+    this.fx.object.visible = true;
+    this.fxLive = 2.4;
+    return this.fx;
+  }
+
+  /** Step the rising cabins (squash-and-stretch spring) + their dust / chips / sparkle bursts. */
+  private stepRaising(map: GameMap | null, dt: number, viewH: number): void {
+    // A held raise (demo stills) plays up to its hold time and then freezes — the cabin and the
+    // dust / chips / sparkle in flight — so a still shows the beat mid-air.
+    const frozen = [...this.raising.values()].some((r) => r.hold !== null && r.t >= r.hold);
+    if (this.fx && this.fxLive > 0 && !frozen) {
+      this.fxLive -= dt;
+      this.fx.update(Math.min(dt, 0.1), viewH);
+      if (this.fxLive <= 0) this.fx.object.visible = false;
+    }
+    if (this.dust && this.dust.live > 0 && !frozen) {
+      this.dust.update(Math.min(dt, 0.1), viewH);
+      if (this.dust.live <= 0) this.dust.object.visible = false;
+    }
+    if (!this.raising.size || !map) return;
+    const v = new THREE.Vector3();
+    const dust = (): DustCloud => {
+      if (!this.dust) this.dust = new DustCloud();
+      if (this.dust.object.parent !== map.root) map.root.add(this.dust.object);
+      this.dust.object.visible = true;
+      return this.dust;
+    };
+    let done = false;
+    for (const [, r] of this.raising) {
+      r.t = r.hold !== null ? Math.min(r.hold, r.t + Math.min(dt, 0.1)) : r.t + Math.min(dt, 0.1);
+      const t = r.t;
+      // rise: out of the dust from a flat footprint (0.12 s in), decelerating to a 10 % overshoot at the
+      // landing (1.1 s), then a damped squash-and-stretch settles it (continuous at the landing)
+      const LAND = 1.1;
+      const u = THREE.MathUtils.clamp((t - 0.12) / (LAND - 0.12), 0, 1);
+      let sy = Math.max(0.02, 1.1 * (1 - (1 - u) * (1 - u)));
+      let sxz = 0.82 + 0.135 * (1 - Math.pow(1 - u, 3));
+      if (t > LAND) {
+        const k = t - LAND;
+        const w = Math.exp(-k * 6.5) * Math.cos(k * 17);
+        sy = 1 + 0.1 * w;
+        sxz = 1 - 0.045 * w;
+      }
+      r.group.scale.set(sxz, sy, sxz);
+      r.group.visible = true;
+      const fx = (): BurstFX => this.burst(map);
+      // cues fire once each, also when a still is held at a later time (hold = the seek point)
+      if (r.cue < 1 && t >= 0) {
+        r.cue = 1;
+        const b = fx();
+        // a billowing dust skirt round the footprint that rolls outward and hangs
+        dust().ring(r.x, r.y, r.z, 1.6, 1.5, 40, 1.4, 0.62, 2.0);
+        dust().ring(r.x, r.y, r.z, 1.85, 1.75, 18, 2.1, 0.5, 1.6);
+        // + clods of turf thrown off the site as the plinth breaks through
+        b.emit(v.set(r.x, r.y + 0.15, r.z), { color: 0x6f4a2c, count: 18, speed: 2.4, up: 1.1, gravity: 9, life: 0.9, size: 0.09, spread: 3.0 });
+        this.onCue?.('axe', r.x, r.z);
+      }
+      if (r.cue < 2 && t >= 0.28) {
+        r.cue = 2;
+        fx().emit(v.set(r.x, r.y + 0.9, r.z), { color: 0x7a5434, count: 40, speed: 3.0, up: 1.5, gravity: 8, life: 1.2, size: 0.075, spread: 2.6 });
+        this.onCue?.('axe', r.x, r.z);
+      }
+      if (r.cue < 3 && t >= LAND) {
+        r.cue = 3;
+        const b = fx();
+        dust().ring(r.x, r.y, r.z, 1.95, 1.8, 28, 2.4, 0.66, 1.7);
+        b.emit(v.set(r.x, r.y + 3.0, r.z), { color: 0xffe39a, count: 30, speed: 1.4, up: 0.9, gravity: -0.35, life: 1.6, size: 0.13, spread: 2.6 });
+        this.onCue?.('place', r.x, r.z);
+        this.onCue?.('craft', r.x, r.z);
+      }
+      if (t >= 2.3 && r.hold === null) done = true;
+    }
+    if (done) {
+      for (const [slot, r] of [...this.raising]) {
+        if (r.t < 2.3) continue;
+        r.group.removeFromParent();
+        r.group.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+        this.raising.delete(slot);
+      }
+      // merge the finished cabin into the shared mesh (lamps + smoke join it)
+      this.key = '';
+      this.set(this.mapRef, this.lastSlots);
+    }
+  }
 
   /**
    * Show the "asleep" bubble over each cabin in `sleeping` (slots), fade the rest. The bubble rides an
@@ -292,6 +505,7 @@ export class Cabins {
     const glow = globalUniforms.uLamps.value as number;
     for (const l of this.lamps) l.intensity = 6 * glow;
     if (map) for (const sm of this.smoke) sm.update(Math.min(dt, 0.1), night, viewH);
+    this.stepRaising(map, dt, viewH);
     for (const slot of sleeping) {
       const s = CABIN_SITES[slot];
       if (!s || !map || this.zzz.get(slot)?.on) continue;
@@ -319,17 +533,57 @@ export class Cabins {
   /** Rebuild the cabins for `slots` (slot index → accent colour) on the farm map. */
   set(map: GameMap | null, slots: Map<number, number>): void {
     const key = [...slots.entries()].sort((a, b) => a[0] - b[0]).map(([s, c]) => `${s}:${c}`).join(',');
-    if (key === this.key && this.group?.parent === map?.root) return;
+    if (key === this.key && (this.group?.parent === map?.root || (!this.group && this.raising.size && this.mapRef === map))) return;
     this.key = key;
+    // (r8) a slot asked to rise that is new on the map already on screen springs up on its own
+    const prev = this.mapRef === map && map ? new Set(this.lastSlots.keys()) : null;
+    if (this.mapRef !== map) this.clearRaising();
+    this.mapRef = map;
+    this.lastSlots = new Map(slots);
+    const hold = this.holdRaise;
+    const fresh = [...this.wantRaise].filter((s) => slots.has(s) && (this.forceRaise.has(s) || (prev && !prev.has(s))) && !this.raising.has(s) && CABIN_SITES[s]);
+    this.wantRaise.clear();
+    this.forceRaise.clear();
+    this.holdRaise = null;
+    for (const s of [...this.raising.keys()]) if (!slots.has(s)) {
+      const r = this.raising.get(s)!;
+      r.group.removeFromParent();
+      r.group.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+      this.raising.delete(s);
+    }
     if (this.group) {
       this.group.removeFromParent();
       this.group.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
       this.group = null;
     }
-    if (!map || !slots.size) return;
+    if (!map || !slots.size) {
+      this.clearRaising();
+      return;
+    }
+    for (const slot of fresh) {
+      const s = CABIN_SITES[slot]!;
+      let y = Infinity;
+      for (const [dx, dz] of [[0, 0], [3, 0], [0, 3], [3, 3], [1.5, 1.5]] as const) y = Math.min(y, map.heightAt(s.x0 + dx, s.z0 + dz));
+      const rb = new MeshBuilder();
+      const keep = chimneyTops.length;
+      buildCabin(rb, 0, 0, 0, slots.get(slot)!, slot);
+      chimneyTops.length = keep;
+      const group = rb.build({ castShadow: true, receiveShadow: true, name: 'cabin-raising' });
+      group.position.set(s.x0 + 1.5, y, s.z0 + 1.5);
+      group.scale.set(0.82, 0.02, 0.82);
+      group.userData.perfTag = 'cabins';
+      group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh && /windowCard|lampGlow|glass/.test(m.name)) m.castShadow = false;
+      });
+      map.root.add(group);
+      this.raising.set(slot, { t: 0, group, x: s.x0 + 1.5, y, z: s.z0 + 1.5, hold, cue: 0 });
+    }
+    const built = [...slots].filter(([slot]) => !this.raising.has(slot) && CABIN_SITES[slot]);
+    if (!built.length) return;
     const b = new MeshBuilder();
     chimneyTops.length = 0;
-    for (const [slot, accent] of slots) {
+    for (const [slot, accent] of built) {
       const s = CABIN_SITES[slot];
       if (!s) continue;
       const cx = s.x0 + 1.5;
@@ -343,7 +597,7 @@ export class Cabins {
     // go through the renderer's light budget (constant count, nearest-the-view win), so this adds no
     // shader cost; intensity follows the lamps' dusk curve (uLamps) in sleepers().
     this.lamps = [];
-    for (const slot of slots.keys()) {
+    for (const [slot] of built) {
       const s = CABIN_SITES[slot];
       if (!s) continue;
       const l = new THREE.PointLight(0xffb060, 0, 6.5, 1.3);

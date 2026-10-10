@@ -452,6 +452,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [6, 'bakery_front', 'knead'],
       [10, 'bakery_front', 'carry'],
       [11, 'market_produce', 'chat'],
+      // (r21 critic: "at noon the plaza holds only 3 villagers" — the lunch rush: Bram serves at his door)
+      [12, 'bakery_front', 'idle'],
       [13, 'bakery_front', 'knead'],
       [16, 'cafe', 'sit'],
       [18, 'inn_front', 'chat'],
@@ -628,8 +630,12 @@ export const NPCS: Record<NpcId, NpcDef> = {
         // down on the farmer's hat crown, half the frame empty river and grass". Re-blocked from the
         // far (east) bank across the water: Wren at her easel facing the river and the lens, the
         // farmer at her shoulder, the Kettle Bridge arching beside them and held in every shot.)
-        cast: { wren: ['easel_river', 'right'], player: [[60.25, 20.1], 'left'] },
-        camera: { x: 61.0, z: 21.6, yaw: 108, pitch: 32, distance: 13 },
+        // (r21 critic: the farmer stood IN the river among the cattails; ~40 % of the choice frame was flat
+        // bridge deck seen end-on and Wren's face hid behind her hair — the farmer comes up the bank on her
+        // landward side and the lens looks down the bank from the north, so the pair talk in three-quarter
+        // profile with the Kettle Bridge's arch side-on behind them and the river on the left)
+        cast: { wren: ['easel_river', 'right'], player: [[58.25, 20.85], 'right'] },
+        camera: { x: 59.4, z: 22.6, yaw: 186, pitch: 25, distance: 12 },
         subject: { at: [62.6, 25.3], y: 1.1, label: 'Kettle Bridge', hold: true },
         // Yesterday's attempt, propped on a field stand beside her: the painting she asks about.
         props: [{ kind: 'painting', at: [60.5, 22.9], rot: 1.4, scale: 1.3, word: 'look like a river' }],
@@ -694,7 +700,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
     portraitBg: [0xf2b48a, 0xb8563a],
     schedule: [
       [6, 'forge_anvil', 'hammer'],
-      [12, 'inn_tables', 'sit'],
+      // (r21: lunch on the square — at the fountain's lens-side rim with Hazel, not the inn across the river)
+      [11.75, 'plaza_lunch', 'chat'],
       [13, 'forge_anvil', 'hammer'],
       [18, 'bridge_mid', 'lean'],
       [19.5, 'inn_front', 'chat'],
@@ -819,7 +826,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [8.5, 'fountain_e', 'chat'],
       [10, 'clinic_front', 'sweep'],
       [11, 'door:clinic', 'inside'],
-      [12, 'bench_se', 'read'],
+      // (r21: his lunch hour at the notice board — the bench sat in front of the plaza lens's toolbar)
+      [12, 'notice', 'read'],
       [13, 'door:clinic', 'inside'],
       [17, 'river_walk', 'wander'],
       [19, 'inn_tables', 'read'],
@@ -941,8 +949,10 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [8, 'inn_front', 'sweep'],
       [9.25, 'fountain_s', 'chat'],
       [11, 'market_flowers', 'chat'],
-      [12, 'inn_front', 'carry'],
-      [12.5, 'door:inn', 'inside'],
+      // (r21: the noon queue at the bakery, then the inn's lunch service)
+      [12, 'bakery_front', 'chat'],
+      [12.75, 'inn_front', 'carry'],
+      [13, 'door:inn', 'inside'],
       [15, 'inn_tables', 'idle'],
       [17, 'inn_front', 'chat'],
       [18, 'door:inn', 'inside'],
@@ -1179,6 +1189,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [8, 'door:schoolhouse', 'inside'],
       [10, 'school_yard', 'play'],
       [11, 'river_dock', 'fish'],
+      // (r21: school's out for lunch — hopscotch on the square)
+      [12, 'plaza_hop', 'play'],
       [13, 'plaza_play', 'play'],
       [16, 'hall_steps', 'sit'],
       [18, 'door:birch_house', 'inside'],
@@ -1294,7 +1306,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
     schedule: [
       [6, 'door:birch_house', 'inside'],
       [7.5, 'lumber_yard', 'saw'],
-      [12, 'inn_tables', 'sit'],
+      // (r21: a lunchtime chat at the fountain with Marigold — a knot of two, facing each other)
+      [11.75, 'fountain_wn', 'chat'],
       [13, 'lumber_yard', 'saw'],
       [17, 'bridge_mid', 'lean'],
       [18.5, 'inn_tables', 'sit'],
@@ -1412,6 +1425,8 @@ export const NPCS: Record<NpcId, NpcDef> = {
       [9, 'planters_hall', 'water'],
       [10, 'allotment', 'water'],
       [11, 'market_flowers', 'chat'],
+      // (r21: lunch at the fountain's rim with Odessa — a knot of two facing each other)
+      [12, 'plaza_lunch', 'chat'],
       [13, 'door:cottage_east', 'inside'],
       [15, 'garden_east', 'water'],
       [17.5, 'bench_sw', 'sit'],

@@ -466,6 +466,7 @@ export class NetSystem implements System, NetApi {
     game.events.on('inventory:change', () => this.markPersonal());
     game.events.on('day:start', () => this.onDayStart());
     game.events.on('map:change', () => this.refreshCabins());
+    this.cabins.onCue = (name, x, z) => game.services.audio?.playAt(name, x, z, { map: 'farm' });
     game.events.on('demo:stage', ({ showcase, name }) => this.demo.stage(name, showcase));
     game.events.on('game:pause', ({ paused }) => {
       // Co-op never stops the shared clock for a menu (the host's time is everyone's time).
@@ -1131,7 +1132,12 @@ export class NetSystem implements System, NetApi {
       const p = this.remotes.add(from, name, look);
       p.away = false;
       this.pidOf.set(from, pid);
-      if (!this.cabinOf.has(from)) this.cabinOf.set(from, this.freeCabin());
+      const newCabin = !this.cabinOf.has(from);
+      if (newCabin) {
+        this.cabinOf.set(from, this.freeCabin());
+        // (r8) a new friend's cabin is raised in front of everyone (a rejoin keeps the standing one)
+        if (isNew) this.cabins.raise(this.cabinOf.get(from)!);
+      }
       p.cabin = this.cabinOf.get(from)!;
       this.refreshCabins();
       const spawn = p.cabin >= 0 ? cabinFront(p.cabin) : { x: 32, z: 20.5 };
@@ -1154,6 +1160,7 @@ export class NetSystem implements System, NetApi {
           full: full ? { ...full, digest: [...this.sync.digest()] } : null,
           psave: ps,
           reps: this.bridge.snapshots(),
+          raised: newCabin && isNew ? 1 : 0,
         },
       ]);
       this.broadcastRoster();
@@ -1531,7 +1538,10 @@ export class NetSystem implements System, NetApi {
           const lk = sanitizeLook(look);
           const fresh = !this.remotes.get(id);
           const p = this.remotes.add(id, name, lk);
-          if (fresh && this.welcomed && id !== this.hostId) this.chatSystem(`<b>${esc(name)}</b> joined the farm`, 'good');
+          if (fresh && this.welcomed && id !== this.hostId) {
+            this.chatSystem(`<b>${esc(name)}</b> joined the farm`, 'good');
+            if (cabin >= 0 && !this.cabinOf.has(id)) this.cabins.raise(cabin);
+          }
           if (JSON.stringify(p.look) !== JSON.stringify(lk)) p.setLook(lk);
           p.isHost = id === this.hostId;
           p.ready = ready === 1;
@@ -1741,6 +1751,11 @@ export class NetSystem implements System, NetApi {
     this.applyCal(w.cal, true);
     this.settleGold(w.gold, w.goldAck ?? 0);
     if (w.full) this.applyFull(w.full);
+    // (r8) a first join: our new cabin is raised in front of us too, and we wave hello as it lands
+    if (first && w.raised === 1 && w.cabin >= 0) {
+      this.cabins.raise(w.cabin, null, true);
+      this.later(1300, () => this._role === 'client' && this.emote('happy'));
+    }
     this.refreshCabins();
     this.setStatus('playing');
     this.flushPersonal();
@@ -2236,6 +2251,14 @@ export class NetSystem implements System, NetApi {
     this.remotes.local.pill(coop ? this.myName() : null, hex(this.myLook().scarf), this._role !== 'client');
   }
 
+  /** Demos: raise `slot`'s cabin on its next appearance (`hold` s freezes the still there). */
+  raiseCabin(slot: number, hold: number | null = null): void {
+    this.cabins.raise(slot, hold);
+  }
+  raisingCabins(): number[] {
+    return this.cabins.raisingSlots();
+  }
+
   /** Cabins for every farmhand slot in use (plus demo bots). */
   refreshCabins(extra?: Map<number, number>): void {
     const slots = new Map<number, number>();
@@ -2399,6 +2422,8 @@ interface Welcome {
   full: FullState | null;
   psave: PSave | null;
   reps?: Record<string, unknown>;
+  /** (r8) 1 = this farmer's cabin was just built for them (a first join, not a rejoin): raise it on arrival. */
+  raised?: number;
 }
 
 function esc(s: string): string {
