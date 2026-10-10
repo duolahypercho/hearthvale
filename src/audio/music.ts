@@ -596,6 +596,32 @@ export class MusicDirector {
     this.counts.clear();
   }
 
+  /**
+   * Co-op (round 21): a farmhand's calendar has just become the host's (net applyCal sets the day
+   * without a day:start). Reseed, and if a playlist song is playing that the host's day would not
+   * open with, crossfade to the one it would — so on the farm both machines play the same song
+   * (the coop-perf run had the host on Apple Blossom Waltz and the farmhand on First Furrow).
+   */
+  resync(daySeed: number): void {
+    if (daySeed === this.baseSeed) return;
+    this.reseed(daySeed);
+    const cur = this.current;
+    if (!cur || !PLAYLISTS[cur.group]) return;
+    const host = songFor(cur.group, daySeed, 0);
+    if (host === cur.theme.id) {
+      this.counts.set(cur.group, 1);
+      this.counts.set(`#${cur.theme.id}`, 1);
+      return;
+    }
+    const now = this.g.ctx.currentTime;
+    cur.stop(1.3, now);
+    this.bridge = { key: cur.keyAt(now), mode: cur.theme.mode };
+    this.restUntil = this.handoffStart = now + 0.05;
+    this.log(`resync ${cur.theme.id}→${host} (the host's day)`, cur.group);
+    this.old.push(cur);
+    this.current = null;
+  }
+
   /** Start the wanted theme as soon as any pending handoff allows, skipping a rest between songs. */
   kick(): void {
     const now = this.g.ctx.currentTime;

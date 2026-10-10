@@ -29,16 +29,21 @@ export const SONGBOOK_MINE: Record<string, ThemeDef> = {
     mode: 'dorian',
     swing: 0.54,
     // A four-bar vamp of bass and pizzicato alone (the lamp being lit), then the tune.
-    form: ['intro', 'A', 'B', 'A', 'B', 'A', 'outro'],
+    // (Round 21, critic r6: "47.6 % distinct melodic bars" — it was A B A B A, every strain literal.
+    // The second B is now a bridge: the cello takes a new strain down in the seam (F major, a borrowed
+    // Bb and G minor — the dorian B natural goes dark), and the A / B that come back after it are
+    // varied, each with a written appoggiatura or suspension where the first statement sat on the chord.)
+    form: ['intro', 'A', 'B', 'A', 'C', 'A', 'B', 'A', 'outro'],
     prog: {
       intro: ['i', 'IV', 'i', 'IV'],
       A: ['i', 'IV', 'i', 'bVII', 'bIII', 'IV', 'v', 'i'],
       Aend: ['bVII IV', 'i'],
       B: ['bIII', 'bVII', 'IV', 'i', 'bIII', 'bVII', 'ii7', 'v7'],
+      C: ['bIII', 'bVI', 'bIII', 'bVII', 'iv', 'bVII', 'bIII', 'v7'],
       outro: ['IV', 'i'],
     },
     melody: {
-      inst: 'clarinet', range: [55, 79], density: 0.5, legato: true, ornament: 0.2, bInst: 'clarinet',
+      inst: 'clarinet', range: [55, 79], density: 0.5, legato: true, ornament: 0.2, bInst: 'clarinet', cInst: 'cello',
       tune: {
         octave: 0,
         // "D E F A. | B A G B… | A F G F D | E… (C D) | F. G A D' | C' B A B G | A. F E C | D… |"
@@ -46,6 +51,16 @@ export const SONGBOOK_MINE: Record<string, ThemeDef> = {
         Aend: ['2:2 3:2 4:2 6:2', '1:6 r:2'],
         // "A. B C' D' | E'… D' C' | B. A G B | A… | F A D'. C' | E' D' C' A | B G E. G | A… |"
         B: ["5:3 6:1 7:2 1':2", "2':4 1':2 7:2", '6:3 5:1 4:2 6:2', '5:6 r:2', "3:2 5:2 1':3 7:1", "2':2 1':2 7:2 5:2", '6:2 4:2 2:3 4:1', '5:6 r:2'],
+        // C (cello): "A.. F G A | Bb. A F D | F G A C' | D'. C' G - | G Bb D'. C' | C'.. E' D' | D' C' B A | B C' A.. |"
+        // — the D' over the C chord a 9-8, the B over the v7 resolving up into the tune's pickup.
+        C: ['5:4 3:2 4:1 5:1', 'b6:3 5:1 3:2 1:2', '3:2 4:2 5:2 7:2', "1':3 7:1 4:2 r:2", "4:2 b6:2 1':3 7:1", "7:4 2':2 1':2", "1':2 7:2 6:2 5:2", '6:2 7:2 5:4'],
+        // After the bridge: A's third bar runs down the scale (the E an appoggiatura), its fourth leans
+        // F to E over the C chord (4-3); the v gets a B over its root; B's tonic bar sighs B to A and its
+        // ii7 bar leans C' to B.
+        late: {
+          A: ['', '', '5:2 4:1 3:1 2:2 1:2', '3:3 2:1 r:2 7,:1 1:1', '', '', '6:3 5:1 3:2 2:2', ''],
+          B: ['', '', '', '6:2 5:4 r:2', '', '', '7:2 6:2 4:3 2:1', ''],
+        },
         pickup: '5,:1 7,:1',
       },
     },

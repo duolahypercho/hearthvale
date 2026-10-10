@@ -1097,6 +1097,8 @@ export class AudioSystem implements System {
     const slowDt = Math.min(0.5, this.slowDt);
     this.slowDt = 0;
     this.env = this.envState(slowDt, game);
+    // Co-op: a farmhand's day is the host's (net applyCal sets it without a day:start) — follow it.
+    if (!this.sleeping && game.services.net?.role() === 'client') e.music.resync(this.daySeed());
 
     // Music: selection, level and tone.
     this.timed('decide', () => this.decide(game));

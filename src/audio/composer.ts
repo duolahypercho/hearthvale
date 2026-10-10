@@ -62,6 +62,14 @@ export interface Tune {
    * so the tune is still the tune; what changes is where it goes. Never applies to the final A (Aend).
    */
   again?: Partial<Record<'A' | 'B' | 'C', string[]>>;
+  /**
+   * Variation bars after the bridge (round 21): every A / B that comes back after the first C takes
+   * these bars ('' = as written) — the player has been somewhere and plays the tune changed by it
+   * (a written appoggiatura on a cadence, a run where the first statement held, a new turn into the
+   * next strain). The hook bars are left as written; second-time bars (`again`) still win where both
+   * are given, and the final A's `Aend` wins over both.
+   */
+  late?: Partial<Record<'A' | 'B', string[]>>;
   /** Anacrusis into every A, written into the end of the bar before it. */
   pickup?: string;
 }
@@ -793,6 +801,15 @@ export class Composer {
         if (src) againBars[s] = src.map((x) => (x && x.trim() ? this.parseBar(x, true) : null));
       }
     }
+    // Variation bars after the bridge: which bars come after the form's first C.
+    const lateBars: Partial<Record<Section, (MNote[] | null)[]>> = {};
+    const firstC = th.form.indexOf('C');
+    if (tune?.late && firstC >= 0) {
+      for (const s of ['A', 'B'] as const) {
+        const src = tune.late[s];
+        if (src) lateBars[s] = src.map((x) => (x && x.trim() ? this.parseBar(x, true) : null));
+      }
+    }
     let prev: number | null = null;
     bars.forEach((b, bi) => {
       if (b.section === 'intro') return;
@@ -802,6 +819,7 @@ export class Composer {
       }
       const base = b.section === 'A' ? baseA : b.section === 'C' ? baseC : baseB;
       let src = base[b.i % base.length] ?? [];
+      if (firstC >= 0 && b.si > firstC) src = lateBars[b.section]?.[b.i] ?? src;
       if (again.has(`${b.section}:${b.occ}`)) src = againBars[b.section]?.[b.i] ?? src;
       if (b.section === 'A' && b.occ === finalOcc && endA && b.i >= b.len - endA.length) src = endA[b.i - (b.len - endA.length)] ?? src;
       const notes = src.map((n) => ({ ...n }));

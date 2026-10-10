@@ -109,7 +109,10 @@ async function main() {
       page.setDefaultTimeout(LOAD_MS);
       page.on('pageerror', (e) => errors.push(`${NAMES[i]}: ${e}`));
       for (const p of pages) await p.evaluate(() => window.__game.pause?.(true)).catch(() => {});
-      const q = i === 0 ? `map=farm&x=30.5&z=22.5&time=9&name=${NAMES[i]}` : `name=${NAMES[i]}`;
+      // (Round 21: the host starts at the farm's own spawn. Booting it at x=30.5 z=22.5 put it inside a
+      // farm collider since the layout changed — it never moved, so no farmhand ever heard the host's
+      // footfalls: the VOICED failures were the harness, not the audio.)
+      const q = i === 0 ? `time=9&name=${NAMES[i]}` : `name=${NAMES[i]}`;
       await page.goto(`${base}/?notitle=1&audio=1&quality=low&card=0&${q}&server=${encodeURIComponent(ws)}`, { waitUntil: 'commit', timeout: LOAD_MS });
       await page.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: LOAD_MS });
       await page.evaluate(() => window.__game.ready());
@@ -134,7 +137,17 @@ async function main() {
     }
     await pages[0].waitForFunction((n) => window.__game.game.services.net.players().length === n, N, { timeout: 60000 });
     // Everyone on the farm, a few tiles apart, facing the field.
-    for (let i = 0; i < N; i++) await pages[i].evaluate((k) => window.__game.teleport('farm', 30.5 + (k % 2) * 3, 23.5 + Math.floor(k / 2) * 3), i);
+    for (let i = 0; i < N; i++) await pages[i].evaluate((k) => window.__game.teleport('farm', 31.5 + k * 1.5, 19.5), i);
+    // Every partner must be free to walk: probe each with a short key hold and report any stuck one.
+    for (let i = 0; i < N; i++) {
+      const p0 = await pages[i].evaluate(() => window.__game.game.player.position.x);
+      await pages[i].keyboard.down('KeyD');
+      await sleep(400);
+      await pages[i].keyboard.up('KeyD');
+      const p1 = await pages[i].evaluate(() => window.__game.game.player.position.x);
+      if (Math.abs(p1 - p0) < 0.2) console.log(`  WARNING ${NAMES[i]} did not move on a key hold (x ${p0.toFixed(2)})`);
+      await pages[i].evaluate((k) => window.__game.teleport('farm', 31.5 + k * 1.5, 19.5), i);
+    }
     await sleep(4000);
     // Partners walk (key holds, the real movement + net path) and work: every 2 s one hoes or chats.
     const keys = ['KeyD', 'KeyS', 'KeyA', 'KeyW'];
@@ -211,6 +224,9 @@ async function main() {
             steps: (st.steps?.remote ?? 0) - steps0,
             sfx: log.length,
             players: window.__game.game.services.net.players().length,
+            // What this client sees of its partners (a VOICED failure says why: map, away, anim, speed).
+            here: window.__game.game.world.current?.id ?? null,
+            partners: [...(window.__game.game.services.net.remotes?.list?.values() ?? [])].map((p) => ({ id: p.id, map: p.map, away: p.away, anim: p.farmer?.anim, speed: Math.round((p.farmer?.speed ?? 0) * 100) / 100, parented: !!p.farmer?.root?.parent, x: Math.round(p.farmer?.position?.x * 10) / 10, z: Math.round(p.farmer?.position?.z * 10) / 10 })),
           };
         }, ms);
       // (Round 20: the A/B is interleaved — PAIRS on/off window pairs in ABBA order, the delta the
@@ -237,7 +253,15 @@ async function main() {
       if ((on.audioMsPerSec ?? 0) > AUDIO_BUDGET) fail.push(`AUDIO-CPU(${on.audioMsPerSec} ms/s > ${AUDIO_BUDGET})`);
       if (r.deltaMs > Math.max(0.35, off.meanMs * 0.03)) fail.push(`AUDIO-AB(+${r.deltaMs} ms/frame with audio)`);
       const walkedSec = (RECORD / 1000) * (N - 1) * 0.85 * 0.5;
-      if (on.steps < walkedSec) fail.push(`VOICED(${on.steps} partner steps in ${RECORD / 1000} s)`);
+      if (on.steps < walkedSec) {
+        fail.push(`VOICED(${on.steps} partner steps in ${RECORD / 1000} s)`);
+        console.log(`  ${NAMES[m]} on ${ons.at(-1)?.here} sees: ${JSON.stringify(ons.at(-1)?.partners ?? [])}`);
+        for (let i = 0; i < N; i++) {
+          if (i === m) continue;
+          const st = await pages[i].evaluate(() => { const g = window.__game.game; return { panel: g.hud.openPanelName, map: g.world.current?.id, x: Math.round(g.player.position.x * 10) / 10, z: Math.round(g.player.position.z * 10) / 10, focus: document.hasFocus(), active: document.activeElement?.tagName }; }).catch((e) => String(e));
+          console.log(`  partner ${NAMES[i]} itself: ${JSON.stringify(st)}`);
+        }
+      }
       r.fails = fail;
       out.fails.push(...fail.map((f) => `${NAMES[m]}: ${f}`));
       console.log(
