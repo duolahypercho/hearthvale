@@ -457,9 +457,9 @@ export function buildFlora(kind: FloraKind, r: Rng, variant: number, lod: number
         // Four understory silhouettes so the forest floor is never one tiled star: arching drooping
         // fronds, a lush broad-leaf hosta clump, a one-sided sword fan, and a soft grass clump.
         const FV = [
-          { n: 13, len: 0.46, w: 0.06, bend: 1.0, tilt: -0.75, spread: 1, dark: 0x2b5f2a, light: 0x76b247 },
+          { n: 16, len: 0.5, w: 0.055, bend: 1.0, tilt: -0.55, spread: 1, dark: 0x3b7433, light: 0x86bd52 },
           { n: 7, len: 0.42, w: 0.15, bend: 0.7, tilt: -0.3, spread: 1, dark: 0x2c6a35, light: 0x6fb85a },
-          { n: 9, len: 0.6, w: 0.11, bend: 0.65, tilt: -0.9, spread: 0.45, dark: 0x356b2a, light: 0x8ac04e },
+          { n: 14, len: 0.55, w: 0.07, bend: 0.85, tilt: -0.4, spread: 1, dark: 0x3d7430, light: 0x93c555 },
           { n: 17, len: 0.38, w: 0.04, bend: 0.4, tilt: -0.08, spread: 1, dark: 0x3d6e22, light: 0xa5c957 },
         ][variant % 4]!;
         const n = fern ? FV.n : 7 + r.int(0, 3);
@@ -470,7 +470,7 @@ export function buildFlora(kind: FloraKind, r: Rng, variant: number, lod: number
           const len = fern ? FV.len * (0.7 + r.next() * 0.6) : 0.34 + r.next() * 0.2;
           const g = leafBlade(len, fern ? FV.w : 0.085, fern ? FV.bend * (0.7 + r.next() * 0.5) : 0.5 + r.next() * 0.5);
           vcolor(g, (p) => dark.clone().lerp(light, THREE.MathUtils.smoothstep(p.y, 0, 0.35)));
-          b.add(wm, g, mat(0, 0, 0, fern ? FV.tilt + (r.next() - 0.5) * 0.3 : -0.15, a, 0));
+          b.add(wm, g, mat(0, 0, 0, fern ? FV.tilt * (0.25 + r.next() * 1.5) : -0.15, a + (fern ? (r.next() - 0.5) * 0.9 : 0), 0));
         }
         if (!fern) {
           // tiny seed-heads

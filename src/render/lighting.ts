@@ -386,6 +386,10 @@ export class DayNight {
     const storm = Math.max(0, oc - 0.9) / 0.1;
     this.fog.color.lerp(new THREE.Color(0.46, 0.52, 0.6).multiplyScalar((1 - this.night * 0.75) * (1 - storm * 0.3)), rainy * 0.6);
     this.fog.color.lerp(_stormFog, storm * 0.55 * (1 - this.night));
+    // Plain rain: a dark slate haze (not a light grey-green milk) and a dimmer sky fill.
+    const rainPlain = rainy * (1 - storm);
+    this.fog.color.lerp(new THREE.Color(0.17, 0.22, 0.29).multiplyScalar(1 - this.night * 0.75), rainPlain * 0.7);
+    this.hemi.intensity *= 1 - rainPlain * 0.3;
     (this.rc.scene.background as THREE.Color).copy(this.fog.color);
     // Rain thickens the distance haze, but storms stay crisp and dark (the drama is in the grade,
     // the rain sheets and the lightning, not in a milky wash).
