@@ -15,8 +15,9 @@
  *              tool impacts and harvests are placed at their tile, so a partner's actions pan and fade
  *
  * The AudioContext is created on the first user gesture (autoplay policy; `?audio=1` tries at boot).
- * Mine combat / rocks and fishing are voiced by their own pods (world/mine/sfx.ts, ui/fishing-sfx.ts),
- * so those events only duck the score here. Other modules can play any SFX by name:
+ * Mine combat / rocks (world/mine/sfx.ts) are cues voiced HERE through the audio hub (src/audio/hub.ts):
+ * the sfx.ts designs, placed at their world position, one voice per monster kind per swing. Animal
+ * calls and the fishing kit borrow the same context and SFX bus — there is no second AudioContext. Other modules can play any SFX by name:
  *   game.services.audio?.play('coin')          // see SFX_NAMES in src/audio/sfx.ts
  *   game.services.audio?.music('festival')     // force a theme (null = automatic, 'none' = silence)
  * Cutscenes: `{ do: 'cue', cue: 'music', arg: '<theme>|auto|none' }` and `{ do: 'cue', cue: 'sfx', arg: '<name>' }`.
@@ -27,15 +28,44 @@ import type { Game } from '../core/game';
 import { TileFlag, TileType } from '../world/tiles';
 import { AudioEngine } from '../audio/engine';
 import type { EnvState, AmbSeason, AmbWeather } from '../audio/ambience';
-import { chooseTheme, songFor, STORM_OUTDOOR_LEVEL } from '../audio/select';
+import { chooseTheme, MENU_LEVEL, MENU_MUFFLE, MENU_TAU, songFor, STORM_OUTDOOR_LEVEL } from '../audio/select';
 import { PiecePrefetch } from '../audio/prefetch';
-import { MusicDirector, MUSIC_LOOKAHEAD, MUSIC_STATS } from '../audio/music';
+import { MusicDirector, MUSIC_LOOKAHEAD, MUSIC_SEEK, MUSIC_STATS } from '../audio/music';
 import { THEMES, festivalTheme, type FestivalHint } from '../audio/themes';
+import { eventCue } from '../audio/songbook-events';
+import { audioHub } from '../audio/hub';
+import { heartEvent } from '../data/npcs';
 import { voiceFor, type Surface } from '../audio/sfx';
 import { tuneHook } from '../audio/composer';
 import type { DirectorTrace } from '../audio/music';
 import { NowPlaying } from '../audio/nowplaying';
 import { RENDER_STATS } from '../audio/instruments';
+import { drainOffFrame, offFrame } from '../audio/cost';
+import { RemoteFarmer } from '../entities/remote-farmer';
+import { PRESET_LOOKS } from '../entities/remote-look';
+
+/** What the audio needs of another farmer (duck-typed off the net layer's RemotePlayers). */
+interface RemoteLike {
+  map: string;
+  away: boolean;
+  farmer: { anim: string; speed: number; position: { x: number; z: number }; root: { parent: unknown } };
+}
+/** Per remote farmer: stride phase (footfalls every π) and the last angler state seen. */
+interface RemoteVoice {
+  phase: number;
+  fish: string;
+  reelT: number;
+}
+
+/**
+ * Rest between songs on the farm by day (see MusicDirector.restOverride). Round 16 (critic r6): the
+ * README's continuity contract is a 5–15 s breath everywhere — farm days used 30–90 s, which read as
+ * the music dropping out. A farm day breathes a little longer than town (8–15 s), never more.
+ */
+export const FARM_REST: [number, number] = [8, 15];
+
+/** Panels that are a menu "page" (the score steps back behind them; see update()). */
+const MENU_PANELS = new Set(['inventory', 'shop', 'crafting', 'map', 'journal', 'bundles', 'board', 'social', 'carpenter', 'tackle', 'coop', 'letter', 'elevator', 'saves']);
 
 export interface AudioState {
   running: boolean;
@@ -67,7 +97,7 @@ export interface AudioState {
   /** Songs composed in the worker (hits) vs on the main thread (misses, with their total ms). */
   compose: { hits: number; misses: number; syncMs: number };
   /** Mallet / string note buffers: rendered by the worker vs on this thread (+ ms), cache size. */
-  notes: { worker: number; main: number; mainMs: number; cacheMb: number; byInst: Record<string, number> };
+  notes: { worker: number; main: number; mainMs: number; cacheMb: number; byInst: Record<string, number>; recentMain?: string[] };
   /** AudioContext state ('running' | 'suspended' | 'interrupted' | 'closed' | 'none'). */
   ctxState: string;
   /** Music-bus RMS (dBFS) at the moment of the call — the score alone, without ambience / SFX. */
@@ -78,6 +108,12 @@ export interface AudioState {
    * visible), master restores after a hidden-tab fade.
    */
   sched: { lookahead: number; late: number; skipped: number; errors: number; recoveries: number; resumes: number; restores: number };
+  /**
+   * Round 17 (co-op perf): where the audio stack's main-thread time goes, ms per second of frames
+   * over the last ~5 s — the local feet, the director's decisions, scheduling (music / ambience /
+   * SFX ticks), the remote farmers' voices and the off-frame work (worker deliveries, watchdog).
+   */
+  cost: Record<string, number>;
 }
 
 export interface AudioApi {
@@ -106,6 +142,30 @@ export interface AudioApi {
   state(): AudioState;
   /** Output level right now (dBFS RMS over ~46 ms) — for tests: is the game actually making sound? */
   meter(): number;
+  /**
+   * Frame telemetry over the last ~5 s (measured from the frame deltas the audio system sees every
+   * frame): fps, mean / p95 frame time, and the main-thread milliseconds per second the audio system
+   * itself costs (scheduling, SFX graphs, any fallback note renders).
+   */
+  perf(): AudioPerf;
+  /**
+   * Perf A/B (scripts/audio-coop-perf.mjs): `true` suspends the context and keeps it suspended (the
+   * keep-alive and gestures leave it alone), so the frame loop's audio work drops to the early-out;
+   * `false` resumes it.
+   */
+  benchOff(off: boolean): void;
+}
+
+export interface AudioPerf {
+  fps: number;
+  frameAvgMs: number;
+  frameP95Ms: number;
+  /** The whole audio stack's main-thread ms per second: the frame update + off-frame work. */
+  audioMsPerSec: number;
+  /** …of which outside the frame loop (worker deliveries, the watchdog): `src/audio/cost.ts`. */
+  offFrameMsPerSec: number;
+  /** Note buffers rendered on the main thread so far (should stay 0 in real time). */
+  mainRenders: number;
 }
 
 declare module '../core/game' {
@@ -126,7 +186,7 @@ const TOOL_SWING: Record<string, string> = { hoe: 'swing', axe: 'swing', pickaxe
 const UI_KIND: Record<string, string> = {
   click: 'ui:click', hover: 'ui:hover', open: 'ui:open', close: 'ui:close', error: 'ui:error', buy: 'purchase',
   sell: 'ui:sell', coin: 'coin', craft: 'craft', trash: 'ui:trash', pickup: 'pickup', drop: 'ui:drop', tab: 'ui:tab',
-  toggle: 'ui:toggle', tick: 'ui:tick', sort: 'ui:tab', select: 'ui:select',
+  toggle: 'ui:toggle', tick: 'ui:tick', sort: 'ui:tab', select: 'ui:select', 'kin-earn': 'kin:earn', 'kin-mint': 'kin:mint',
 };
 
 export class AudioSystem implements System {
@@ -137,6 +197,15 @@ export class AudioSystem implements System {
   private vol = { master: 0.8, music: 0.7, sfx: 0.9, ambience: 0.7 };
   private muted = false;
   private forced: string | null = null;
+  /**
+   * The event score: while a heart event or a story scene plays, its cue (songbook-events.ts) stands
+   * in for the place's music; a cutscene's own `cue: 'music'` (forced) still wins. `kick` asks the
+   * director for a quick fade instead of waiting for the phrase end.
+   */
+  private sceneCue: { id: string; theme: string; kick: boolean } | null = null;
+  /** Between-songs teaser bookkeeping (see updateInner): when this rest began, and whether it has played. */
+  private restSeen: number | null = null;
+  private teased = false;
   private demoTheme: { theme: string; map: string } | null = null;
   private festival: string | null = null;
   private lastTheme: string | null = null;
@@ -145,6 +214,8 @@ export class AudioSystem implements System {
   private env: EnvState | null = null;
   private lastTick = 0;
   private muffle = -1;
+  /** Last toolbar slot voiced (re-selecting the same slot is silent). */
+  private lastSlot = -1;
   private speaking = false;
   private sleeping = false;
   /** AudioContext time of the last lightning strike voiced from a weather:thunder event. */
@@ -158,10 +229,21 @@ export class AudioSystem implements System {
   private waterT = 0;
   private lastSfx = new Map<string, number>();
   private demoSfx: { name: string; next: number } | null = null;
+  /**
+   * `?demo=audio-foley` (round 17): the material impacts and the villagers' voices in turn — hoe on
+   * soil, axe in a trunk, pick on stone, the stone breaking, a blade on a slime / shell / wing /
+   * ember-hide / spirit, a parry — then each villager says a line (`&voices=0` skips them, `&only=axe`
+   * repeats one). What the blind test (scripts/audio-recognize.mjs) measures, to hear in the game.
+   */
+  private demoFoley: { items: string[]; i: number; next: number } | null = null;
   /** Placement applied to SFX while an event at a world position is being voiced (see placed()). */
   private place: { gain: number; pan: number } | null = null;
   /** `?demo=audio&coop=1`: a phantom co-op partner circles the player so positional audio can be judged. */
-  private demoCoop: { a: number; stride: number; next: number; k: number } | null = null;
+  private demoCoop: { a: number; stride: number; next: number; k: number; t: number; farmer: RemoteFarmer | null; id: number; rx: number; rz: number; speed: number } | null = null;
+  /** `?demo=audio-coop4` (or `&partners=3`): the other phantom farmhands of a four-player farm. */
+  private demoCoopMore: NonNullable<AudioSystem['demoCoop']>[] = [];
+  /** Co-op: the other farmers' stride / fishing state (see remoteVoices). */
+  private remoteVoice = new Map<number, RemoteVoice>();
   /** Music failures already reported, and when the last report went out (rate-limited console warns). */
   private errsReported = 0;
   private errWarnAt = -1e9;
@@ -199,9 +281,29 @@ export class AudioSystem implements System {
     if (params.get('audio') === '1') queueMicrotask(() => this.start());
     const theme = params.get('theme');
     if (theme) this.forced = theme;
+    // `&from=C` (or B, B2, outro, or seconds): the forced song starts at that strain (music.ts MUSIC_SEEK).
+    const from = params.get('from');
+    if (theme && from) {
+      MUSIC_SEEK.theme = theme;
+      MUSIC_SEEK.from = from;
+    }
+    // The summer-night demo always stages its own lullaby (the playlist would rotate it by day).
+    else if (params.get('demo') === 'audio-night') this.forced = 'night-summer';
     const sfx = params.get('sfx');
     if (sfx) this.demoSfx = { name: sfx, next: 0 };
-    if (params.get('coop') === '1' && params.get('demo') === 'audio') this.demoCoop = { a: 0, stride: 0, next: 2, k: 0 };
+    if (params.get('demo') === 'audio-foley') {
+      const only = params.get('only');
+      const hits = ['hoe', 'axe', 'pickaxe', 'rockbreak', 'hit:slime', 'hit:crab', 'hit:bat', 'hit:imp', 'hit:wisp', 'parry'];
+      const voices = params.get('voices') === '0' ? [] : ['marigold', 'bram', 'wren', 'odessa', 'linus', 'june', 'tobias', 'kit'].map((v) => `voice:${v}`);
+      this.demoFoley = { items: only ? only.split(',') : [...hits, ...voices], i: 0, next: 1.5 };
+    }
+    const coopDemo = params.get('demo') === 'audio-coop4' ? 3 : (params.get('coop') === '1' && params.get('demo') === 'audio') || params.get('demo') === 'audio-coop' ? Math.max(1, Math.min(3, Number(params.get('partners') ?? 1) || 1)) : 0;
+    if (coopDemo) {
+      this.demoCoop = { a: 0, stride: 0, next: 2, k: 0, t: 0, farmer: null, id: 0, rx: 7, rz: 4, speed: 0.22 };
+      // Partners 2 and 3 walk their own ellipses (closer / wider, the other way round) on staggered
+      // work beats, each with their own look and chat voice: three positional streams at once.
+      for (let i = 1; i < coopDemo; i++) this.demoCoopMore.push({ a: (i * 2 * Math.PI) / coopDemo, stride: 0, next: 2 + i, k: i, t: 0, farmer: null, id: i, rx: i === 1 ? 4.5 : 10, rz: i === 1 ? 3 : 6, speed: i === 1 ? -0.3 : 0.16 });
+    }
     // &card=1 keeps the now-playing card on screen (screenshots); &card=0 never shows it. The audio
     // demos pin it by default so a still frame shows the score (title, engraved hook, notes in time).
     this.pinCard = params.get('card') === '1' || (/^(audio|music)/.test(params.get('demo') ?? '') && params.get('card') !== '0');
@@ -209,12 +311,15 @@ export class AudioSystem implements System {
     // Compose the opening song off the main thread while the save / demo loads.
     this.prefetch = new PiecePrefetch(true);
     window.setTimeout(() => this.preload(), 0);
+    // Round 12: the scene cues and the title are composed in the worker at load and kept ready, so a
+    // heart event / cutscene / the title screen never composes on the frame (a 30-70 ms hitch).
+    window.setTimeout(() => this.pinScenes(), 1500);
     // Watchdog: keep the score moving even if the game loop stalls (long loads, a throttled tab).
     // It also re-decides the wanted theme, so a scene change staged while frames are starved (a heavy
     // map build on a loaded machine) still hands the music over instead of waiting for the loop.
     // It also keeps the context alive: a context the OS / browser suspended or interrupted (Safari's
     // 'interrupted' after a call or an audio-route change) is resumed, and the master restored.
-    window.setInterval(() => {
+    window.setInterval(() => offFrame(() => {
       this.keepAlive();
       if (performance.now() - this.lastWall <= 400) return;
       if (this.engine && this.ctx?.state === 'running') {
@@ -225,7 +330,7 @@ export class AudioSystem implements System {
         }
       }
       this.tickAudio(true);
-    }, 250);
+    }), 250);
 
     const self = this;
     game.provide('audio', {
@@ -250,6 +355,7 @@ export class AudioSystem implements System {
         if (!sp || !this.engine || !this.ctx || this.ctx.state !== 'running') return;
         const wet = (game.calendar.weather === 'rain' || game.calendar.weather === 'storm') && !this.isIndoor();
         this.engine.sfx.step(this.surface(game, x, z), { gain: (o?.gain ?? 1) * sp.gain * (o?.run ? 0.85 : 0.62), pan: sp.pan, wet });
+        this.stepCount.remote++;
       },
       say: (id, text, x, z) => this.say(id, text, x, z),
       music: (t) => {
@@ -262,7 +368,14 @@ export class AudioSystem implements System {
         return id ? THEMES[id]?.title ?? id : null;
       },
       meter: () => this.meter(),
+      perf: () => this.perf(),
+      benchOff: (off) => {
+        this.benched = off;
+        if (off) void this.ctx?.suspend();
+        else this.tryResume();
+      },
       state: () => ({
+        cost: Object.fromEntries(Object.entries(this.sec).map(([k, v]) => [k, Math.round((v * 1000 * 100) / Math.max(1, this.secSpan)) / 100])),
         running: !!this.ctx && this.ctx.state === 'running',
         theme: this.engine?.music.playing ?? null,
         wanted: this.resolved(this.wanted()),
@@ -289,9 +402,13 @@ export class AudioSystem implements System {
           main: RENDER_STATS.count,
           mainMs: Math.round(RENDER_STATS.ms),
           cacheMb: Math.round((this.engine?.graph.bufferMb ?? 0) * 10) / 10,
+          tiers: this.engine?.graph.cacheTiers ?? null,
           byInst: { ...RENDER_STATS.byInst },
+          recentMain: [...(this.engine?.graph.missLog ?? [])],
         },
         ctxState: this.ctx ? String(this.ctx.state) : 'none',
+        sfxLog: [...this.sfxLog],
+        steps: { ...this.stepCount },
         musicDb: Math.round(this.musicMeter() * 10) / 10,
         sched: {
           lookahead: MUSIC_LOOKAHEAD,
@@ -323,6 +440,7 @@ export class AudioSystem implements System {
     return 10 * Math.log10(ss / buf.length + 1e-12);
   }
 
+  private meterBuf: Float32Array<ArrayBuffer> | null = null;
   private meter(): number {
     const e = this.engine;
     if (!e || !this.ctx) return -Infinity;
@@ -331,7 +449,7 @@ export class AudioSystem implements System {
       this.analyser.fftSize = 2048;
       e.graph.out.connect(this.analyser);
     }
-    const buf = new Float32Array(this.analyser.fftSize);
+    const buf = (this.meterBuf ??= new Float32Array(this.analyser.fftSize));
     this.analyser.getFloatTimeDomainData(buf);
     let ss = 0;
     for (const v of buf) ss += v * v;
@@ -355,6 +473,11 @@ export class AudioSystem implements System {
     }
     this.engine = new AudioEngine(this.ctx, 1, this.prefetch ?? undefined);
     const ctx = this.ctx;
+    // The hub: other pods' voices (mine / combat cues, animal calls, the fishing kit) use this one
+    // context and the SFX bus — limiter, ducking, volume and mute included.
+    audioHub.ctx = ctx;
+    audioHub.sfx = this.engine.graph.sfxBus;
+    audioHub.play = (name, at, o) => this.hubPlay(name, at ?? null, o);
     this.engine.music.onMelody = (at, midi) => this.card.note(midi, at - ctx.currentTime);
     this.engine.music.reseed(this.daySeed());
     this.applyVolumes();
@@ -368,9 +491,12 @@ export class AudioSystem implements System {
   }
 
   /** Resume a context that is not running (suspended / interrupted); failures are retried by keepAlive. */
+  /** Held suspended by benchOff() (perf A/B): nothing resumes it until benchOff(false). */
+  private benched = false;
+
   private tryResume(): void {
     const ctx = this.ctx;
-    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
+    if (!ctx || ctx.state === 'running' || ctx.state === 'closed' || this.benched) return;
     this.resumeTryAt = performance.now();
     ctx.resume().then(
       () => {
@@ -476,6 +602,12 @@ export class AudioSystem implements System {
       // open/close are also voiced from ui:open / ui:close — don't double them.
       this.sfx(n, undefined, n === 'ui:hover' ? 0.045 : 0.05);
     });
+    // Toolbar: a soft detent per slot (scrolling the bar plays a little rising scale).
+    ev.on('toolbar:select', ({ slot }) => {
+      if (slot === this.lastSlot) return;
+      this.lastSlot = slot;
+      this.sfx('ui:slot', { level: slot }, 0.03);
+    });
     ev.on('ui:open', ({ name }) => {
       if (name === 'none' || name.startsWith('title') || name.startsWith('dialogue')) return;
       this.sfx('ui:open', undefined, 0.05);
@@ -491,12 +623,21 @@ export class AudioSystem implements System {
       if (kind === 'good' && performance.now() - this.learnedAt < 30) this.sfx('learn', undefined, 0.3);
     });
 
-    // Dialogue: a murmur per typed word in the speaker's voice.
+    // Dialogue: the speaker's voice murmurs each word as it is typed — the real word, so its
+    // syllable count, vowels, a question's rise and an exclamation's accent follow the text. Words
+    // queue behind each other (a fast typewriter never stacks two syllables), up to ~0.3 s behind
+    // the text; past that a mid-line word is skipped, but the line's last word always speaks.
     let wordIdx = 0;
-    ev.on('ui:blip', ({ id }) => {
+    let speakFree = 0;
+    ev.on('ui:blip', ({ id, word, index, last }) => {
       if (!this.engine) return;
       const v = voiceFor(id);
-      this.engine.sfx.murmur(v, `${id}${wordIdx++ % 7}${'aeiou'[wordIdx % 5]}`, { gain: 0.85 });
+      const now = this.engine.ctx.currentTime;
+      const at = Math.max(now, speakFree);
+      if (at - now > 0.3 && !last) return;
+      const w = word ?? `${id}${wordIdx++ % 7}${'aeiou'[wordIdx % 5]}`;
+      const dur = this.engine.sfx.murmur(v, w, { gain: 0.85, at }, index !== undefined ? { index, last: !!last } : undefined);
+      speakFree = at + dur * 0.9;
     });
     ev.on('dialogue:speaking', ({ on }) => {
       this.speaking = on;
@@ -525,7 +666,7 @@ export class AudioSystem implements System {
     });
     ev.on('farming:level', () => this.sfx('levelup', undefined, 2));
     ev.on('fishing:level', () => this.sfx('levelup', undefined, 2));
-    ev.on('mine:chest', () => this.sfx('chest', undefined, 1));
+    // (mine:chest is voiced at the chest by the mine's cue, world/mine/sfx.ts.)
     // Refusals share one gentle "nope" (rate-limited so a held button never buzzes).
     ev.on('energy:refused', () => this.sfx('ui:error', { gain: 0.5 }, 0.6));
     ev.on('gold:insufficient', () => this.sfx('ui:error', { gain: 0.6 }, 0.4));
@@ -564,6 +705,42 @@ export class AudioSystem implements System {
       const sp = this.spatial(x + 0.5, z + 0.5);
       if (sp) this.sfx('wither', { gain: sp.gain, pan: sp.pan }, 0.4);
     });
+    // The event score (songbook-events.ts): heart events and story scenes get their own cue — tender,
+    // playful, wistful, mysterious or sly — picked from a table, else from a vote over the lines' moods.
+    const eventMoods = (id: string): string[] => {
+      const he = heartEvent(id);
+      const moods: string[] = [];
+      for (const st of he?.ev.script ?? []) {
+        const s0 = st as { mood?: string; options?: { mood?: string }[] };
+        if (s0.mood) moods.push(s0.mood);
+        for (const o of s0.options ?? []) if (o.mood) moods.push(o.mood);
+      }
+      return moods;
+    };
+    const startCue = (id: string, moods?: string[]): void => {
+      const theme = eventCue(id, moods);
+      if (!theme || !THEMES[theme]) return;
+      this.sceneCue = { id, theme, kick: true };
+      this.preload();
+      this.engine?.music.kick();
+    };
+    const endCue = (id: string): void => {
+      if (this.sceneCue?.id !== id) return;
+      this.sceneCue = null;
+      this.preload();
+    };
+    ev.on('npc:event', ({ id, phase }) => (phase === 'start' ? startCue(id, eventMoods(id)) : endCue(id)));
+    ev.on('cutscene:start', ({ scene }) => startCue(scene));
+    ev.on('cutscene:end', ({ scene }) => endCue(scene));
+    // Co-op: a farmhand spectating the host's heart event (npcs.ts 'v.e' start / end, host-authoritative)
+    // hears the same cue — only while they are in the square watching it.
+    ev.on('net:ext', ({ data }) => {
+      if (data[0] !== 'v.e' || game.services.net?.role() !== 'client') return;
+      const id = String(data[2] ?? '');
+      if (data[1]) {
+        if (game.world.current?.id === 'town') startCue(id, eventMoods(id));
+      } else endCue(id);
+    });
     ev.on('cutscene:cue', ({ cue, arg, instant }) => {
       if (cue === 'music') {
         this.forced = !arg || arg === 'auto' ? null : arg;
@@ -589,6 +766,7 @@ export class AudioSystem implements System {
       this.sleeping = false;
       this.engine?.music.reseed(this.daySeed());
       this.engine?.music.kick();
+      this.pinScenes();
       // Morning stinger quotes the tune you're about to hear; a new season gets its whole hook.
       this.preload();
       const th = THEMES[this.resolved(this.wanted()) ?? ''];
@@ -647,6 +825,15 @@ export class AudioSystem implements System {
     ev.on('demo:stage', ({ name }) => {
       const map = game.world.current?.id ?? '';
       this.demoTheme = name === 'festival' ? { theme: 'festival', map } : null;
+      // Heart-event stagings score the scene: `&event=<npc>-<2|4>` (its cue) or `&cue=event-<mood>`.
+      if (name === 'town-heart-event' || name === 'audio-event') {
+        const q = new URLSearchParams(location.search);
+        const cue = q.get('cue');
+        const id = q.get('event') ?? 'wren-2';
+        if (cue && THEMES[cue] && cue.startsWith('event-')) {
+          this.sceneCue = { id: `demo:${cue}`, theme: cue, kick: true };
+        } else startCue(id, eventMoods(id));
+      } else if (this.sceneCue?.id.startsWith('demo:')) this.sceneCue = null;
       this.preload();
       this.engine?.music.kick();
       if (name === 'audio' || name.startsWith('audio-')) {
@@ -681,6 +868,9 @@ export class AudioSystem implements System {
         } else this.sfx('axe:miss');
         break;
       case 'pickaxe':
+        // In the mine every rock strike / break is voiced by the mine's own cue at the rock (with its
+        // ore ring and the boulder's size): here it would play twice.
+        if (hit === 'stone' && this.game.world.current?.id === 'mine') break;
         if (hit === 'stone') {
           this.sfx('pickaxe');
           this.sfx('rockbreak', { gain: 0.9 });
@@ -698,6 +888,53 @@ export class AudioSystem implements System {
         break;
       default:
         break;
+    }
+  }
+
+  /** Mine / combat monster hits queued this task (see hubPlay): one voice per kind per swing. */
+  private hitBatch = new Map<string, { n: number; x: number; z: number; pos: boolean; level: number }>();
+  private hitFlush = false;
+  /** Context time of the last kill blow voiced (a death pop right after it is the same event). */
+  private lastDie = -1e9;
+
+  /**
+   * The hub's player (world/mine/sfx.ts and other pods): a named sfx.ts design at a world position.
+   * Monster hits from one swing arrive in one synchronous loop: they are batched per kind and voiced
+   * once on the microtask after it, at the hits' centroid, +1.5 dB per extra target.
+   */
+  private hubPlay(name: string, at: { x: number; z: number } | null, o?: { gain?: number; level?: number }): void {
+    if (!this.engine || !this.ctx || this.ctx.state !== 'running') return;
+    if (name.startsWith('hit:')) {
+      const b = this.hitBatch.get(name);
+      if (b) {
+        b.n++;
+        b.level = Math.max(b.level, o?.level ?? 0);
+        if (at) {
+          b.x += at.x;
+          b.z += at.z;
+        }
+      } else this.hitBatch.set(name, { n: 1, x: at?.x ?? 0, z: at?.z ?? 0, pos: !!at, level: o?.level ?? 0 });
+      if (!this.hitFlush) {
+        this.hitFlush = true;
+        queueMicrotask(() => this.flushHits());
+      }
+      return;
+    }
+    if (name === 'monster:pop' && this.ctx.currentTime - this.lastDie < 0.8) return;
+    const sp = at ? this.spatial(at.x, at.z) : { gain: 1, pan: 0 };
+    if (!sp) return;
+    this.sfx(name, { gain: (o?.gain ?? 1) * sp.gain, pan: sp.pan, level: o?.level }, name === 'pickup' ? 0.12 : name === 'monster:pop' ? 0.15 : 0);
+  }
+
+  private flushHits(): void {
+    this.hitFlush = false;
+    const batch = [...this.hitBatch];
+    this.hitBatch.clear();
+    for (const [name, b] of batch) {
+      const sp = b.pos ? this.spatial(b.x / b.n, b.z / b.n) : { gain: 1, pan: 0 };
+      if (!sp) continue;
+      if (b.level >= 2 && this.ctx) this.lastDie = this.ctx.currentTime;
+      this.sfx(name, { gain: sp.gain * Math.pow(10, (1.5 * (b.n - 1)) / 20), pan: sp.pan, level: b.level });
     }
   }
 
@@ -726,7 +963,15 @@ export class AudioSystem implements System {
       this.lastSfx.set(name, now);
     }
     e.sfx.play(name, o);
+    // Diagnostics (co-op audio check): the last few effects voiced here, with their placed gain.
+    this.sfxLog.push({ name, gain: Math.round((o?.gain ?? 1) * 1000) / 1000, pan: Math.round((o?.pan ?? 0) * 100) / 100, at: Math.round(now * 1000) / 1000 });
+    if (this.sfxLog.length > 24) this.sfxLog.shift();
   }
+
+  /** Recent SFX voiced on this client (see state().sfxLog). */
+  private sfxLog: { name: string; gain: number; pan: number; at: number }[] = [];
+  /** A menu page was open on the last update (see MENU_PANELS). */
+  private menuOpen = false;
 
   // ───────────────────────────────────────────── per frame
 
@@ -747,13 +992,77 @@ export class AudioSystem implements System {
       indoor: this.isIndoor(),
       title: panel === 'title' || panel.endsWith(':title'),
       festival: this.festival ?? this.demoTheme?.theme ?? null,
-      forced: this.forced,
+      forced: this.forced ?? this.sceneCue?.theme ?? null,
       mineFloor: this.mineFloor,
     });
   }
 
+  /** Frame deltas (ms) and the audio system's own main-thread cost per frame (ms), ring buffers. */
+  private frameMs: number[] = [];
+  private costMs: number[] = [];
+  private offMs: number[] = [];
+  /**
+   * Frame time since the last throttled (~22 Hz) decision pass: remote farmers' strides and reel
+   * ticks advance by the time that really passed, not by the one frame that ran the pass (round 7:
+   * a partner's footfalls were voiced at ~1/3 of their stride rate at 60 fps).
+   */
+  private slowDt = 0;
+
+  /** Section timings for state().cost (accumulated ms, and the frame time they were spread over). */
+  private sec: Record<string, number> = { feet: 0, decide: 0, schedule: 0, remote: 0, offFrame: 0, other: 0 };
+  private secSpan = 0;
+  private timed<T>(k: string, fn: () => T): T {
+    const t0 = performance.now();
+    try {
+      return fn();
+    } finally {
+      this.sec[k] = (this.sec[k] ?? 0) + performance.now() - t0;
+    }
+  }
+
   update(dt: number, game: Game): void {
-    this.footsteps(dt, game);
+    const t0 = performance.now();
+    try {
+      this.updateInner(dt, game);
+    } finally {
+      const off = drainOffFrame();
+      this.frameMs.push(dt * 1000);
+      this.costMs.push(performance.now() - t0 + off);
+      this.sec.offFrame! += off;
+      this.secSpan += dt * 1000;
+      // A rolling window: halve the account every ~5 s so the numbers follow the present.
+      if (this.secSpan > 5000) {
+        for (const k of Object.keys(this.sec)) this.sec[k]! *= 0.5;
+        this.secSpan *= 0.5;
+      }
+      this.offMs.push(off);
+      if (this.frameMs.length > 300) {
+        this.frameMs.shift();
+        this.costMs.shift();
+        this.offMs.shift();
+      }
+    }
+  }
+
+  perf(): AudioPerf {
+    const f = this.frameMs;
+    if (!f.length) return { fps: 0, frameAvgMs: 0, frameP95Ms: 0, audioMsPerSec: 0, offFrameMsPerSec: 0, mainRenders: RENDER_STATS.count };
+    const total = f.reduce((a, b) => a + b, 0);
+    const sorted = [...f].sort((a, b) => a - b);
+    const cost = this.costMs.reduce((a, b) => a + b, 0);
+    const off = this.offMs.reduce((a, b) => a + b, 0);
+    const r = (x: number): number => Math.round(x * 100) / 100;
+    return { fps: r((f.length * 1000) / Math.max(1, total)), frameAvgMs: r(total / f.length), frameP95Ms: r(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]!), audioMsPerSec: r((cost * 1000) / Math.max(1, total)), offFrameMsPerSec: r((off * 1000) / Math.max(1, total)), mainRenders: RENDER_STATS.count };
+  }
+
+  private updateInner(dt: number, game: Game): void {
+    this.timed('feet', () => this.footsteps(dt, game));
+    // The phantom farmhand walks (and is seen) whether or not the sound has started yet.
+    if (this.demoCoop) {
+      const audible = !!this.ctx && this.ctx.state === 'running';
+      this.coopDemo(this.demoCoop, dt, audible);
+      for (const c of this.demoCoopMore) this.coopDemo(c, dt, audible);
+    }
     if (this.pinCard) {
       // Pinned card (screenshots): show the wanted theme even before the context can start.
       const w = this.resolved(this.wanted());
@@ -782,37 +1091,73 @@ export class AudioSystem implements System {
     if (!ctx || !e || ctx.state !== 'running') return;
     // Wall-clock throttle (a stalled AudioContext clock must never freeze the decisions).
     const wall = performance.now();
+    this.slowDt += dt;
     if (wall - this.lastWall < 45) return;
     this.lastWall = wall;
-    this.env = this.envState(dt, game);
+    const slowDt = Math.min(0.5, this.slowDt);
+    this.slowDt = 0;
+    this.env = this.envState(slowDt, game);
+    // Co-op: a farmhand's day is the host's (net applyCal sets it without a day:start) — follow it.
+    if (!this.sleeping && game.services.net?.role() === 'client') e.music.resync(this.daySeed());
 
     // Music: selection, level and tone.
-    this.decide(game);
+    this.timed('decide', () => this.decide(game));
     const panel = game.hud.openPanelName ?? '';
     const paused = panel === 'pause' || panel.startsWith('settings');
-    let level = 1;
+    // Menus are their own space: the score steps back behind the page (−3 dB, ~2.6 kHz low-pass) so
+    // the clicks / ticks sit crisply on top, and opens up again the moment the panel closes.
+    const menu = MENU_PANELS.has(panel.split(':')[0] ?? '');
+    let level = menu ? MENU_LEVEL : 1;
     if (this.env.night > 0.5 && !e.music.desired?.startsWith('night')) level *= 0.8;
     if (this.speaking) level *= 0.78;
     if (this.env.indoor) level *= 0.9;
     // A storm keeps the rain tune outdoors too, just under the thunder (same selection indoors and
     // out, so a doorway only changes the level — see select.ts).
     else if (this.env.weather === 'storm') level *= STORM_OUTDOOR_LEVEL;
-    e.music.setLevel(level);
-    const muffle = paused ? 0.55 : this.sleeping ? 0.8 : 0;
+    // Rain outdoors is a foreground mood: the score steps back (−3 dB) under the louder rain bed.
+    else if (this.env.weather === 'rain') level *= 0.72;
+    // A menu steps the score back (and forward again) quickly; everything else drifts.
+    e.music.setLevel(level, menu !== this.menuOpen ? MENU_TAU : 2);
+    this.menuOpen = menu;
+    // Farm days breathe: 8–15 s of birds and wind between songs (the town / festivals keep theirs).
+    e.music.restOverride = this.env.map === 'farm' && this.env.night < 0.5 ? FARM_REST : null;
+    // Between songs (round 12): once in a farm rest, a far-off flute (a clarinet in fall /
+    // winter) tries the coming song's first bar across the fields — a hint of the tune, then birds
+    // again. Wind voices are oscillators: nothing is rendered on the frame.
+    if (e.music.resting && this.env.map === 'farm' && !this.env.indoor && this.env.night < 0.5) {
+      this.restSeen ??= ctx.currentTime;
+      if (!this.teased && ctx.currentTime - this.restSeen > 2.5 && e.music.restLeft > 4.5) {
+        this.teased = true;
+        const th = THEMES[this.resolved(this.wanted()) ?? ''];
+        const hook = th ? tuneHook(th, 1) : [];
+        if (hook.length && !this.muted) {
+          const lift = hook[0]!.midi < 67 ? 12 : hook[0]!.midi > 84 ? -12 : 0;
+          const inst = this.env.season === 'fall' || this.env.season === 'winter' ? 'clarinet' : 'flute';
+          e.sfx.phrase(inst, hook.map((n) => ({ ...n, midi: n.midi + lift })), { bpm: th!.bpm * 0.92, gain: 0.3 * (this.vol.music / 0.7), pan: (this.daySeed() % 2 ? 1 : -1) * 0.55 });
+        }
+      }
+    } else if (!e.music.resting) {
+      this.restSeen = null;
+      this.teased = false;
+    }
+    const muffle = paused ? 0.72 : menu ? MENU_MUFFLE : this.sleeping ? 0.8 : 0;
     if (Math.abs(muffle - this.muffle) > 0.01) {
+      const snap = menu || Math.abs(this.muffle - MENU_MUFFLE) < 0.01;
       this.muffle = muffle;
-      e.graph.setMusicMuffle(muffle);
+      e.graph.setMusicMuffle(muffle, ctx.currentTime, snap ? MENU_TAU : 0.4);
     }
     if (this.hiddenFade && !document.hidden) this.onRunning();
-    this.tickAudio(false);
+    this.timed('schedule', () => this.tickAudio(false));
     const playing = e.music.playing;
     if (playing !== this.lastTheme) {
       this.lastTheme = playing;
       if (playing) {
         const def = THEMES[playing];
         game.events.emit('audio:theme', { id: playing, title: def?.title ?? playing });
+        if (playing === 'title' || playing.startsWith('event-')) window.setTimeout(() => this.pinScenes(), 500);
         const title = panel === 'title' || panel.endsWith(':title');
-        if (def && !title && !this.pinCard) this.card.show(def);
+        // Scene cues play under a heart event / cutscene: no "now playing" card over the actors.
+        if (def && !title && !this.pinCard && !playing.startsWith('event-')) this.card.show(def);
       }
     }
     const lift = e.music.resting || !playing ? 1 : 0;
@@ -824,29 +1169,125 @@ export class AudioSystem implements System {
       this.demoSfx.next = ctx.currentTime + 2.5;
       this.sfx(this.demoSfx.name);
     }
-    if (this.demoCoop) this.coopDemo(dt, ctx.currentTime);
+    const fo = this.demoFoley;
+    if (fo && ctx.currentTime >= fo.next) {
+      const item = fo.items[fo.i++ % fo.items.length]!;
+      if (item.startsWith('voice:')) {
+        const lines = ['Well hello there, neighbour! Lovely morning, isn\'t it?', 'The bakery opens at nine, same as always.', 'Did you hear the bells last night?', 'Careful on the bridge, the planks are wet.'];
+        const words = lines[fo.i % lines.length]!.split(' ');
+        let at = ctx.currentTime + 0.05;
+        words.forEach((w, k) => {
+          at += e.sfx.murmur(voiceFor(item.slice(6)), w, { at, gain: 0.85 }, { index: k, last: k === words.length - 1 }) * 0.9 + 0.04;
+        });
+        fo.next = at + 1.2;
+      } else {
+        this.sfx(item);
+        fo.next = ctx.currentTime + (item === 'rockbreak' || item === 'parry' ? 2.4 : 1.7);
+      }
+    }
+    this.timed('remote', () => this.remoteVoices(slowDt));
   }
 
-  /** Phantom partner: walks a slow ellipse around the player (steps pan L↔R), hoes, emotes, chats. */
-  private coopDemo(dt: number, now: number): void {
-    const c = this.demoCoop!;
+  /**
+   * Phantom partner: a visible farmhand walks a slow ellipse around the player (steps pan L↔R with
+   * him), hoes, emotes, chats and waters — so a critic can see where each positional sound comes from.
+   */
+  private coopDemo(c: NonNullable<AudioSystem['demoCoop']>, dt: number, audible: boolean): void {
     const api = this.game.services.audio;
     if (!api) return;
+    c.t += dt;
+    const now = c.t;
     const p = this.game.player.position;
-    const prev = { x: p.x + Math.cos(c.a) * 7, z: p.z + Math.sin(c.a) * 4 };
-    c.a += dt * 0.22;
-    const x = p.x + Math.cos(c.a) * 7;
-    const z = p.z + Math.sin(c.a) * 4;
+    const prev = { x: p.x + Math.cos(c.a) * c.rx, z: p.z + Math.sin(c.a) * c.rz };
+    // He stops to work every few seconds (the tool beat), then walks on.
+    const working = now < c.next - 2.2;
+    if (!working) c.a += dt * c.speed;
+    const x = p.x + Math.cos(c.a) * c.rx;
+    const z = p.z + Math.sin(c.a) * c.rz;
+    if (!c.farmer) {
+      c.farmer = new RemoteFarmer(PRESET_LOOKS[1 + c.id] ?? PRESET_LOOKS[0]);
+      this.game.scene.add(c.farmer.root);
+    }
+    const f = c.farmer;
+    const map = this.game.world.current;
+    f.position.set(x, map ? map.heightAt(x, z) : p.y, z);
+    const vx = x - prev.x;
+    const vz = z - prev.z;
+    const sp = dt > 0 ? Math.hypot(vx, vz) / dt : 0;
+    if (sp > 0.05) f.targetYaw = Math.atan2(vx, vz);
+    f.speed = sp;
+    f.anim = sp > 0.05 ? 'walk' : 'idle';
+    f.update(dt, now);
     const before = Math.floor(c.stride / Math.PI);
-    c.stride += Math.hypot(x - prev.x, z - prev.z) * 2.6;
-    if (Math.floor(c.stride / Math.PI) !== before) api.stepAt(x, z);
+    c.stride += Math.hypot(vx, vz) * 2.6;
+    if (audible && Math.floor(c.stride / Math.PI) !== before) api.stepAt(x, z);
     if (now < c.next) return;
     c.next = now + 3;
     const beat = c.k++ % 4;
-    if (beat === 0) api.playAt('hoe', x, z);
-    else if (beat === 1) api.playAt('emote:heart', x, z);
-    else if (beat === 2) api.say('player:2', 'Morning! The turnips look great today', x, z);
-    else api.playAt('water', x, z);
+    if (beat === 0) {
+      f.act('chop', 'hoe');
+      if (audible) window.setTimeout(() => api.playAt('hoe', x, z), 330);
+    } else if (beat === 1) {
+      f.emote('heart');
+      if (audible) api.playAt('emote:heart', x, z);
+    } else if (beat === 2) {
+      if (audible) api.say(`player:${2 + c.id}`, ['Morning! The turnips look great today', 'Has anyone seen my watering can?', 'Race you to the pond after this'][c.id] ?? 'Hello!', x, z);
+    } else {
+      f.act('pour', 'wateringCan');
+      if (audible) api.playAt('water', x, z);
+    }
+  }
+
+  /**
+   * Co-op: the other farmers on this map are heard where they are — a footfall on every stride of
+   * their interpolated walk (the same π-per-footfall gait as their animation, on the tile's own
+   * surface), and their fishing from their angler's state (cast whoosh + plop, the bite, the reel's
+   * ratchet while they crank, the catch or the one that got away). Their farm-tool hits already
+   * arrive as replayed tool:impact events; mine swings are voiced by the mine's co-op layer.
+   */
+  private remoteVoices(dt: number): void {
+    const remotes = (this.game.services.net as unknown as { remotes?: { list: Map<number, RemoteLike> } } | undefined)?.remotes?.list;
+    if (!remotes || !remotes.size) {
+      if (this.remoteVoice.size) this.remoteVoice.clear();
+      return;
+    }
+    const api = this.game.services.audio;
+    if (!api) return;
+    const here = this.game.world.current?.id ?? '';
+    const anglers = (this.game.services.fishing as unknown as { remotes?: Map<number, { st: string }> } | undefined)?.remotes;
+    for (const [id, p] of remotes) {
+      const f = p.farmer;
+      if (p.away || p.map !== here || !f.root.parent) {
+        this.remoteVoice.delete(id);
+        continue;
+      }
+      let v = this.remoteVoice.get(id);
+      if (!v) this.remoteVoice.set(id, (v = { phase: 0, fish: 'idle', reelT: 0 }));
+      const x = f.position.x;
+      const z = f.position.z;
+      if ((f.anim === 'walk' || f.anim === 'run') && f.speed > 0.2) {
+        const run = f.anim === 'run';
+        const before = Math.floor(v.phase / Math.PI);
+        v.phase += dt * f.speed * (run ? 2.3 : 2.6);
+        if (Math.floor(v.phase / Math.PI) !== before) api.stepAt(x, z, { run });
+      }
+      const st = anglers?.get(id)?.st ?? 'idle';
+      if (st !== v.fish) {
+        if (st === 'casting') api.playAt('cast', x, z);
+        else if (st === 'bite') api.playAt('bite', x, z, { gain: 0.8 });
+        else if (st === 'caught') api.playAt('catch', x, z, { gain: 0.7 });
+        else if (st === 'escaped') api.playAt('escape', x, z, { gain: 0.7 });
+        v.fish = st;
+        v.reelT = 0;
+      }
+      if (st === 'reeling') {
+        v.reelT += dt;
+        while (v.reelT > 0.075) {
+          v.reelT -= 0.075;
+          api.playAt('reel', x, z, { gain: 0.6 });
+        }
+      }
+    }
   }
 
   /** The concrete song a selection (theme or playlist) resolves to right now. */
@@ -859,6 +1300,17 @@ export class AudioSystem implements System {
    * Ask the worker for the song the game will want next (boot, map change, new day, forced themes
    * from demos and cutscenes), so starting it never composes on the frame.
    */
+  /** Pinned scene pieces: every event cue + the title, at the seed each will play with next. */
+  private pinScenes(): void {
+    try {
+      const ids = ['title', ...Object.keys(THEMES).filter((k) => k.startsWith('event-'))];
+      if (this.engine) this.engine.music.pinScenes(ids);
+      else for (const id of ids) if (THEMES[id]) this.prefetch?.pin(THEMES[id]!, MusicDirector.seedFor(this.daySeed(), id, 0));
+    } catch {
+      /* the world may not be built yet */
+    }
+  }
+
   private preload(): void {
     try {
       const want = this.wanted();
@@ -882,7 +1334,8 @@ export class AudioSystem implements System {
     const map = game.world.current?.id ?? '';
     if (want !== e.music.desired) {
       // Same place, new hour / weather: finish the phrase, then hand over. New place: quick fade.
-      e.music.handoff = map === this.lastMap ? 'drift' : 'move';
+      e.music.handoff = map === this.lastMap && !this.sceneCue?.kick ? 'drift' : 'move';
+      if (this.sceneCue) this.sceneCue.kick = false;
       e.music.desired = want;
     }
     this.lastMap = map;
@@ -1070,7 +1523,10 @@ export class AudioSystem implements System {
     const surface = this.surface(game);
     const wet = (game.calendar.weather === 'rain' || game.calendar.weather === 'storm') && !this.isIndoor();
     this.engine.sfx.step(surface, { gain: run ? 0.85 : 0.62, wet });
+    this.stepCount.local++;
   }
+  /** Footfalls voiced so far: this farmer's and the partners' (stepAt) — the co-op perf gate counts them. */
+  private stepCount = { local: 0, remote: 0 };
 
   private surface(game: Game, wx = game.player.position.x, wz = game.player.position.z): Surface {
     const map = game.world.current;

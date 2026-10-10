@@ -5,11 +5,12 @@
 import * as THREE from 'three';
 import type { Quality } from '../core/events';
 import { PostPipeline, QUALITY_PRESETS, type QualityPreset } from './post';
-import './batching';
+import { detailStats, shadowCullStats } from './batching';
 import './chunks';
 import { LightBudget } from './lightbudget';
 import { QualityGovernor } from './governor';
 import { ShaderGate } from './shadergate';
+import { runOverlayWarms, warmKit, WARM_FRAMES } from './warmkit';
 import { runBakes } from './bake';
 import { setMaxAnisotropy } from './textures';
 import { globalUniforms } from './uniforms';
@@ -33,10 +34,22 @@ const zeroPerf = (e: { calls: number; triangles: number }): void => {
  * uniformsNeedUpdate onto the drawn material).
  */
 const twins = new WeakMap<THREE.Material, THREE.Material[]>();
-function programTwin(m: THREE.Material, o: THREE.Object3D): THREE.Material {
-  const b = o as THREE.Object3D & { isBatchedMesh?: boolean; isInstancedMesh?: boolean; isSkinnedMesh?: boolean };
-  const kind = b.isBatchedMesh ? 0 : b.isInstancedMesh ? 1 : b.isSkinnedMesh ? 2 : -1;
-  if (kind < 0 || !m || (m as THREE.ShaderMaterial).isShaderMaterial) return m;
+/**
+ * Program-relevant object kind: batched / instanced / skinned, plus the per-object state three folds into
+ * the program choice for a shared material — instance colours (an InstancedMesh with instanceColor next to
+ * one without flipped the AO pass's normal override 4× a frame, town r5) and morph targets. 0 = plain.
+ */
+function twinKind(o: THREE.Object3D, geo: THREE.BufferGeometry | undefined): number {
+  const b = o as THREE.Object3D & { isBatchedMesh?: boolean; isInstancedMesh?: boolean; isSkinnedMesh?: boolean; instanceColor?: unknown; _colorsTexture?: unknown };
+  let k = b.isBatchedMesh ? 1 : b.isInstancedMesh ? 2 : b.isSkinnedMesh ? 3 : 0;
+  if ((b.isInstancedMesh && b.instanceColor) || (b.isBatchedMesh && b._colorsTexture)) k |= 4;
+  const ma = geo?.morphAttributes;
+  if (ma && (ma.position || ma.normal || ma.color)) k |= 8;
+  return k;
+}
+function programTwin(m: THREE.Material, o: THREE.Object3D, geo?: THREE.BufferGeometry): THREE.Material {
+  const kind = twinKind(o, geo);
+  if (kind === 0 || !m || (m as THREE.ShaderMaterial).isShaderMaterial) return m;
   let list = twins.get(m);
   if (!list) twins.set(m, (list = []));
   let t = list[kind];
@@ -51,6 +64,72 @@ function programTwin(m: THREE.Material, o: THREE.Object3D): THREE.Material {
     list[kind] = t = twin;
   }
   return t;
+}
+
+/**
+ * Transparent DoubleSide meshes draw twice in three (back faces, then front faces) and flip
+ * `material.needsUpdate` around each half, so every frame they re-derive their program twice
+ * (getParameters + cache key: ~3 KB of garbage per pass; the interior sun pools and door spill were
+ * 8 a frame) and spend a second draw call. A single flat polygon (all faces in one plane) shows only
+ * one side to any eye, so the back-face pass draws nothing and one pass is pixel-identical (perf r16):
+ * `forceSinglePass` for every such material whose users are all rigid planar meshes. Points / lines
+ * (no facing: two passes draw them twice), skinned / morphed and dynamic-usage geometry are left alone.
+ */
+const planarCache = new WeakMap<THREE.BufferGeometry, boolean>();
+function isPlanar(geo: THREE.BufferGeometry): boolean {
+  const cached = planarCache.get(geo);
+  if (cached !== undefined) return cached;
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute | undefined;
+  let ok = !!pos && pos.usage !== THREE.DynamicDrawUsage && !geo.morphAttributes.position && pos.count <= 4096;
+  if (ok && pos) {
+    const idx = geo.index;
+    const n = idx ? idx.count : pos.count;
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const f = new THREE.Vector3();
+    const n0 = new THREE.Vector3();
+    let have = false;
+    for (let t = 0; ok && t + 2 < n; t += 3) {
+      a.fromBufferAttribute(pos, idx ? idx.getX(t) : t);
+      b.fromBufferAttribute(pos, idx ? idx.getX(t + 1) : t + 1);
+      c.fromBufferAttribute(pos, idx ? idx.getX(t + 2) : t + 2);
+      f.subVectors(c, b).cross(a.sub(b));
+      const L = f.length();
+      if (L < 1e-9) continue;
+      f.divideScalar(L);
+      if (!have) {
+        n0.copy(f);
+        have = true;
+      } else if (f.dot(n0) < 0.99999) ok = false;
+    }
+    ok = ok && have;
+  }
+  planarCache.set(geo, ok);
+  return ok;
+}
+const forcedSingle = new WeakSet<THREE.Material>();
+function singlePassFlatTransparents(root: THREE.Object3D): number {
+  const verdict = new Map<THREE.Material, boolean>();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.material) return;
+    const plain = m.isMesh && !(m as unknown as THREE.SkinnedMesh).isSkinnedMesh && !m.morphTargetInfluences;
+    for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+      if (!mat || !mat.transparent || mat.side !== THREE.DoubleSide || (mat.forceSinglePass && !forcedSingle.has(mat))) continue;
+      const ok = plain && isPlanar(m.geometry);
+      verdict.set(mat, (verdict.get(mat) ?? true) && ok);
+    }
+  });
+  let n = 0;
+  // A shared material forced on one map and met on a non-flat mesh later goes back to two passes.
+  for (const [mat, ok] of verdict) {
+    if (ok) forcedSingle.add(mat);
+    else forcedSingle.delete(mat);
+    mat.forceSinglePass = ok;
+    n += ok ? 1 : 0;
+  }
+  return n;
 }
 
 export class CameraRig {
@@ -68,6 +147,9 @@ export class CameraRig {
   /** Clamp region for the target (map bounds). */
   bounds: THREE.Box2 | null = null;
   private shake = 0;
+  /** Scratch vectors for apply() (pillar 14: no per-frame allocation). */
+  private tmpT = new THREE.Vector3();
+  private tmpO = new THREE.Vector3();
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
@@ -87,14 +169,14 @@ export class CameraRig {
   }
 
   private apply(dt: number): void {
-    const t = this.smoothTarget.clone().add(this.lookOffset);
+    const t = this.tmpT.copy(this.smoothTarget).add(this.lookOffset);
     if (this.bounds) {
       t.x = THREE.MathUtils.clamp(t.x, this.bounds.min.x, this.bounds.max.x);
       t.z = THREE.MathUtils.clamp(t.z, this.bounds.min.y, this.bounds.max.y);
     }
     const p = THREE.MathUtils.degToRad(this.pitch);
     const y = THREE.MathUtils.degToRad(this.yaw);
-    const off = new THREE.Vector3(Math.sin(y) * Math.cos(p), Math.sin(p), Math.cos(y) * Math.cos(p)).multiplyScalar(this.distance);
+    const off = this.tmpO.set(Math.sin(y) * Math.cos(p), Math.sin(p), Math.cos(y) * Math.cos(p)).multiplyScalar(this.distance);
     this.camera.position.copy(t).add(off);
     if (this.shake > 0) {
       const s = this.shake * this.shake * 0.25;
@@ -120,6 +202,9 @@ export class RenderContext {
   quality: Quality;
   /** World point the tilt-shift keeps in focus (the player). */
   readonly focusPoint = new THREE.Vector3();
+  /** Tilt-shift sharp band half-height + blur strength (staged beauty shots may widen / soften it). */
+  tiltBand = 0.26;
+  tiltStrength = 0.7;
   private focusV = new THREE.Vector3();
   preset: QualityPreset;
   private width = 1;
@@ -138,11 +223,20 @@ export class RenderContext {
   readonly shaderGate: ShaderGate;
   /** True while compile() runs: frames are skipped (the canvas keeps its last image) instead of compiling synchronously. */
   private compiling = 0;
+  /** Rendered frames left before the warm kit (render/warmkit.ts) leaves the scene. */
+  private warmLeft = 0;
+  /** Shadow caster cull volume switch + counter (render/batching.ts; A/B via `enabled`). */
+  readonly shadowCull = shadowCullStats;
+  /** Depth-only detail prefix switch (A/B: `rc.detail.enabled = false`). */
+  readonly detail = detailStats;
   /** Governor-driven render-resolution scale (1 = preset pixel ratio). */
   resScale = 1;
   /**
    * Behind full-screen menus (blurred backdrop, sim paused) the world only needs to refresh at a
    * few Hz: >0 caps world renders to this rate; the canvas keeps its last frame in between.
+   * <0 holds the last frame outright (a paused world under the blur: no 1440p world frame + full-screen
+   * backdrop-filter recompute landing as one long frame every few rAFs — the ui-map p99, r5). A resize,
+   * a quality change or a gated object still compiling forces a refresh.
    */
   backdropHz = 0;
   private lastRenderAt = -1;
@@ -192,6 +286,8 @@ export class RenderContext {
 
   resize(): void {
     this.measure();
+    // setSize clears the canvas: a held menu backdrop must re-render once.
+    this.lastRenderAt = -1;
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(this.width, this.height);
     this.camera.aspect = this.width / this.height;
@@ -220,7 +316,9 @@ export class RenderContext {
     if (this.lastFrameAt >= 0) this.governor.sample(now - this.lastFrameAt);
     this.lastFrameAt = now;
     if (this.compiling > 0) return;
-    if (this.backdropHz > 0 && this.lastRenderAt >= 0 && now - this.lastRenderAt < 1000 / this.backdropHz - 1) return;
+    if (this.backdropHz !== 0 && this.lastRenderAt >= 0) {
+      if (this.backdropHz < 0 ? !this.shaderGate.busy : now - this.lastRenderAt < 1000 / this.backdropHz - 1) return;
+    }
     this.lastRenderAt = now;
     runBakes(this.renderer);
     this.lights.update(this.scene, this.camera, this.rig.focus, dt);
@@ -229,7 +327,7 @@ export class RenderContext {
     this.camera.updateMatrixWorld();
     this.focusV.copy(this.focusPoint).project(this.camera);
     const f = THREE.MathUtils.clamp(this.focusV.y * 0.5 + 0.5, 0.2, 0.7);
-    this.post.setTiltShift(f, 0.26, 0.7);
+    this.post.setTiltShift(f, this.tiltBand, this.tiltStrength);
     // Accumulate stats over all passes of the frame (shadow, AO, main, post).
     this.renderer.info.autoReset = false;
     this.renderer.info.reset();
@@ -242,6 +340,7 @@ export class RenderContext {
     }
     this.pinPrograms();
     this.perfAcc.forEach(this.copyPerf);
+    if (this.warmLeft > 0 && --this.warmLeft === 0) warmKit()?.removeFromParent();
   }
 
   private copyPerf = (v: { calls: number; triangles: number }, k: string): void => {
@@ -286,9 +385,10 @@ export class RenderContext {
       const c0 = info.calls;
       const t0 = info.triangles;
       const obj = object as THREE.Object3D;
-      orig(cam, scene, geo, programTwin(material as THREE.Material, obj), obj, group);
+      orig(cam, scene, geo, programTwin(material as THREE.Material, obj, geo as THREE.BufferGeometry), obj, group);
       let tag = obj.parent ? tagOf(obj) : 'post';
-      if (this.perfPasses) {
+      // Full-screen post quads (parentless, orthographic camera) are not shadow draws.
+      if (this.perfPasses && obj.parent) {
         const c = cam as THREE.Camera & { isOrthographicCamera?: boolean };
         const mat = material as THREE.Material;
         tag += c.isOrthographicCamera ? '/shadow' : mat.type === 'MeshNormalMaterial' ? '/ao' : '/main';
@@ -453,15 +553,37 @@ export class RenderContext {
       const prev = this.renderer.getRenderTarget();
       this.renderer.setRenderTarget(this.sceneTarget());
       let job: Promise<unknown> | null = null;
+      // three compiles only the visible tree, so whatever the map shows later (a room's restored
+      // dressing, festival / weather fx, a leaping fish) built its program on first show: the gate
+      // held it out of the frame, then its first draw blocked on onFirstUse (bundle-complete r4,
+      // 0.2-0.9 s). Show every hidden object for the (synchronous) program build, behind the fade.
+      // On-demand objects (held tools, a farmhand's pour stream: render/warmkit.ts) join the compile
+      // and are then drawn for real, as a sub-pixel speck, for the first WARM_FRAMES frames.
+      const kit = warmKit();
+      if (kit) {
+        kit.position.copy(this.focusPoint);
+        if (kit.parent !== this.scene) this.scene.add(kit);
+        this.warmLeft = WARM_FRAMES;
+      }
+      singlePassFlatTransparents(this.scene);
+      const hidden: THREE.Object3D[] = [];
+      this.scene.traverse((o) => {
+        if (!o.visible) {
+          o.visible = true;
+          hidden.push(o);
+        }
+      });
       try {
         if (r.compileAsync) job = r.compileAsync(this.scene, this.camera);
         else this.renderer.compile(this.scene, this.camera);
       } finally {
+        for (const o of hidden) o.visible = false;
         this.renderer.setRenderTarget(prev);
       }
       // Never hold frames longer than a few seconds, whatever the driver does.
       if (job) await Promise.race([job, new Promise((res) => setTimeout(res, 4000))]);
       this.warmShadowPass();
+      runOverlayWarms(this.renderer, this.camera);
       this.pinPrograms();
       this.warmPrograms();
     } finally {

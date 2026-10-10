@@ -6,6 +6,9 @@
  *   node scripts/audio-continuity.mjs --live          # also the real game in real time (default 10 min)
  *   node scripts/audio-continuity.mjs --live-only --minutes 3
  *   node scripts/audio-continuity.mjs --seconds 600   # offline session length
+ *   node scripts/audio-continuity.mjs --song-end [--songs 2] [--map farm|town] [--hour 10]
+ *                                                     # live: stay put through whole songs, measure each
+ *                                                     # end-of-song breath (real rest path, real adapter)
  *
  * Offline (src/audio/offline.ts renderSession): the real selector + MusicDirector on an
  * OfflineAudioContext, ticked every 100 ms like the adapter, over a scripted day of play — farm →
@@ -35,8 +38,14 @@ const arg = (name, dflt) => {
   const i = argv.indexOf(name);
   return i >= 0 ? Number(argv[i + 1]) : dflt;
 };
-const LIVE = argv.includes('--live') || argv.includes('--live-only');
-const OFFLINE = !argv.includes('--live-only');
+const SONG_END = argv.includes('--song-end');
+const LIVE = !SONG_END && (argv.includes('--live') || argv.includes('--live-only'));
+const OFFLINE = !SONG_END && !argv.includes('--live-only');
+const SONGS = arg('--songs', 2);
+const sarg = (name, dflt) => {
+  const i = argv.indexOf(name);
+  return i >= 0 ? argv[i + 1] : dflt;
+};
 const SECONDS = arg('--seconds', 600);
 const MINUTES = arg('--minutes', 10);
 const AUDIBLE_DB = -50;
@@ -332,8 +341,117 @@ async function live() {
   return fails;
 }
 
+/**
+ * End-of-song breaths in the real game (round 16, critic r6: "the continuity test transitions scenes
+ * before most songs finish, so it does not exercise the real end-of-song rest path"). The farmer
+ * stands still on the farm (sunny, 10:00) while whole songs play out; every 100 ms the adapter's
+ * state is sampled. For each song that finishes: the rest the director scheduled, and the audible
+ * silence on the music bus (≤ -50 dBFS) between the last note's tail and the next song. Pass: every
+ * audible gap 3–17 s (the 5–15 s breath + fade / tail tolerance) and the next song started by itself.
+ */
+async function songEnd() {
+  const MAP = sarg('--map', 'farm');
+  const HOUR = arg('--hour', 10);
+  const LIMIT_S = arg('--max-minutes', 9) * 60;
+  const { server, base } = await startServer('songend');
+  const flags = ['--autoplay-policy=no-user-gesture-required', '--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', '--enable-webgl'];
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true, channel: 'chromium', args: flags });
+  } catch {
+    browser = await chromium.launch({ headless: true, args: flags });
+  }
+  const page = await browser.newPage({ viewport: { width: 640, height: 360 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && /\[audio\]/.test(m.text()) && errors.push(m.text()));
+  page.setDefaultTimeout(0);
+  await page.goto(`${base}/?notitle=1&audio=1&quality=low&card=0`, { waitUntil: 'load', timeout: 240000 });
+  await page.waitForFunction(() => typeof window.__game?.ready === 'function', null, { timeout: 240000 });
+  await page.evaluate(() => window.__game.ready());
+  await page.mouse.click(320, 180);
+  const spot = MAP === 'town' ? { map: 'town', x: 34.9, z: 22.9 } : { map: 'farm', x: 31.2, z: 20.2 };
+  console.log(`\nSONG-END BREATHS — ${MAP} at ${HOUR}:00, sunny, until ${SONGS} songs have finished (max ${LIMIT_S / 60} min, real time)`);
+  const t0 = Date.now();
+  const res = await page.evaluate(
+    async ([spot, hour, songs, limit]) => {
+      const g = window.__game;
+      const a = g.game.services.audio;
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      g.setWeather('sun');
+      await g.teleport(spot.map, spot.x, spot.z);
+      g.setTime(hour);
+      g.openUI('none');
+      g.pause(false);
+      // Hold the clock: a song must not end because the hour turned to evening.
+      const hold = setInterval(() => g.setTime(hour), 20000);
+      const samples = [];
+      const start = performance.now();
+      let finished = 0;
+      let prev = null;
+      while ((performance.now() - start) / 1000 < limit) {
+        const st = a.state();
+        const s = { t: (performance.now() - start) / 1000, theme: st.theme, resting: st.resting, restLeft: st.restLeft, musicDb: st.musicDb, group: st.group };
+        samples.push(s);
+        if (prev && prev.theme && !prev.resting && s.resting) finished++;
+        // Stop 20 s into the song after the last measured breath.
+        if (finished >= songs && s.theme && !s.resting && samples.filter((x) => x.resting).length && s.t - (samples.findLast((x) => x.resting)?.t ?? 0) > 20) break;
+        prev = s;
+        await sleep(100);
+      }
+      clearInterval(hold);
+      return { samples, trace: a.state().trace };
+    },
+    [spot, HOUR, SONGS, LIMIT_S],
+  );
+  await browser.close();
+  await server.close();
+  const S = res.samples;
+  const gaps = [];
+  for (let i = 1; i < S.length; i++) {
+    if (!(S[i - 1].theme && !S[i - 1].resting && S[i].resting)) continue;
+    const endT = S[i].t;
+    const was = S[i - 1].theme;
+    const scheduled = S[i].restLeft;
+    const k = S.findIndex((x, j) => j > i && x.theme && !x.resting);
+    const next = k > 0 ? S[k] : null;
+    // Audible silence: the longest run of music ≤ -50 dBFS from 10 s before the end to 8 s after the restart.
+    const lo = endT - 10;
+    const hi = next ? next.t + 8 : S[S.length - 1].t;
+    let run = 0, best = 0;
+    for (const x of S) {
+      if (x.t < lo || x.t > hi) continue;
+      if (!(x.musicDb > AUDIBLE_DB)) {
+        run += 0.1;
+        best = Math.max(best, run);
+      } else run = 0;
+    }
+    gaps.push({ endT, was, next: next?.theme ?? null, scheduled: Math.round(scheduled * 10) / 10, restarted: next ? Math.round((next.t - endT) * 10) / 10 : null, silent: Math.round(best * 10) / 10 });
+  }
+  let fails = 0;
+  console.log(`ran ${((Date.now() - t0) / 1000).toFixed(0)} s, ${S.length} samples`);
+  console.log(`${'ended at'.padStart(9)}  ${'song'.padEnd(16)} ${'→ next'.padEnd(16)} rest scheduled  restarted after  audible silence`);
+  for (const g of gaps) {
+    const ok = g.next && g.silent >= 3 && g.silent <= 17;
+    if (!ok) fails++;
+    console.log(`${g.endT.toFixed(1).padStart(8)}s  ${String(g.was).padEnd(16)} ${String(g.next).padEnd(16)} ${String(g.scheduled).padStart(10)} s  ${String(g.restarted).padStart(12)} s  ${String(g.silent).padStart(12)} s  ${ok ? 'ok' : g.next ? 'FAIL (breath outside 3-17 s)' : 'FAIL (no next song)'}`);
+  }
+  if (gaps.length < SONGS) {
+    fails++;
+    console.log(`  FAIL: only ${gaps.length} of ${SONGS} songs finished within ${LIMIT_S / 60} min`);
+  }
+  if (errors.length) {
+    fails++;
+    console.log(`page errors:\n  ${errors.join('\n  ')}`);
+  }
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(resolve(outDir, 'continuity-song-end.json'), JSON.stringify({ map: MAP, hour: HOUR, gaps, trace: res.trace, samples: S.filter((_, i) => i % 5 === 0) }, null, 1));
+  return fails;
+}
+
 (async () => {
   let fails = 0;
+  if (SONG_END) fails += await songEnd();
   if (OFFLINE) fails += await offline();
   if (LIVE) fails += await live();
   console.log(fails ? `\n${fails} continuity check(s) failed` : '\nall continuity checks passed');

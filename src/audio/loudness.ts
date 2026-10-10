@@ -11,43 +11,62 @@ export const TARGET_LUFS = -21;
 
 /** Deliberate offsets from the target (LU): the mine and the nights sit a little under the day. */
 export const TARGET_OFFSET: Record<string, number> = {
-  mine: -1, 'mine-ice': -1, 'mine-lava': -1,
-  night: -0.8, 'night-spring': -0.8, 'night-fall': -0.8, 'night-winter': -0.8,
+  mine: -1, 'mine-ice': -1, 'mine-lava': -1, 'mine-2': -1, 'mine-ice-2': -1, 'mine-lava-2': -1,
+  night: -0.8, 'night-spring': -0.8, 'night-fall': -0.8, 'night-winter': -0.8, 'night-summer': -0.8,
   rain: -0.5,
+  // The event score sits a touch under the day: it plays beneath dialogue.
+  'event-tender': -1, 'event-playful': -1, 'event-wistful': -1, 'event-mystery': -1, 'event-sly': -1, 'event-dawn': -1,
 };
 
 // @generated-begin (scripts/audio-render.mjs --calibrate)
 export const MEASURED_LUFS: Record<string, number> = {
-  'beach': -22.4,
-  'fall': -19.5,
-  'fall-2': -23.7,
-  'fall-3': -24.5,
-  'festival': -21.9,
-  'festival-blossom': -24.3,
-  'festival-harvest': -21.7,
+  'beach': -22,
+  'beach-2': -22.8,
+  'event-dawn': -19.8,
+  'event-mystery': -20.1,
+  'event-playful': -24.5,
+  'event-sly': -21.9,
+  'event-tender': -27.3,
+  'event-wistful': -21.5,
+  'fall': -19.2,
+  'fall-2': -17.6,
+  'fall-3': -22.9,
+  'festival': -17.9,
+  'festival-blossom': -20.5,
+  'festival-harvest': -21.4,
   'festival-starfall': -23.5,
-  'festival-tide': -20.4,
-  'forest': -24.6,
-  'inn': -23.5,
-  'mine': -29.4,
-  'mine-ice': -27.5,
-  'mine-lava': -26,
-  'night': -27,
-  'night-fall': -22.7,
-  'night-spring': -23.4,
-  'night-winter': -22.6,
-  'rain': -27.4,
-  'spring': -22.5,
-  'spring-2': -21,
-  'spring-3': -21.2,
-  'summer': -20,
-  'summer-2': -23.4,
-  'summer-3': -24.7,
-  'title': -22.4,
-  'town': -22.3,
-  'winter': -21,
+  'festival-tide': -18.4,
+  'forest': -22.7,
+  'forest-2': -24.1,
+  'inn': -23.3,
+  'mine': -28.8,
+  'mine-2': -22.8,
+  'mine-ice': -23.3,
+  'mine-ice-2': -19.8,
+  'mine-lava': -28.4,
+  'mine-lava-2': -27.3,
+  'night': -25.9,
+  'night-fall': -22,
+  'night-spring': -24,
+  'night-summer': -23.7,
+  'night-winter': -22.4,
+  'rain': -27.2,
+  'rain-2': -24.7,
+  'rain-3': -25.6,
+  'spring': -20.6,
+  'spring-2': -24.5,
+  'spring-3': -19.6,
+  'summer': -22.1,
+  'summer-2': -17.7,
+  'summer-3': -23.9,
+  'title': -21.1,
+  'town': -21.6,
+  'town-2': -28.8,
+  'town-3': -23.4,
+  'town-winter': -20.2,
+  'winter': -21.3,
   'winter-2': -22.2,
-  'winter-3': -21.5,
+  'winter-3': -19.9,
 };
 // @generated-end
 
@@ -57,4 +76,85 @@ export function loudnessTrim(id: string): number {
   if (m === undefined || !Number.isFinite(m)) return 1;
   const target = TARGET_LUFS + (TARGET_OFFSET[id] ?? 0);
   return Math.max(0.2, Math.min(5, Math.pow(10, (target - m) / 20)));
+}
+
+/**
+ * Round 12 — tonal balance. Loudness alone left songs in one playlist 5-8 dB apart in their bass
+ * and top (spring-2 vs spring-3, rain vs rain-2): the rotation advanced and the EQ jumped. Every
+ * song's opening is measured in four bands (dB re 0.5-2.5 kHz) by `--calibrate`, and a low shelf
+ * (200 Hz) and a high shelf (2.5 kHz) on its bus bring the 60-200 Hz and 2.5-6 kHz ratios to the
+ * house curve of its family (day songs; the darker lullabies / rain / event cues), so a playlist sits
+ * within ±2 dB. MEASURED_TONE holds the UNcorrected ratios [low, high].
+ */
+export const TONE_HOUSE = { day: { low: -7, high: -9 }, soft: { low: -6, high: -11 }, cave: { low: -6, high: -12 } };
+/**
+ * Family of a theme for its house curve. (Round 6: the mines get their own 'cave' curve — 3 dB darker
+ * than the day — instead of none: left as arranged they sat 4-9 dB under the day's top, mine-lava a
+ * muffled -17.7 dB re mid, a different record from the farm's.)
+ */
+export function toneFamily(id: string): keyof typeof TONE_HOUSE | null {
+  if (id.startsWith('mine')) return 'cave';
+  return /^(night|rain|event-|inn)/.test(id) ? 'soft' : 'day';
+}
+
+// @tone-begin (scripts/audio-render.mjs --calibrate)
+export const MEASURED_TONE: Record<string, [number, number]> = {
+  'beach': [-4.9, -10.3],
+  'beach-2': [-8, -7.5],
+  'event-dawn': [-8.6, -5.9],
+  'event-mystery': [-7.9, -11.4],
+  'event-playful': [-4.4, -6.1],
+  'event-sly': [-8.5, -9.6],
+  'event-tender': [-4.1, -6.8],
+  'event-wistful': [-5.1, -4.3],
+  'fall': [-8.3, -9.6],
+  'fall-2': [-5.1, -9.3],
+  'fall-3': [-3.4, -10.3],
+  'festival': [-3.9, -8],
+  'festival-blossom': [-7.8, -6.3],
+  'festival-harvest': [-3.9, -6.5],
+  'festival-starfall': [-5.5, -8.7],
+  'festival-tide': [-7.4, -9.2],
+  'forest': [-5.8, -9.3],
+  'forest-2': [-6.3, -8.6],
+  'inn': [-6.6, -9.7],
+  'mine': [-7.1, -16.8],
+  'mine-2': [-5.8, -14.8],
+  'mine-ice': [-11.2, -13.2],
+  'mine-ice-2': [-6, -11.3],
+  'mine-lava': [-4.2, -18.7],
+  'mine-lava-2': [-5.5, -12.5],
+  'night': [-4.2, -13.8],
+  'night-fall': [-4.7, -12.9],
+  'night-spring': [-5.6, -16.2],
+  'night-summer': [-11.8, -8.2],
+  'night-winter': [-8.5, -9.2],
+  'rain': [-2.4, -11.3],
+  'rain-2': [-9.2, -6.1],
+  'rain-3': [-1, -6.6],
+  'spring': [-7.9, -7.8],
+  'spring-2': [-2.9, -4.9],
+  'spring-3': [-9, -11.2],
+  'summer': [-5.5, -7.4],
+  'summer-2': [-8.5, -10.4],
+  'summer-3': [-1, -8],
+  'title': [-9.7, -7.2],
+  'town': [-6.6, -9.5],
+  'town-2': [-0.3, -7.8],
+  'town-3': [-5.1, -9.3],
+  'town-winter': [-8.2, -7.4],
+  'winter': [-8.5, -9.3],
+  'winter-2': [-7.4, -7],
+  'winter-3': [-6.8, -7.4],
+};
+// @tone-end
+
+/** Shelf gains (dB) for theme `id`: low shelf at 200 Hz, high shelf at 2.5 kHz (±5 dB at most). */
+export function toneTrim(id: string): { low: number; high: number } {
+  const m = MEASURED_TONE[id];
+  const fam = toneFamily(id);
+  if (!m || !fam) return { low: 0, high: 0 };
+  const h = TONE_HOUSE[fam];
+  const c = (x: number): number => Math.round(Math.max(-5, Math.min(5, x)) * 10) / 10;
+  return { low: c(h.low - m[0]), high: c(h.high - m[1]) };
 }

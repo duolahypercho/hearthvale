@@ -66,12 +66,12 @@ export const GIANTS: [GiantKind, number, number, number][] = [
   ['elder', 27.2, 16.8, 0.92],
   ['elder', 41.2, 26.8, 1.08],
   ['elder', 24.1, 39.3, 1.0], // (at 25.4 its bank-side roots speared into the snow-day frame edge)
-  ['fir', 50.6, 35.4, 0.68], // (east of the trail: at 46.2 it roofed a quarter of the forest-rain frame, at 48.8 a fifth)
+  ['fir', 52.4, 36.6, 0.56], // (east of the trail: at 46.2 it roofed a quarter of the forest-rain frame, at 48.8 a fifth)
   ['elder', 30.8, 46.8, 0.96],
   ['fir', 23.4, 48.6, 1.0],
   ['elder', 49.6, 51.4, 1.02],
   ['elder', 3.0, 30.2, 1.05],
-  ['elder', 29.6, 29.2, 0.95],
+  ['elder', 27.6, 30.8, 0.9],
   ['fir', 6.4, 44.6, 0.95],
   // The ring hiding the glade.
   ['elder', 43.6, 11.4, 1.0],

@@ -17,7 +17,7 @@ import { Screen, el, sfx, replay, escapeHtml } from './kit';
 import { ICONS } from './icons';
 import { farmerAvatar } from './avatar';
 import { HAIR_STYLES, HAT_STYLES, PALETTE, PRESET_LOOKS, DEFAULT_LOOK, randomLook, sameLook, type FarmerLook, type HairStyle, type HatStyle } from '../entities/remote-look';
-import { journal, setJournal, JOURNAL_SLOTS, type PetChoice } from './profile';
+import { journal, setJournal, JOURNAL_SLOTS, nameClash, type PetChoice } from './profile';
 import { beginNewGame } from './title';
 
 const SEASON_NAME: Record<string, string> = { spring: 'Spring', summer: 'Summer', fall: 'Fall', winter: 'Winter' };
@@ -138,7 +138,7 @@ export class NewGameScreen extends Screen {
     const net = this.game.services.net;
     const prof = net?.profile();
     this.look = this.demo ? { ...PRESET_LOOKS[0]! } : { ...(prof?.look ?? DEFAULT_LOOK) };
-    this.name = this.demo ? 'Marigold' : prof?.name && prof.name !== 'Farmer' ? prof.name : '';
+    this.name = this.demo ? 'Saffron' : prof?.name && prof.name !== 'Farmer' ? prof.name : '';
     this.farm = this.demo ? 'Honeybrook Farm' : '';
     this.pet = this.demo ? { species: 'cat', variant: 0, name: 'Tuppence' } : { ...journal.pet };
     const slots = JOURNAL_SLOTS.map(readSlot);
@@ -234,8 +234,17 @@ export class NewGameScreen extends Screen {
     input.dataset.nav = '';
     input.dataset.noclick = '1';
     input.addEventListener('u-activate', () => input.focus());
+    // r5: a farmer may not share a villager's or the shop's name (it read as the shopkeeper in co-op).
+    const warn = key === 'name' ? el('small', 'ng-clash') : null;
+    const check = (): void => {
+      if (!warn) return;
+      const who = nameClash(input.value);
+      warn.textContent = who ? `${who} already lives in Hearthvale — pick another name` : '';
+      row.classList.toggle('clash', !!who);
+    };
     input.addEventListener('input', () => {
       set(input.value.trim());
+      check();
       this.renderPlate();
     });
     input.addEventListener('keydown', (e) => {
@@ -243,6 +252,7 @@ export class NewGameScreen extends Screen {
       if (e.key === 'Enter' || e.key === 'Escape') input.blur();
     });
     row.appendChild(input);
+    if (warn) row.appendChild(warn), check();
     return row;
   }
 
@@ -410,7 +420,7 @@ export class NewGameScreen extends Screen {
 
   private begin(btn: HTMLElement): void {
     const nameIn = this.root.querySelector<HTMLInputElement>('.f-name input');
-    if (!this.name) {
+    if (!this.name || nameClash(this.name)) {
       replay(nameIn?.parentElement, 'shake');
       nameIn?.focus();
       sfx(this.game, 'error');

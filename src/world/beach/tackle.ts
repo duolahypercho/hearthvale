@@ -39,13 +39,18 @@ function mergeColored(parts: [THREE.BufferGeometry, number, THREE.Matrix4][]): T
  * flounder, and a record-size catch visibly out-sizes a typical one of its kind.
  */
 export function heldFishScale(def: FishDef, lengthCm: number): number {
-  const med = (def.size[0] + def.size[1]) / 2;
-  const base = THREE.MathUtils.clamp(0.36 + med / 130, 0.45, 1.3);
-  return base * THREE.MathUtils.clamp(lengthCm / med, 0.7, 1.8);
+  // The held mesh is the fish's real length (the card's cm) at the farmers' scale (a farmer stands
+  // 2.3 m to the hat: × 1.3 of a person), lightly exaggerated for small fish so a 20 cm sardine still
+  // reads in the fist: 20 cm → 0.52 m, 50 → 0.83, 100 → 1.34, 150 → 1.85.
+  void def;
+  const m = lengthCm / 100;
+  // r9 (critic r8: a 30 cm herring read as a grey sliver at belt height in real play): never
+  // presented under 0.72 m — the chibi farmer shows off a small catch the way a kid does.
+  return THREE.MathUtils.clamp((0.24 + m * 0.79) * 1.3, 0.72, 1.9);
 }
 
-/** A held fish this long (m) or more is a trophy: hoisted overhead in both hands. */
-export const TROPHY_SCALE = 1.1;
+/** A held fish this long (m) or more is a trophy (a bigger hop, a wider sunburst). */
+export const TROPHY_SCALE = 1.25;
 
 const ROD_LEN = 2.15;
 const ROD_SEG = 14;
@@ -74,6 +79,8 @@ export interface RodPose {
   crank: number;
 }
 
+/** Dots in the cast arc preview. */
+const ARC_DOTS = 18;
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -95,6 +102,7 @@ export class FishingGear {
   private rodLine: THREE.Mesh;
   private rodTier = -1;
   private foam: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; age: number; size: number }[] = [];
+  private crowns: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; age: number; size: number }[] = [];
   private grip: THREE.Group;
   private reelHandle: THREE.Mesh;
   private line: THREE.Mesh;
@@ -108,7 +116,13 @@ export class FishingGear {
   private tipMat: THREE.MeshStandardMaterial;
   /** 0..1 extra tip glow (set by the fishing system on a bite / nibble). */
   tipFlash = 0;
-  private ripples: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; age: number; life: number; size: number }[] = [];
+  private ripples: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; age: number; life: number; size: number; ambient: boolean }[] = [];
+  /** Seconds since the gear was made (ripple spacing). */
+  private clock = 0;
+  private lastAmbient = -1;
+  /** r9: a V-shaped wake trailing the float while a fish drags it (replaces stacked rings). */
+  private wake: THREE.Mesh;
+  private wakeMat: THREE.ShaderMaterial;
   private shadow: THREE.Mesh;
   private shadowMat: THREE.MeshBasicMaterial;
   private held: { def: FishDef; mesh: FishMesh } | null = null;
@@ -120,12 +134,27 @@ export class FishingGear {
   /** Landing reticle on the water while charging a cast. */
   readonly reticle: THREE.Mesh;
   private reticleMat: THREE.ShaderMaterial;
+  /** Dotted arc preview from the rod tip to the reticle while charging (one Points draw). */
+  readonly arc: THREE.Points;
+  private arcMat: THREE.ShaderMaterial;
+  private arcPos = new Float32Array(ARC_DOTS * 3);
+  private arcK = new Float32Array(ARC_DOTS);
   /** Line state: slack 0 (taut) .. 1 (lazy curve on the water). */
   slack = 1;
   /** 0..1: how hard the rope is pulled towards a clean catenary each frame (no kinks while it's moving). */
   ease = 0;
   lineVisible = false;
   waterY = 0;
+  /**
+   * Ripple rings' height over the water: on still water (pond / river) they sit just under the lily
+   * pads (placed 1 cm up) so the pads hide them (critic r6: the rings were drawn across the pads); the
+   * swell of the sea needs them a little higher.
+   */
+  rippleLift = 0.012;
+  /** Taut-line hum: sideways vibration amplitude (m) of the line's middle (0 = still). */
+  vibrate = 0;
+  /** Bite / hook twang (1 → 0): the line snaps tight and wobbles for a beat. */
+  twang = 0;
 
   constructor() {
     this.group.name = 'fishing-gear';
@@ -197,11 +226,26 @@ export class FishingGear {
 
     // Line ribbon.
     this.lineGeo = new THREE.BufferGeometry();
-    this.lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(LINE_N * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    // Two ribbons in one mesh: a dark under-stroke shifted ≈ 1 px down-screen, then the pale line on
+    // top (≈ 2 px): a two-tone line that reads on dusk water, bright shallows and sand alike (critic
+    // r4). (A dark core inside a 2 px ribbon aliased into a dotted line.)
+    this.lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(LINE_N * 4 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    const lcol = new Float32Array(LINE_N * 4 * 3);
+    const pale = new THREE.Color(0xf2ecdc);
+    const core = new THREE.Color(0x3a2c20);
+    for (let i = 0; i < LINE_N; i++) for (let j = 0; j < 4; j++) (j < 2 ? core : pale).toArray(lcol, (i * 4 + j) * 3);
+    this.lineGeo.setAttribute('color', new THREE.BufferAttribute(lcol, 3));
     const lidx: number[] = [];
-    for (let i = 0; i < LINE_N - 1; i++) lidx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+    // Dark ribbon first, the pale one drawn over it.
+    for (const j of [0, 2]) {
+      for (let i = 0; i < LINE_N - 1; i++) {
+        const a = i * 4 + j;
+        const b = a + 4;
+        lidx.push(a, a + 1, b, a + 1, b + 1, b);
+      }
+    }
     this.lineGeo.setIndex(lidx);
-    const lineMat = new THREE.MeshBasicMaterial({ color: 0xd8d2c4, transparent: true, opacity: 0.78, side: THREE.DoubleSide, depthWrite: false, fog: true });
+    const lineMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false, fog: true });
     lineMat.name = 'fishingLine';
     this.line = new THREE.Mesh(this.lineGeo, lineMat);
     this.line.frustumCulled = false;
@@ -247,7 +291,9 @@ export class FishingGear {
     this.bobber.add(bobMesh, tip, cap);
     this.bobber.scale.setScalar(1.7);
 
-    // Ripple rings (shader: soft ring at radius r, fading).
+    // Ripple rings (shader: a thin soft ring at radius r). r9 (critic r8: rings stacked into an opaque
+    // white slinky): fade (1 - r/rmax)^2, start ≈ 0.35 opacity, hairline strokes; each ring stays where
+    // it was born on the water plane.
     const ringGeo = new THREE.PlaneGeometry(1, 1);
     ringGeo.rotateX(-Math.PI / 2);
     for (let i = 0; i < 10; i++) {
@@ -260,19 +306,58 @@ export class FishingGear {
           varying vec2 vUv; uniform float uAge; uniform float uAlpha; uniform vec3 uSky; uniform vec3 uSun;
           void main(){
             float r = length(vUv - 0.5) * 2.0;
-            float rr = uAge * 0.92;
-            float ring = smoothstep(0.07, 0.0, abs(r - rr)) + 0.55 * smoothstep(0.05, 0.0, abs(r - rr * 0.62)) * step(0.2, uAge);
-            float a = ring * (1.0 - uAge) * uAlpha * smoothstep(1.0, 0.92, r);
-            vec3 c = mix(uSky, vec3(1.0), 0.65) + uSun * 0.25;
-            gl_FragColor = vec4(c, a * 0.8);
+            float rr = 0.12 + uAge * 0.8;
+            float w = 0.022 + uAge * 0.02;
+            float ring = smoothstep(w, 0.0, abs(r - rr)) + 0.4 * smoothstep(w * 0.8, 0.0, abs(r - rr * 0.64)) * step(0.25, uAge);
+            float fade = (1.0 - uAge) * (1.0 - uAge);
+            float a = ring * fade * uAlpha * smoothstep(1.0, 0.9, r);
+            vec3 c = mix(uSky, vec3(1.0), 0.55) + uSun * 0.18;
+            gl_FragColor = vec4(c, a);
           }`,
       });
       const m = new THREE.Mesh(ringGeo, mat);
       m.visible = false;
       m.renderOrder = 4;
-      this.ripples.push({ mesh: m, mat, age: 1, life: 1, size: 1 });
+      this.ripples.push({ mesh: m, mat, age: 1, life: 1, size: 1, ambient: false });
       this.group.add(m);
     }
+
+    // Wake: apex at the float (local origin), two arms opening ≈ 20° behind it along local +Z, a
+    // churned seam down the middle; noise scrolls backwards so it reads as moving water.
+    const wakeGeo = new THREE.PlaneGeometry(1, 1);
+    wakeGeo.rotateX(-Math.PI / 2);
+    wakeGeo.translate(0, 0, 0.5);
+    this.wakeMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: { uT: globalUniforms.uTime, uAlpha: { value: 0 }, uSize: { value: new THREE.Vector2(1.4, 1.9) }, uSky: globalUniforms.uSkyColor, uSun: globalUniforms.uSunColor },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: /* glsl */ `
+        varying vec2 vUv; uniform float uT; uniform float uAlpha; uniform vec2 uSize; uniform vec3 uSky; uniform vec3 uSun;
+        float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float n(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
+          return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
+        void main(){
+          float lx = (vUv.x - 0.5) * uSize.x;
+          float lz = (1.0 - vUv.y) * uSize.y;
+          float k = lz / uSize.y;
+          float brk = n(vec2(lx * 7.0, lz * 5.0 - uT * 4.0));
+          float arm = smoothstep(0.035 + k * 0.05, 0.0, abs(abs(lx) - lz * 0.36 - 0.04)) * (0.55 + 0.45 * brk);
+          float seam = smoothstep(0.07 + k * 0.08, 0.0, abs(lx)) * smoothstep(0.35, 0.75, n(vec2(lx * 11.0, lz * 9.0 - uT * 5.0))) * 0.7;
+          float fade = (1.0 - k) * (1.0 - k) * smoothstep(0.0, 0.06, lz);
+          float a = max(arm, seam) * fade * uAlpha;
+          vec3 c = mix(uSky, vec3(1.0), 0.6) + uSun * 0.18;
+          gl_FragColor = vec4(c, a);
+        }`,
+    });
+    this.wakeMat.name = 'floatWake';
+    this.wake = new THREE.Mesh(wakeGeo, this.wakeMat);
+    this.wake.name = 'float-wake';
+    this.wake.visible = false;
+    this.wake.renderOrder = 4;
+    this.wake.frustumCulled = false;
+    this.wake.scale.set(1.4, 1, 1.9);
+    this.group.add(this.wake);
 
     // Cast reticle: soft double ring + 4 ticks, pulsing; red over dry land.
     this.reticleMat = new THREE.ShaderMaterial({
@@ -304,6 +389,49 @@ export class FishingGear {
     this.reticle.renderOrder = 6;
     this.group.add(this.reticle);
 
+    // Cast arc preview (r7b, critic r6: the reticle alone was the only read of the throw): round dots
+    // marching from the rod tip along the predicted parabola, fading in / out at the ends.
+    const ag = new THREE.BufferGeometry();
+    ag.setAttribute('position', new THREE.BufferAttribute(this.arcPos, 3).setUsage(THREE.DynamicDrawUsage));
+    ag.setAttribute('aK', new THREE.BufferAttribute(this.arcK, 1).setUsage(THREE.DynamicDrawUsage));
+    this.arcMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      uniforms: { uAlpha: { value: 0 }, uPower: { value: 0 }, uBad: { value: 0 }, uPx: { value: 1 } },
+      vertexShader: /* glsl */ `
+        attribute float aK; varying float vK; uniform float uPx;
+        void main(){
+          vK = aK;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mv;
+          // ~0.16 m dots in world size, never under 4 px.
+          gl_PointSize = clamp(uPx * 0.12 / max(-mv.z, 0.1), 4.0, 14.0) * (0.7 + 0.3 * sin(aK * 3.14159));
+        }`,
+      fragmentShader: /* glsl */ `
+        varying float vK; uniform float uAlpha; uniform float uPower; uniform float uBad;
+        void main(){
+          vec2 d = gl_PointCoord - 0.5;
+          float r = length(d) * 2.0;
+          float a = smoothstep(1.0, 0.7, r);
+          float rim = smoothstep(0.55, 0.85, r) * a;
+          vec3 good = mix(vec3(1.0, 0.96, 0.8), vec3(1.0, 0.84, 0.34), smoothstep(0.85, 1.0, uPower));
+          vec3 c = mix(good, vec3(1.0, 0.42, 0.32), uBad);
+          c = mix(c, c * 0.45, rim);
+          // Faint off the rod (no pearls strung over the deck), full over the water, fading into the ring.
+          float ends = smoothstep(0.05, 0.4, vK) * smoothstep(1.0, 0.88, vK);
+          gl_FragColor = vec4(c, a * ends * uAlpha * 0.8);
+        }`,
+    });
+    this.arcMat.name = 'castArc';
+    this.arc = new THREE.Points(ag, this.arcMat);
+    this.arc.name = 'cast-arc';
+    this.arc.frustumCulled = false;
+    this.arc.visible = false;
+    this.arc.renderOrder = 6;
+    this.arc.userData.noAO = true;
+    this.group.add(this.arc);
+
     // Foam discs (splash aftermath: a white, broken patch that spreads and fizzes out).
     const foamGeo = new THREE.PlaneGeometry(1, 1);
     foamGeo.rotateX(-Math.PI / 2);
@@ -322,9 +450,14 @@ export class FishingGear {
             vec2 q = vUv - 0.5;
             float r = length(q) * 2.0;
             float breakup = n(q * 9.0 + uSeed) * 0.6 + n(q * 21.0 - uSeed) * 0.4;
-            float disc = smoothstep(1.0, 0.55, r + breakup * 0.35) * smoothstep(uAge * 0.9 - 0.2, uAge * 0.9 + 0.1, breakup + (1.0 - r) * 0.2);
-            float a = disc * (1.0 - uAge) * 0.95;
-            vec3 c = vec3(0.97, 0.99, 1.0) * (0.75 + uSun * 0.25) + uSky * 0.08;
+            // A ring of broken lace pushed out by the crown (hollow middle: the water there is churned
+            // clear), fizzing apart as it ages; a tiny bright core only for the first couple of frames.
+            float rr = 0.35 + uAge * 0.45;
+            float ring = smoothstep(0.32, 0.0, abs(r - rr + (breakup - 0.5) * 0.25));
+            float lace = smoothstep(0.42 + uAge * 0.4, 0.62 + uAge * 0.3, breakup);
+            float core = smoothstep(0.45, 0.0, r) * smoothstep(0.1, 0.0, uAge);
+            float a = (ring * lace * 0.62 + ring * 0.12 + core * 0.85) * (1.0 - uAge) * smoothstep(1.0, 0.85, r);
+            vec3 c = vec3(0.97, 0.99, 1.0) * (0.72 + uSun * 0.25) + uSky * 0.1;
             gl_FragColor = vec4(c, a);
           }`,
       });
@@ -335,28 +468,72 @@ export class FishingGear {
       this.group.add(m);
     }
 
-    // Fish shadow (a dark soft ellipse below the surface).
+    // Crown sheets (splash): an open, flaring cylinder of thin water, ragged at the rim, translucent.
+    const crownGeo = new THREE.CylinderGeometry(1, 0.55, 1, 20, 1, true).translate(0, 0.5, 0);
+    for (let i = 0; i < 3; i++) {
+      const mat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        uniforms: { uAge: { value: 1 }, uSeed: { value: 0 }, uSky: globalUniforms.uSkyColor, uSun: globalUniforms.uSunColor },
+        vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: /* glsl */ `
+          varying vec2 vUv; uniform float uAge; uniform float uSeed; uniform vec3 uSky; uniform vec3 uSun;
+          float h(float x){ return fract(sin(x * 127.1 + uSeed) * 43758.5453); }
+          float n(float x){ float i = floor(x); float f = fract(x); f = f*f*(3.0-2.0*f); return mix(h(i), h(i + 1.0), f); }
+          void main(){
+            // Ragged rim: spikes where the sheet tears into droplets.
+            // (Broad tears, a soft body: a few big spikes read as a crown, many thin ones as a coil.)
+            float rim = 0.5 + 0.5 * (n(vUv.x * 9.0) * 0.75 + n(vUv.x * 19.0) * 0.25);
+            float body = smoothstep(rim, rim - 0.3, vUv.y);
+            float thin = smoothstep(0.0, 0.5, vUv.y) * 0.7 + 0.15;
+            float a = body * thin * pow(1.0 - uAge, 1.6) * (0.6 + 0.4 * n(vUv.x * 6.0 + 3.0));
+            vec3 c = mix(uSky, vec3(1.0), 0.7) * (0.8 + uSun * 0.2);
+            gl_FragColor = vec4(c, a * 0.42);
+          }`,
+      });
+      const m = new THREE.Mesh(crownGeo, mat);
+      m.visible = false;
+      m.renderOrder = 5;
+      m.frustumCulled = false;
+      this.crowns.push({ mesh: m, mat, age: 1, size: 1 });
+      this.group.add(m);
+    }
+
+    // Fish shadow: a soft fish silhouette (head at -x, forked tail at +x), white on the canvas and
+    // tinted deep teal by the material. (r8: the old radial-gradient ellipse washed out to almost
+    // nothing on the deep water — the hooked fish never read.)
     const sc = document.createElement('canvas');
     sc.width = 128;
     sc.height = 64;
     const sg = sc.getContext('2d')!;
-    const rg = sg.createRadialGradient(56, 32, 2, 56, 32, 40);
-    rg.addColorStop(0, 'rgba(8,24,32,0.9)');
-    rg.addColorStop(1, 'rgba(8,24,32,0)');
-    sg.fillStyle = rg;
+    sg.filter = 'blur(2.5px)';
+    sg.fillStyle = '#fff';
     sg.beginPath();
-    sg.ellipse(56, 32, 44, 16, 0, 0, Math.PI * 2);
+    sg.moveTo(10, 32);
+    sg.bezierCurveTo(16, 20, 36, 17, 54, 18);
+    sg.bezierCurveTo(72, 19, 86, 25, 98, 29);
+    sg.lineTo(98, 35);
+    sg.bezierCurveTo(86, 39, 72, 45, 54, 46);
+    sg.bezierCurveTo(36, 47, 16, 44, 10, 32);
     sg.fill();
     sg.beginPath();
-    sg.moveTo(92, 32);
-    sg.lineTo(124, 18);
-    sg.lineTo(120, 32);
-    sg.lineTo(124, 46);
+    sg.moveTo(95, 32);
+    sg.lineTo(118, 14);
+    sg.quadraticCurveTo(110, 32, 118, 50);
     sg.closePath();
-    sg.fillStyle = 'rgba(8,24,32,0.35)';
     sg.fill();
+    sg.globalAlpha = 0.6;
+    for (const sy of [-1, 1]) {
+      sg.beginPath();
+      sg.moveTo(42, 32 + sy * 12);
+      sg.lineTo(56, 32 + sy * 24);
+      sg.lineTo(50, 32 + sy * 12);
+      sg.closePath();
+      sg.fill();
+    }
     const stex = new THREE.CanvasTexture(sc);
-    this.shadowMat = new THREE.MeshBasicMaterial({ map: stex, transparent: true, depthWrite: false, opacity: 0 });
+    this.shadowMat = new THREE.MeshBasicMaterial({ map: stex, color: 0x0b3440, transparent: true, depthWrite: false, opacity: 0 });
     const sgeo = new THREE.PlaneGeometry(0.9, 0.45);
     sgeo.rotateX(-Math.PI / 2);
     this.shadow = new THREE.Mesh(sgeo, this.shadowMat);
@@ -375,17 +552,20 @@ export class FishingGear {
       lg.addColorStop(0, 'rgba(255,236,190,0.5)');
       lg.addColorStop(1, 'rgba(255,214,140,0)');
       gg.fillStyle = lg;
+      // Rays start clear of the centre (r6: a lit core round a small held fish bloomed it into a
+      // glowing blob; the burst now frames the catch instead of sitting on it).
       gg.beginPath();
-      gg.moveTo(-2, 0);
+      gg.moveTo(-3, -34);
       gg.lineTo(-w, -len);
       gg.lineTo(w, -len);
-      gg.lineTo(2, 0);
+      gg.lineTo(3, -34);
       gg.closePath();
       gg.fill();
     }
     const rg2 = gg.createRadialGradient(0, 0, 0, 0, 0, 120);
-    rg2.addColorStop(0, 'rgba(255,244,215,0.6)');
-    rg2.addColorStop(0.3, 'rgba(255,220,150,0.25)');
+    rg2.addColorStop(0, 'rgba(255,244,215,0)');
+    rg2.addColorStop(0.3, 'rgba(255,226,160,0.12)');
+    rg2.addColorStop(0.55, 'rgba(255,214,140,0.08)');
     rg2.addColorStop(1, 'rgba(255,200,110,0)');
     gg.fillStyle = rg2;
     gg.fillRect(-128, -128, 256, 256);
@@ -517,7 +697,12 @@ export class FishingGear {
     const pts = this.pts;
     const straight = this.tip.distanceTo(end);
     // Only a touch of spare line (more piles up on the water as scribble).
-    const rest = (straight / (n - 1)) * (1 + this.slack * 0.035);
+    // r8: and never more than lets the line hang in one descending curve into the float: on a
+    // long cast from the high pier deck the spare 3.5 % dropped the belly onto the water well short
+    // of the float, which a low lens read as a U-shaped hammock rising back up to it.
+    const sagMax = Math.max(0.25 * (this.tip.y - end.y), straight * 0.03);
+    const spare = Math.min(this.slack * 0.035, (8 / 3) * (sagMax / Math.max(straight, 0.01)) ** 2);
+    const rest = (straight / (n - 1)) * (1 + spare);
     const g = -9.8 * dt * dt;
     const floor = this.waterY + 0.006;
     // The last few nodes rise smoothly to the float's eye (no V-kink where the line leaves the water).
@@ -532,9 +717,13 @@ export class FishingGear {
       const vy = (p.y - q.y) * 0.96;
       const vz = (p.z - q.z) * damp;
       q.copy(p);
-      p.x += vx;
-      p.y += vy + g * (0.35 + this.slack * 0.65);
-      p.z += vz;
+      // Velocity clamp (critic r5: a whipped node overshot the flying float and drew a phantom V).
+      const vmax = 0.12;
+      const vl = Math.hypot(vx, vy, vz);
+      const vk = vl > vmax ? vmax / vl : 1;
+      p.x += vx * vk;
+      p.y += vy * vk + g * (0.35 + this.slack * 0.65);
+      p.z += vz * vk;
     }
     pts[0]!.copy(this.tip);
     pts[n - 1]!.copy(end);
@@ -568,14 +757,28 @@ export class FishingGear {
     // Ease the nodes towards a clean catenary between tip and float so the rod's shake never leaves
     // kinks in it (the part that reaches the water lies along the surface, straight to the float).
     if (this.ease > 0) {
-      const sag = straight * (0.03 + this.slack * 0.1);
+      const sag = Math.min(straight * (0.03 + this.slack * 0.1), sagMax);
+      // A slack line also bows sideways in the breeze, so the curve reads from the steep play
+      // camera (a vertical sag alone is invisible from above).
+      _d.subVectors(pts[n - 1]!, pts[0]!).setY(0);
+      _e.set(-_d.z, 0, _d.x);
+      if (_e.lengthSq() > 1e-6) _e.normalize();
+      // r8: only as much bow as reads sideways on screen — on a low lens looking across the line
+      // the bow points along the view and drew a U-shaped hammock dipping below the float.
+      _c.setFromMatrixColumn(camera.matrixWorld, 0).setY(0);
+      const side = _c.lengthSq() > 1e-6 ? Math.abs(_c.normalize().dot(_e)) : 1;
+      const bow = straight * this.slack * 0.075 * (0.2 + 0.8 * side * side);
       const k = this.ease;
       for (let i = 1; i < n - 1; i++) {
         const t = i / (n - 1);
         _a.lerpVectors(pts[0]!, pts[n - 1]!, t);
         _a.y -= sag * 4 * t * (1 - t);
+        _a.addScaledVector(_e, bow * 4 * t * (1 - t) * (1 - t * 0.4));
         if (_a.y < floorAt(i)) _a.y = floorAt(i);
-        pts[i]!.lerp(_a, k);
+        pts[i]!.lerp(_a, Math.min(1, k));
+        // Paying out in flight (ease ≥ 1): the line is laid analytically along the tip→float arc
+        // with no stored momentum, so no node can lag behind or whip past the float.
+        if (k >= 1) this.prev[i]!.copy(pts[i]!);
       }
     }
     // Render copy, smoothed (a few Laplacian passes): where the hanging line touches down on the
@@ -590,44 +793,124 @@ export class FishingGear {
         if (rp[i]!.y < lo) rp[i]!.y = lo;
       }
     }
-    // Ribbon facing the camera: thin (≈ 1.5-2 px at 1080p), warm grey, never bright enough to bloom.
+    // A taut line hums: a fast standing-wave quiver across its span (hidden in the slack case).
+    const vib0 = this.vibrate;
+    if (this.twang > 0) {
+      this.vibrate += this.twang * 0.05;
+      this.twang = Math.max(0, this.twang - dt * 3.2);
+    }
+    if (this.vibrate > 0) {
+      const ph = performance.now() * 0.001;
+      _d.subVectors(rp[n - 1]!, rp[0]!).normalize();
+      _e.crossVectors(_d, _up).normalize();
+      for (let i = 1; i < n - 1; i++) {
+        const k = i / (n - 1);
+        const amp = this.vibrate * Math.sin(k * Math.PI) * (Math.sin(ph * 71 + k * 3) * 0.7 + Math.sin(ph * 113 - k * 7) * 0.3);
+        rp[i]!.addScaledVector(_e, amp).y += amp * 0.6;
+      }
+    }
+    this.vibrate = vib0;
+    // Ribbon facing the camera: ≈ 2 px at 720p, ≈ 3 px at 1080p (dark core, pale halo), never bright
+    // enough to bloom.
     const pos = this.lineGeo.attributes.position as THREE.BufferAttribute;
     const camPos = camera.position;
-    const w = 0.0085;
+    const w = 0.0062;
+    _d.setFromMatrixColumn(camera.matrixWorld, 1);
     for (let i = 0; i < n; i++) {
       const a = rp[Math.max(0, i - 1)]!;
       const b = rp[Math.min(n - 1, i + 1)]!;
       _a.subVectors(b, a).normalize();
       _b.subVectors(camPos, rp[i]!).normalize();
-      _c.crossVectors(_a, _b).normalize().multiplyScalar(w * (1 + camPos.distanceTo(rp[i]!) * 0.02));
-      pos.setXYZ(i * 2, rp[i]!.x + _c.x, rp[i]!.y + _c.y, rp[i]!.z + _c.z);
-      pos.setXYZ(i * 2 + 1, rp[i]!.x - _c.x, rp[i]!.y - _c.y, rp[i]!.z - _c.z);
+      _c.crossVectors(_a, _b).normalize().multiplyScalar(w * (1 + camPos.distanceTo(rp[i]!) * 0.06));
+      const P = rp[i]!;
+      const sh = _c.length() * 1.15;
+      const sx = P.x - _d.x * sh;
+      const sy = P.y - _d.y * sh;
+      const sz = P.z - _d.z * sh;
+      pos.setXYZ(i * 4, sx + _c.x, sy + _c.y, sz + _c.z);
+      pos.setXYZ(i * 4 + 1, sx - _c.x, sy - _c.y, sz - _c.z);
+      pos.setXYZ(i * 4 + 2, P.x + _c.x, P.y + _c.y, P.z + _c.z);
+      pos.setXYZ(i * 4 + 3, P.x - _c.x, P.y - _c.y, P.z - _c.z);
     }
     pos.needsUpdate = true;
     this.line.visible = this.lineVisible;
   }
 
-  ripple(p: THREE.Vector3, size = 1, life = 1.4): void {
+  /**
+   * An expanding ring born at `p` on the water plane (it stays there). `ambient` rings (the float's
+   * idle bob) are spaced ≥ 0.35 s apart with at most 3 alive and start fainter, so a float that is
+   * moving never strings them into a coil; splash rings always fire.
+   */
+  ripple(p: THREE.Vector3, size = 1, life = 1.4, ambient = false): void {
+    if (ambient) {
+      if (this.clock - this.lastAmbient < 0.35) return;
+      let alive = 0;
+      for (const x of this.ripples) if (x.mesh.visible && x.ambient) alive++;
+      if (alive >= 3) return;
+      this.lastAmbient = this.clock;
+    }
     const r = this.ripples.reduce((best, x) => (x.age / x.life > best.age / best.life ? x : best), this.ripples[0]!);
     r.age = 0;
     r.life = life;
     r.size = size;
-    r.mesh.position.set(p.x, this.waterY + 0.012, p.z);
+    r.ambient = ambient;
+    r.mat.uniforms.uAlpha!.value = ambient ? 0.35 : 0.55;
+    r.mesh.position.set(p.x, this.waterY + this.rippleLift, p.z);
     r.mesh.visible = true;
   }
 
+  /**
+   * The float's wake while a fish drags it: `p` the float, (bx, bz) the direction the wake trails
+   * (away from the pull), `strength` 0..1 (0 / null fades it out).
+   */
+  setWake(p: THREE.Vector3 | null, bx: number, bz: number, strength: number, dt: number): void {
+    const u = this.wakeMat.uniforms.uAlpha!;
+    const want = p ? THREE.MathUtils.clamp(strength, 0, 1) * 0.42 : 0;
+    u.value += (want - u.value) * Math.min(1, dt * 6);
+    this.wake.visible = u.value > 0.01;
+    if (!p) return;
+    this.wake.position.set(p.x, this.waterY + this.rippleLift, p.z);
+    if (bx * bx + bz * bz > 1e-6) this.wake.rotation.y = Math.atan2(bx, bz);
+  }
+
+  /**
+   * A splash: a crown of droplets thrown up and out on a ring (gravity brings them back down), a short-
+   * lived translucent crown sheet, a thin spout of spray on a big one, then a ring of broken foam and
+   * expanding ripples. Nothing opaque sits on the water for more than a couple of frames.
+   */
   splash(p: THREE.Vector3, big = false): void {
     const at = _e.set(p.x, this.waterY + 0.02, p.z);
-    this.fx.emit(at, { color: 0xeaf6fa, count: big ? 30 : 14, speed: big ? 2.3 : 1.3, size: big ? 0.11 : 0.07, gravity: 9, life: big ? 0.9 : 0.6, up: big ? 1.9 : 1.4, spread: big ? 0.35 : 0.15 });
-    this.fx.emit(at, { color: 0x9fd8e8, count: big ? 16 : 6, speed: big ? 1.6 : 0.9, size: big ? 0.08 : 0.05, gravity: 8, life: 0.7, up: 1.2, spread: 0.3 });
+    const n = big ? 22 : 12;
+    const r0 = big ? 0.13 : 0.08;
+    const ph = Math.random() * 6.28;
+    for (let i = 0; i < n; i++) {
+      const a = ph + (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
+      const dx = Math.cos(a);
+      const dz = Math.sin(a);
+      _d.set(at.x + dx * r0, at.y + 0.03, at.z + dz * r0);
+      this.fx.emitDir(_d, dx * 0.55, dz * 0.55, { color: i % 3 ? 0xe8f6fb : 0xffffff, count: 1, speed: (big ? 2.1 : 1.45) * (0.8 + Math.random() * 0.45), size: big ? 0.05 : 0.038, gravity: 9.8, life: big ? 0.62 : 0.48 });
+    }
+    // A finer mist of droplets inside the crown.
+    this.fx.emit(at, { color: 0xd8eef6, count: big ? 10 : 5, speed: big ? 1.3 : 0.8, size: 0.03, gravity: 9.8, life: 0.45, up: 1.5, spread: r0 });
     if (big) {
-      // Droplet crown (outward ring) + a tall spray column straight up.
-      this.fx.emit(at, { color: 0xffffff, count: 18, speed: 1.9, size: 0.1, gravity: 9.5, life: 0.75, up: 0.9, spread: 0.45 });
-      this.fx.emit(at, { color: 0xf4fbff, count: 16, speed: 1.0, size: 0.13, gravity: 7, life: 0.9, up: 2.6, spread: 0.12 });
-      this.foamDisc(p, 1.5);
-    } else this.foamDisc(p, 0.7);
+      // The spout: a few heavier drops straight up from the middle (the fish's tail kick).
+      this.fx.emit(at, { color: 0xf4fbff, count: 7, speed: 1.15, size: 0.06, gravity: 9.8, life: 0.75, up: 2.3, spread: 0.05 });
+    }
+    this.crown(p, big ? 1 : 0.62);
+    this.foamDisc(p, big ? 1.25 : 0.6);
     this.ripple(p, big ? 2.4 : 1.2, big ? 1.6 : 1.2);
     if (big) this.ripple(p, 1.3, 1.0);
+  }
+
+  /** The splash's crown sheet: a thin translucent lip that rises, flares out and collapses in ~0.35 s. */
+  private crown(p: THREE.Vector3, size: number): void {
+    const c = this.crowns.reduce((best, x) => (x.age > best.age ? x : best), this.crowns[0]!);
+    c.age = 0;
+    c.size = size;
+    c.mesh.position.set(p.x, this.waterY, p.z);
+    c.mesh.rotation.y = Math.random() * 6.28;
+    c.mat.uniforms.uSeed!.value = Math.random() * 40;
+    c.mesh.visible = true;
   }
 
   /** A patch of white foam on the water that breaks up and fades (splash aftermath). */
@@ -654,13 +937,46 @@ export class FishingGear {
     u.uBad!.value = bad ? 1 : 0;
   }
 
+  /**
+   * Dotted arc from `from` (the rod tip) to `to` (the reticle) while charging; null hides (fades).
+   * `pxPerM` = the viewport height / (2 tan(fov / 2)) so the dots keep a world size.
+   */
+  setArc(from: THREE.Vector3 | null, to: THREE.Vector3 | null, power: number, bad: boolean, t: number, dt: number, pxPerM: number): void {
+    const u = this.arcMat.uniforms;
+    u.uAlpha!.value += ((from && to ? 1 : 0) - u.uAlpha!.value) * Math.min(1, dt * 10 || 1);
+    this.arc.visible = u.uAlpha!.value > 0.02;
+    if (!from || !to || !this.arc.visible) return;
+    u.uPower!.value = power;
+    u.uBad!.value = bad ? 1 : 0;
+    u.uPx!.value = pxPerM;
+    const dist = Math.hypot(to.x - from.x, to.z - from.z);
+    const apex = 0.9 + dist * 0.16;
+    const march = (t * 0.9) % (1 / ARC_DOTS);
+    for (let i = 0; i < ARC_DOTS; i++) {
+      const k = Math.min(1, i / ARC_DOTS + march);
+      const y = from.y + (to.y - from.y) * k + apex * 4 * k * (1 - k);
+      this.arcPos[i * 3] = from.x + (to.x - from.x) * k;
+      this.arcPos[i * 3 + 1] = y;
+      this.arcPos[i * 3 + 2] = from.z + (to.z - from.z) * k;
+      this.arcK[i] = k;
+    }
+    const g = this.arc.geometry;
+    g.attributes.position!.needsUpdate = true;
+    g.attributes.aK!.needsUpdate = true;
+  }
+
   /** Fish shadow near the bobber (0 = hidden). */
-  setShadow(p: THREE.Vector3 | null, alpha: number, yaw = 0): void {
-    this.shadowMat.opacity = p ? alpha * 0.55 : 0;
+  setShadow(p: THREE.Vector3 | null, alpha: number, yaw = 0, lift = -0.18, scale = 1): void {
+    this.shadowMat.opacity = p ? alpha * 0.62 : 0;
     this.shadow.visible = !!p && alpha > 0.01;
     if (p) {
-      this.shadow.position.set(p.x, this.waterY - 0.18, p.z);
+      // `lift` (r8): a hooked fish rides just under the top, drawn over the swell (the sea writes
+      // depth, so at -0.18 m it was swallowed by deep water).
+      this.shadow.position.set(p.x, this.waterY + lift, p.z);
+      // Over the surface it must draw after the sea (renderOrder 2), like the school's shadows.
+      this.shadow.renderOrder = lift > 0 ? 3 : 1;
       this.shadow.rotation.y = yaw;
+      this.shadow.scale.setScalar(scale);
     }
   }
 
@@ -681,9 +997,70 @@ export class FishingGear {
     this.gloryMat.opacity = alpha;
   }
 
+  /**
+   * Turn the held fish squarely to the camera: flank facing the eye, head screen-left, back up (a true
+   * billboard, so the steep play camera never sees it edge-on as a sliver), plus a `roll` wiggle.
+   */
+  faceHeld(camera: THREE.Camera, roll: number): void {
+    camera.updateMatrixWorld();
+    const X = _a.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    const Z = _b.copy(camera.position).sub(this.heldRoot.position).normalize();
+    const Y = _c.crossVectors(Z, X).normalize();
+    X.crossVectors(Y, Z).normalize();
+    _m.makeBasis(X, Y, Z);
+    this.heldRoot.quaternion.setFromRotationMatrix(_m);
+    this.heldRoot.rotateZ(roll);
+  }
+
+  /**
+   * Hang the held fish from a fist by the tail (the wrist of the tail fin in the hand, head down,
+   * flank squarely to the camera), swinging by `sway` (rad). Writes the fish's middle to `out`.
+   */
+  hangHeld(fist: THREE.Vector3, camera: THREE.Camera, sway: number, out: THREE.Vector3): THREE.Vector3 {
+    const r = this.heldRoot;
+    r.position.copy(fist);
+    this.faceHeld(camera, Math.PI / 2 + sway);
+    // Peduncle (mesh x = +0.3, head at -0.5) sits in the fist; a touch towards the lens so the body
+    // hangs in front of the farmer's side, never through it.
+    const s = r.scale.x * (this.held?.mesh.group.scale.x ?? 1);
+    _a.set(0.3 * s, 0, 0).applyQuaternion(r.quaternion);
+    _b.copy(camera.position).sub(fist).normalize();
+    // (Just behind the fist, so the hand reads as gripping the tail wrist, not hidden by the fin.)
+    r.position.sub(_a).addScaledVector(_b, -0.05);
+    return out.copy(r.position);
+  }
+
+  /**
+   * Present a trophy in both hands (critic r5: a big fish hung by the tail read as a blob pressed to
+   * the torso): level across the chest, in front of the body, turned three-quarter to the lens with
+   * the back tipped towards it (dorsal fin, tail fork and eye all read), plus a `spin` (rad, about
+   * the vertical) for the arrival twirl. `center` = between the two hands.
+   */
+  presentHeld(center: THREE.Vector3, camera: THREE.Camera, spin: number, wiggle: number, out: THREE.Vector3): THREE.Vector3 {
+    const r = this.heldRoot;
+    r.position.copy(center);
+    this.faceHeld(camera, wiggle);
+    // A small fish is held up flank-square to the lens (all of its length reads); a trophy turns
+    // three-quarter with its back tipped to the camera.
+    const sm = THREE.MathUtils.clamp((1.15 - r.scale.x * (this.held?.mesh.group.scale.x ?? 1)) / 0.45, 0, 1);
+    r.rotateX(0.32 - sm * 0.22);
+    r.rotateY(0.5 - sm * 0.36 + spin);
+    _b.copy(camera.position).sub(center).setY(0).normalize();
+    r.position.addScaledVector(_b, 0.16 + r.scale.x * 0.05);
+    return out.copy(r.position);
+  }
+
+  /** Celebration light on the held fish (0 = off). */
+  glowHeld(k: number): void {
+    this.held?.mesh.glow(k);
+  }
+
   /** Show a fish held above the head (null to hide). */
   hold(def: FishDef | null, lengthCm = 40): void {
-    if (this.held) this.heldRoot.remove(this.held.mesh.group);
+    if (this.held) {
+      this.held.mesh.glow(0);
+      this.heldRoot.remove(this.held.mesh.group);
+    }
     this.held = null;
     if (!def) return;
     let mesh = this.meshCache.get(def.id);
@@ -697,6 +1074,7 @@ export class FishingGear {
   }
 
   update(dt: number, t: number, h: number): void {
+    this.clock += dt;
     for (const r of this.ripples) {
       if (!r.mesh.visible) continue;
       r.age += dt / r.life;
@@ -704,7 +1082,7 @@ export class FishingGear {
         r.mesh.visible = false;
         continue;
       }
-      const s = r.size * (0.35 + r.age * 1.1);
+      const s = r.size * (0.6 + r.age * 0.8);
       r.mesh.scale.set(s, 1, s);
       r.mat.uniforms.uAge!.value = r.age;
     }
@@ -719,10 +1097,25 @@ export class FishingGear {
       f.mesh.scale.set(s, 1, s);
       f.mat.uniforms.uAge!.value = f.age;
     }
+    for (const c of this.crowns) {
+      if (!c.mesh.visible) continue;
+      c.age += dt / 0.36;
+      if (c.age >= 1) {
+        c.mesh.visible = false;
+        continue;
+      }
+      // Rises fast, flares out, then slumps back into the water.
+      const k = c.age;
+      const r = c.size * (0.1 + 0.26 * Math.sqrt(k));
+      const ht = c.size * 0.42 * Math.sin(Math.min(1, k * 1.25) * Math.PI) + 0.01;
+      c.mesh.scale.set(r, ht, r);
+      c.mat.uniforms.uAge!.value = k;
+    }
     this.fx.update(dt, h);
     // Faint pulse (never a bloom spike: 0.2–0.4, up to ~1 on a bite flash).
     this.tipFlash = Math.max(0, this.tipFlash - dt * 1.5);
     this.tipMat.emissiveIntensity = 0.3 + Math.sin(t * 3.2) * 0.1 + this.tipFlash * 0.6;
-    if (this.held) this.held.mesh.flex(t, 0.8 + 0.4 * Math.sin(t * 3));
+    // (Held by the tail: a wriggle, not a curl — a curled fish loses the length the card states.)
+    if (this.held) this.held.mesh.flex(t, 0.3 + 0.2 * Math.sin(t * 3));
   }
 }

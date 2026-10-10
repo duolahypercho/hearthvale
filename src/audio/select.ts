@@ -5,23 +5,24 @@
  *   title screen            'title'
  *   forced (debug / scene)  whatever was forced
  *   festival grounds        that festival's arrangement ('festival-<id>' or the Lantern Jig)
- *   the mine                'mine' / 'mine-ice' / 'mine-lava' by floor band
+ *   the mine                'mine:earth' / 'mine:ice' / 'mine:lava' by floor band (round 8: each band
+ *                           rotates its drifting ambient piece with a written song)
  *   01:00 – 06:06           nothing — crickets, wind and the house creaking carry the night
  *                           (the morning song starts just after the wake-up chime)
  *   the inn / bakery        'inn' (its own tune, rain or shine, until late)
- *   rain / storm            'rain' (lo-fi window-weather piece, indoors too). A storm keeps it
+ *   rain / storm            'rain:<season>' (window-weather pieces, indoors too). A storm keeps it
  *                           outdoors as well, only quieter (STORM_OUTDOOR_LEVEL, applied by the
  *                           adapter as a level, not a new selection) so the thunder still leads and
  *                           stepping through a door never stops / restarts the score
  *   20:00 onward            'night:<season>' (the season's lullabies)
- *   town 17:30 – 20:00      'inn' (evening in the square)
+ *   town 17:30 – 20:00      'town:eve' (the inn's tune spilling out, or the lamplighter's waltz)
  *   town / Lantern Hall /
- *   shops & clinic          'town'
- *   beach                   'beach'
- *   forest                  'forest'
+ *   shops & clinic          'town:<season>'
+ *   beach                   'beach:day' (Salt & Sun / Low Tide)
+ *   forest                  'forest:day' (the forest song / Fern Hollow)
  *   farm / homes            'farm:<season>' (the season's three songs)
  *
- * 'farm:<season>' and 'night:<season>' are playlists (PLAYLISTS): the music director resolves them
+ * 'farm:<season>', 'night:<season>', 'rain:<season>', 'town:<season>' and 'town:eve' are playlists (PLAYLISTS): the music director resolves them
  * to one concrete song with `songFor` — a day-seeded rotation that never opens a day with the song
  * that opened the day before, and never plays the same song twice in a row within a day.
  */
@@ -40,11 +41,19 @@ export interface MusicContext {
 
 /** Music level outdoors in a storm (× the normal level): the rain tune under the thunder. */
 export const STORM_OUTDOOR_LEVEL = 0.55;
+/**
+ * Menu "page" (inventory, shop, crafting, map, journal…): the score steps back behind it — level
+ * ×0.72 (−3 dB) and a ~2.6 kHz low-pass (graph.setMusicMuffle amount) over MENU_TAU s — so the UI
+ * ticks sit on top. Applied by the adapter (systems/audio.ts) and mirrored in the gameplay render.
+ */
+export const MENU_LEVEL = 0.72;
+export const MENU_MUFFLE = 0.66;
+export const MENU_TAU = 0.1;
 
 export function mineThemeFor(floor: number | undefined): string {
-  if (!floor || floor < 1) return 'mine';
+  if (!floor || floor < 1) return 'mine:earth';
   const band = Math.floor((floor - 1) / 10) % 3;
-  return band === 0 ? 'mine' : band === 1 ? 'mine-ice' : 'mine-lava';
+  return band === 0 ? 'mine:earth' : band === 1 ? 'mine:ice' : 'mine:lava';
 }
 
 export function chooseTheme(c: MusicContext): string | null {
@@ -55,13 +64,13 @@ export function chooseTheme(c: MusicContext): string | null {
   if (c.map === 'mine') return mineThemeFor(c.mineFloor);
   if (c.hour >= 25 || c.hour < 6.1) return null;
   if ((c.map === 'inn' || c.map === 'bakery') && c.hour < 24) return 'inn';
-  if (c.weather === 'rain' || c.weather === 'storm') return 'rain';
+  if (c.weather === 'rain' || c.weather === 'storm') return `rain:${seasonOf(c.season)}`;
   if (c.hour >= 20) return `night:${seasonOf(c.season)}`;
   // Early evening in the square: the inn's tune spills out across the plaza.
-  if (c.map === 'town' && c.hour >= 17.5) return 'inn';
-  if (c.map === 'town' || c.map === 'hall' || c.map === 'shop' || c.map === 'clinic' || c.map === 'smithy') return 'town';
-  if (c.map === 'beach') return 'beach';
-  if (c.map === 'forest') return 'forest';
+  if (c.map === 'town' && c.hour >= 17.5) return 'town:eve';
+  if (c.map === 'town' || c.map === 'hall' || c.map === 'shop' || c.map === 'clinic' || c.map === 'smithy') return `town:${seasonOf(c.season)}`;
+  if (c.map === 'beach') return 'beach:day';
+  if (c.map === 'forest') return 'forest:day';
   return `farm:${seasonOf(c.season)}`;
 }
 
@@ -76,9 +85,25 @@ export const PLAYLISTS: Record<string, readonly string[]> = {
   'farm:fall': ['fall', 'fall-2', 'fall-3'],
   'farm:winter': ['winter', 'winter-2', 'winter-3'],
   'night:spring': ['night-spring', 'night'],
-  'night:summer': ['night', 'night-spring'],
+  'night:summer': ['night-summer', 'night'],
   'night:fall': ['night-fall', 'night'],
   'night:winter': ['night-winter', 'night'],
+  'rain:spring': ['rain', 'rain-2'],
+  'rain:summer': ['rain-2', 'rain'],
+  'rain:fall': ['rain-3', 'rain'],
+  'rain:winter': ['rain-3', 'rain-2'],
+  'town:spring': ['town', 'town-3'],
+  'town:summer': ['town-3', 'town'],
+  'town:fall': ['town', 'town-2'],
+  'town:winter': ['town-winter', 'town-2'],
+  'town:eve': ['inn', 'town-2'],
+  // Round 12: the beach and the forest had one song each.
+  'beach:day': ['beach', 'beach-2'],
+  'forest:day': ['forest', 'forest-2'],
+  // Round 8: the mines had one piece per band, looping for as long as a player dug.
+  'mine:earth': ['mine', 'mine-2'],
+  'mine:ice': ['mine-ice', 'mine-ice-2'],
+  'mine:lava': ['mine-lava', 'mine-lava-2'],
 };
 
 function mix(a: number, b: number): number {

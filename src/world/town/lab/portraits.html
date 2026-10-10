@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Portrait lab</title>
+<style>
+body { margin: 0; background: #2a2018; font: 700 14px sans-serif; color: #fbefd6; }
+.grid { display: grid; grid-template-columns: repeat(var(--cols, 5), var(--s, 360px)); gap: 8px; padding: 8px; }
+.c { position: relative; width: var(--s, 360px); height: var(--s, 360px); border-radius: 10px; overflow: hidden; }
+.c svg { width: var(--s, 360px); height: var(--s, 360px); display: block; }
+.c span { position: absolute; left: 6px; bottom: 6px; background: #0008; padding: 2px 6px; border-radius: 6px; }
+</style></head>
+<body><div class="grid" id="g"></div>
+<script type="module">
+// Portrait lab (town r19): the painted busts large, no game boot (scripts/shot.mjs --url "/src/world/town/lab/portraits.html?…").  ?npc=a,b&moods=…&light=day|dusk|night&season=…
+import { paintedPortraitSvg, setPortraitLight } from '/src/ui/portraits.ts';
+import { NPCS, MOODS, seasonLook } from '/src/data/npcs.ts';
+const q = new URLSearchParams(location.search);
+const ids = (q.get('npc') || 'tobias').split(',');
+const moods = q.get('moods') ? q.get('moods').split(',') : MOODS;
+setPortraitLight(q.get('light') || 'day');
+const g = document.getElementById('g');
+if (q.get('s')) document.body.style.setProperty('--s', q.get('s') + 'px');
+if (q.get('cols')) document.body.style.setProperty('--cols', q.get('cols'));
+for (const id of ids) {
+  const d = NPCS[id];
+  const look = q.get('season') ? seasonLook(d, q.get('season')) : d.look;
+  for (const m of moods) {
+    const c = document.createElement('div');
+    c.className = 'c';
+    c.innerHTML = paintedPortraitSvg(look, d.portraitBg, m) + `<span>${id} · ${m}</span>`;
+    g.appendChild(c);
+  }
+}
+window.__game = { ready: async () => {}, info: () => ({}) };
+</script></body></html>

@@ -8,6 +8,7 @@ import type { Season, Weather } from '../core/time';
 import type { RenderContext } from './renderer';
 import { globalUniforms } from './uniforms';
 import { nightGlow, interiorGlow } from './materials';
+import { setShadowCullPlanes } from './batching';
 
 interface Key {
   h: number;
@@ -60,6 +61,12 @@ const _shadowWant = new THREE.Vector3();
 const SHADOW_STEP_RAD = 0.0006;
 /** Shadow frustum centre step (m), rounded to whole texels. */
 const SHADOW_SNAP_M = 1;
+const CULL_NX = [-1, 1, 1, -1, 0, 0];
+const CULL_NY = [-1, -1, 1, 1, 1, -1];
+const _cp = new THREE.Vector3();
+const _cd = new THREE.Vector3();
+const _cn = new THREE.Vector3();
+const _hull: number[] = [];
 
 // Storm grade: a clear cold teal-blue (lifted slate shadows, pulled-down warm highlights).
 const _stormLift = new THREE.Vector3(0.03, 0.048, 0.078);
@@ -91,6 +98,9 @@ export class DayNight {
   mist = 0;
   /** Minimum wetness (weather system: surfaces stay damp for a while after the rain stops). */
   wetFloor = 0;
+  /** Fog is scaled by the lens distance; close dialogue lenses (NpcSystem) set a floor so a 6 m
+   *  two-shot keeps its background instead of drowning it in haze (0 = off). */
+  fogDistMin = 0;
   /** Current weather blend (smoothed). */
   private overcast = 0;
   private snowTarget = 0;
@@ -110,6 +120,9 @@ export class DayNight {
    * (render/shadowcache.ts) stays valid between steps instead of re-rendering every frame.
    */
   private shadowDir = new THREE.Vector3();
+  private cullPts: number[] = [];
+  private cullHull: number[] = [];
+  private cullPlanes = Array.from({ length: 16 }, () => new THREE.Plane());
   // Image-based lighting: a tiny gradient-sky scene prefiltered with PMREM, refreshed
   // whenever the (quantized) time of day / weather changes.
   private pmrem: THREE.PMREMGenerator;
@@ -344,7 +357,7 @@ export class DayNight {
     // Lightning: a hard cold key from above for the stroke, so shadows snap (≤ +1.2 EV overall).
     if (this.flash > 0.001) {
       this.sun.color.lerp(_flashSky, Math.min(1, this.flash * 1.4));
-      this.sun.intensity += this.flash * 4.2;
+      this.sun.intensity += this.flash * 5.2;
     }
     globalUniforms.uSunColor.value.copy(this.sun.color).multiplyScalar(this.sun.intensity / 3);
 
@@ -358,8 +371,9 @@ export class DayNight {
     this.hemi.groundColor.lerp(_stormGround, stormFill * 0.45);
     this.hemi.intensity = L(a.hemiI, b.hemiI, t) * 0.8 * (1 + oc * 0.35) * (1 + stormFill * 0.5);
     if (this.flash > 0.001) {
+      // (Mostly the hard key: a flat sky-fill jump read as a milky veil, not a flash.)
       this.hemi.color.lerp(_flashSky, Math.min(1, this.flash * 1.5));
-      this.hemi.intensity += this.flash * 2.2;
+      this.hemi.intensity += this.flash * 0.8;
     }
     this.bounce.color.copy(this.hemi.groundColor).lerp(this.sun.color, 0.5);
     this.bounce.intensity = this.sun.intensity * 0.12;
@@ -375,8 +389,9 @@ export class DayNight {
     (this.rc.scene.background as THREE.Color).copy(this.fog.color);
     // Rain thickens the distance haze, but storms stay crisp and dark (the drama is in the grade,
     // the rain sheets and the lightning, not in a milky wash).
-    this.fog.near = this.rc.rig.distance * (1.25 - rainy * 0.35 + storm * 0.2);
-    this.fog.far = this.rc.rig.distance * (4.2 - oc * 1.1 - rainy * 0.75 + storm * 0.6);
+    const fogD = Math.max(this.rc.rig.distance, this.fogDistMin);
+    this.fog.near = fogD * (1.25 - rainy * 0.35 + storm * 0.2);
+    this.fog.far = fogD * (4.2 - oc * 1.1 - rainy * 0.75 + storm * 0.6);
     if (this.mist > 0.001) {
       const m = this.mist;
       _c1.setRGB(0.86, 0.87, 0.86).lerp(this.sun.color, 0.25).multiplyScalar(1 - this.night * 0.75);
@@ -396,7 +411,7 @@ export class DayNight {
     // Exposure + grade. Storms: ~-0.5 EV, cold blue-slate shadows, 20 % desaturated; plain rain only
     // dims a little. Lightning: the return stroke pushes the frame ~+2.5 EV for its 60 ms.
     const stormK = THREE.MathUtils.smoothstep(oc, 0.92, 1.0) * (1 - this.night * 0.6);
-    this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t) * (1 - Math.max(0, oc - 0.85) * 1.2) * (1 + stormK * 0.06) * (1 + this.flash * 1.3);
+    this.rc.renderer.toneMappingExposure = L(a.exposure, b.exposure, t) * (1 - Math.max(0, oc - 0.85) * 1.2) * (1 + stormK * 0.06) * (1 + this.flash * 0.95);
     // Golden-hour rim: strongest with a low sun, gone at night / under overcast.
     const elev = Math.asin(THREE.MathUtils.clamp(this.sunDir.y, -1, 1));
     // …and a cool moonlit rim at night so canopies keep their silhouettes against the dark.
@@ -413,9 +428,18 @@ export class DayNight {
       (g.uLift!.value as THREE.Vector3).lerp(_stormLift, stormK);
       (g.uGain!.value as THREE.Vector3).lerp(_stormGain, stormK);
     }
+    // Plain rain borrows half the storm's cold slate grade and dips ~0.2 EV so the day reads as
+    // overcast and heavy, not a desaturated haze (local value contrast stays via rainOnly above).
+    if (rainOnly > 0.001) {
+      (g.uLift!.value as THREE.Vector3).lerp(_stormLift, rainOnly * 0.8);
+      (g.uGain!.value as THREE.Vector3).lerp(_stormGain, rainOnly * 0.9);
+      this.rc.renderer.toneMappingExposure *= 1 - rainOnly * 0.24;
+      g.uContrast!.value *= 1 + rainOnly * 0.12;
+      g.uSaturation!.value *= 1 - rainOnly * 0.1;
+    }
     // Lightning: the whole frame blooms blue-white for an instant.
-    if (this.flash > 0.001) (g.uLift!.value as THREE.Vector3).add(_flashLift.set(0.03, 0.035, 0.05).multiplyScalar(this.flash));
-    g.uVignette!.value = L(a.vignette, b.vignette, t);
+    if (this.flash > 0.001) (g.uLift!.value as THREE.Vector3).add(_flashLift.set(0.008, 0.011, 0.02).multiplyScalar(this.flash));
+    g.uVignette!.value = L(a.vignette, b.vignette, t) * (1 + rainOnly * 0.4);
     // Bloom threshold stays high day and night (only emissives / sun glints exceed it); night only
     // raises the strength a little so lit windows and lanterns glow — lamp-lit ground never blooms.
     this.rc.post.setBloom(0.3 + this.night * 0.22, 0.92);
@@ -500,9 +524,76 @@ export class DayNight {
     // A short light column keeps the plateau forest out of the shadow pass.
     this.sun.position.copy(center).addScaledVector(this.shadowDir, SHADOW_REACH);
     this.sun.target.updateMatrixWorld();
+    this.shadowCullPlanes(cam, camera, inv, lightRot, groundY);
     this.bounce.position.copy(center).add(new THREE.Vector3(-this.sunDir.x, 0.4, -this.sunDir.z).multiplyScalar(30));
     this.bounce.target.position.copy(center);
     this.bounce.target.updateMatrixWorld();
     this.sky.position.copy(this.rc.camera.position);
   }
+
+  /**
+   * Shadow caster culling (render/batching.ts): the light-space convex hull of every receiver the view can
+   * show — its ground footprint from 3 m below to 5 m above the focus, and everything between that and the
+   * lens — widened by a margin, as world planes parallel to the light. Casters outside it can only shadow
+   * what is off screen. The margin covers the sun box's centre snap and the re-commit drift.
+   */
+  private shadowCullPlanes(shadowCam: THREE.Camera, camera: THREE.PerspectiveCamera, inv: THREE.Matrix4, lightRot: THREE.Matrix4, groundY: number): void {
+    if (!this.sun.castShadow) {
+      setShadowCullPlanes(null, this.cullPlanes, 0, 0);
+      return;
+    }
+    const rig = this.rc.rig;
+    const origin = camera.position;
+    const pts = this.cullPts;
+    pts.length = 0;
+    const p = _cp;
+    const dir = _cd;
+    p.copy(origin).applyMatrix4(inv);
+    pts.push(p.x, p.y);
+    for (let k = 0; k < 6; k++) {
+      dir.set(CULL_NX[k]!, CULL_NY[k]!, 0.5).unproject(camera).sub(origin).normalize();
+      for (let j = 0; j < 2; j++) {
+        const gy = groundY + (j === 0 ? 5 : -3);
+        const t = dir.y < -0.05 ? Math.min((gy - origin.y) / dir.y, rig.distance * 3) : rig.distance * 3;
+        p.copy(origin).addScaledVector(dir, Math.max(0, t)).applyMatrix4(inv);
+        pts.push(p.x, p.y);
+      }
+    }
+    // Monotone-chain convex hull (counter-clockwise) of the light-space points.
+    const n = pts.length / 2;
+    const idx = this.cullHull;
+    idx.length = 0;
+    for (let i = 0; i < n; i++) idx.push(i);
+    idx.sort((a, b) => pts[a * 2]! - pts[b * 2]! || pts[a * 2 + 1]! - pts[b * 2 + 1]!);
+    const hull: number[] = _hull;
+    hull.length = 0;
+    const cross = (o: number, a: number, b: number): number => (pts[a * 2]! - pts[o * 2]!) * (pts[b * 2 + 1]! - pts[o * 2 + 1]!) - (pts[a * 2 + 1]! - pts[o * 2 + 1]!) * (pts[b * 2]! - pts[o * 2]!);
+    for (const i of idx) {
+      while (hull.length >= 2 && cross(hull[hull.length - 2]!, hull[hull.length - 1]!, i) <= 0) hull.pop();
+      hull.push(i);
+    }
+    const lower = hull.length + 1;
+    for (let k = idx.length - 2; k >= 0; k--) {
+      const i = idx[k]!;
+      while (hull.length >= lower && cross(hull[hull.length - 2]!, hull[hull.length - 1]!, i) <= 0) hull.pop();
+      hull.push(i);
+    }
+    hull.pop();
+    const margin = 3 + SHADOW_SNAP_M * 2;
+    let m = 0;
+    for (let e = 0; e < hull.length && m < this.cullPlanes.length; e++) {
+      const a = hull[e]!;
+      const b = hull[(e + 1) % hull.length]!;
+      const dx = pts[b * 2]! - pts[a * 2]!;
+      const dy = pts[b * 2 + 1]! - pts[a * 2 + 1]!;
+      const len = Math.hypot(dx, dy);
+      if (len < 1e-4) continue;
+      // CCW: the interior is on the left of a→b.
+      const nrm = _cn.set(-dy / len, dx / len, 0).transformDirection(lightRot);
+      const at = _cp.set(pts[a * 2]!, pts[a * 2 + 1]!, 0).applyMatrix4(lightRot);
+      this.cullPlanes[m++]!.set(nrm, -nrm.dot(at) + margin);
+    }
+    setShadowCullPlanes(shadowCam, this.cullPlanes, m, margin * 0.25);
+  }
+
 }

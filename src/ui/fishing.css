@@ -148,7 +148,8 @@
 .hvf-reel {
   position: absolute;
   width: 152px;
-  transform: translate(0, -50%);
+  transform: translate(0, -50%) scale(var(--reel-k, 1));
+  transform-origin: 50% 50%;
   animation: hvf-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .hvf-reel .frame {
@@ -264,12 +265,38 @@
 .hvf-reel.tense .frame {
   box-shadow: inset 0 2px 0 rgba(255, 220, 170, 0.55), inset 0 -4px 0 rgba(60, 30, 10, 0.4), 0 6px 0 rgba(60, 30, 10, 0.4), 0 0 26px rgba(255, 214, 90, 0.75), 0 18px 34px rgba(20, 10, 4, 0.45);
 }
+/* Hot streak (r7b): the tag warms to gold and gets a flame chip while the reel runs fast. */
+.hvf-reel.hot .head {
+  background: linear-gradient(180deg, #fff1b8, #ffcf5a);
+  box-shadow: 0 0 14px rgba(255, 190, 60, 0.85);
+}
+.hvf-reel.hot .head::after {
+  content: 'HOT!';
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: #d0582a;
+  color: #fff4d6;
+  font-size: 0.82em;
+}
 .hvf-bang.remote {
   width: 62px;
   height: 70px;
 }
 .hvf-reel.shake .frame {
   animation: hvf-shake 0.09s linear infinite;
+}
+.hvf-reel.slip .frame {
+  animation: hvf-slip 0.12s linear infinite;
+}
+@keyframes hvf-slip {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 1.5px -1px;
+  }
 }
 .hvf-reel.out {
   animation: hvf-out 0.22s ease-in forwards;
@@ -340,6 +367,21 @@
   filter: drop-shadow(0 5px 3px rgba(0, 30, 50, 0.35));
   animation: hvf-swim 1.6s ease-in-out infinite alternate;
 }
+/* The species rendered from its own 3D mesh (ui/fishing-portrait.ts): the fish in the farmer's fist. */
+.hvf-card .art img.fish3d {
+  position: relative;
+  width: 166px;
+  height: auto;
+  filter: drop-shadow(0 6px 4px rgba(0, 30, 50, 0.32));
+  animation: hvf-swim 1.6s ease-in-out infinite alternate;
+}
+/* Golden-hour cast over the illustration (multiply, like the scene light on the 3D fish). */
+.hvf-card .art .grade {
+  position: absolute;
+  inset: 0;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
 .hvf-card .info {
   flex: 1;
   min-width: 0;
@@ -348,7 +390,7 @@
 .hvf-card .kicker {
   font-family: var(--font-head, 'Fredoka', sans-serif);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #b0703a;
@@ -619,7 +661,7 @@
   align-items: center;
   gap: 7px;
   margin-top: 7px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #6a4424;
 }
@@ -710,7 +752,7 @@
 .hvf-tk-note i {
   display: block;
   text-align: right;
-  font-size: 12px;
+  font-size: 14px;
 }
 .hvf-tk-skill {
   padding: 10px 12px;
@@ -735,7 +777,7 @@
   font-size: 15px;
 }
 .hvf-tk-skill small {
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 700;
   color: #6a4a2a;
 }
@@ -766,7 +808,7 @@
   height: 22px;
 }
 .hvf-tk-purse small {
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 600;
   color: #8a6a4a;
 }
@@ -799,7 +841,7 @@
 }
 .hvf-tk-row .nm small {
   display: block;
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 700;
   color: #8a6a4a;
 }

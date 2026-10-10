@@ -106,7 +106,7 @@ try {
   if (!(ht.length === 1 && at.length === 1)) log('coop traces', JSON.stringify(await Promise.all([host, hand].map((p) => ev(p, () => window.__game.game.services.festivals.coopStats().trace)))));
   check('each HUD has a lane token for the other farmer', ht.length === 1 && at.length === 1, `host sees ${JSON.stringify(ht)} · hand sees ${JSON.stringify(at)}`);
   const lanes = await Promise.all([host, hand].map((p) => ev(p, () => window.__game.game.world.current.play?.lanes?.[0])));
-  check('farmers race different lanes (owner 0, joiner 1)', lanes[0] === 0 && lanes[1] === 1, JSON.stringify(lanes));
+  check('farmers race different lanes (host-assigned: owner 0, joiner 1)', lanes[0] === 0 && lanes[1] === 1, JSON.stringify(lanes));
 
   // ── race: alternate ◀ ▶ on both machines (in-page timers, so a busy test runner can't slow the
   // hops; the host hops a touch quicker) ───────────────────────────────────────
@@ -156,6 +156,39 @@ try {
   const boards = await Promise.all([host, hand].map((p) => ev(p, () => window.__game.game.services.festivals.board('sackrace').map((r) => `${r.player}:${r.name}:${r.place}`))));
   check('both boards show two rows', boards[0].length === 2 && boards[1].length === 2, JSON.stringify(boards));
   check("each board holds your own row as 'local' + the other farmer", boards.every((b) => b.filter((r) => r.startsWith('local:')).length === 1 && b.some((r) => r.startsWith('p'))));
+
+  const traces = await Promise.all([host, hand].map((p) => ev(p, () => window.__game.game.services.festivals.coopStats().trace)));
+  check('the host ranked the finish (fe.res standings)', traces[0].some((t) => / res r\d+/.test(t)), traces[0].slice(-4).join(' | '));
+  const places = await Promise.all([host, hand].map((p) => ev(p, () => window.__game.game.services.festivals.board('sackrace').map((r) => r.place).sort().join(','))));
+  check('both machines agree on the places (host-authoritative)', places[0] === places[1], JSON.stringify(places));
+
+  // ── spectating: the farmhand races again alone; the host watches it staged in 3D ──
+  await ev(hand, () => void window.__game.game.services.festivals.play('sackrace'));
+  const handLobby = await waitFor(hand, () => !!document.querySelector('.fg-lobby') || !!document.querySelector('.fg-race'), null, 15000);
+  check('farmhand opens a start line (host-owned lobby)', handLobby);
+  await waitFor(hand, () => document.querySelector('.fg-lobby .fg-go')?.style.display === '', null, 5000);
+  await hand.keyboard.press('Space');
+  const soloRace = await waitFor(hand, () => !!document.querySelector('.fg-race') && !document.querySelector('.fg-lobby'), null, 20000);
+  check('farmhand starts the race from the line (host go tick)', soloRace);
+  // A forged progress claim (teleport to the tape) — the host must cap it.
+  await sleep(2600);
+  const raceId = await ev(hand, () => (window.__game.game.services.festivals.coopStats().trace.map((t) => / race (r\d+)/.exec(t)?.[1]).filter(Boolean).pop()) ?? '');
+  const rej0 = await ev(host, () => window.__game.game.services.festivals.coopStats().rejected);
+  await ev(hand, (id) => window.__game.game.services.net.sendExt('host', ['fe.in', id, 1.2, 1, 1.1]), raceId);
+  await hopper(hand, 340);
+  const watched = await waitFor(host, () => window.__game.game.services.festivals.coopStats().staged.some((v) => v.act === 'sackrace' && v.events > 3 && v.posed), null, 30000);
+  const hostView = await ev(host, () => ({ staged: window.__game.game.services.festivals.coopStats().staged, field: !!window.__game.game.world.current.specRaceView }));
+  check("host watches the farmhand's race staged in 3D (relayed hops, avatar posed)", watched, JSON.stringify(hostView.staged));
+  check("host stages the villager field of the farmhand's race", hostView.field);
+  const rej1 = await ev(host, () => window.__game.game.services.festivals.coopStats().rejected);
+  check('host rejects a forged teleport-to-the-tape claim', rej1 > rej0, `rejected ${rej0} -> ${rej1} (race ${raceId})`);
+  await host.screenshot({ path: resolve(outDir, 'coop-spectate-host.png'), timeout: 90000 });
+  const handDone = await waitFor(hand, () => !!document.querySelector('.fg-result'), null, 60000);
+  await ev(hand, () => clearInterval(window.__hops));
+  check('farmhand finishes the solo race', handDone);
+  for (let i = 0; i < 4; i++) await hand.keyboard.press('Space').then(() => sleep(400));
+  const closed = await waitFor(host, () => !window.__game.game.services.festivals.coopStats().staged.length, null, 15000);
+  check('the host closes the watched game for everyone (fe.fin)', closed);
 
   // ── a farmhand who joins later gets today's board in the handshake ────────
   late = await open('late', 'name=Briar&preset=2');

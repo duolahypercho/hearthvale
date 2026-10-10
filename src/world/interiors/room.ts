@@ -32,6 +32,8 @@ export interface WindowSpec {
   y0: number;
   y1: number;
   curtains?: number | null;
+  /** r16: this window's light-shaft strength (1 = the room's default). */
+  shaft?: number;
 }
 
 export interface RoomSpec {
@@ -56,7 +58,11 @@ export interface RoomSpec {
   timberLight?: number;
   /** Floor tint (e.g. darker packed straw so fresh hay piles read). */
   floorTint?: number;
+  /** Height of the cut-away front knee wall (default skirting height 0.3; the coop's pop door needs 0.42). */
+  kneeH?: number;
   wainscotTint?: number;
+  /** Barn style: material of the lower wall band (with wainscotTint; default limewash). */
+  lowerMat?: IMat;
 }
 
 /** Everything the lighting hook needs this frame. */
@@ -91,9 +97,7 @@ interface Lamp {
 }
 
 const _c = new THREE.Color();
-const _a = new THREE.Vector3();
-const _b = new THREE.Vector3();
-const _f = new THREE.Vector3();
+const _c2 = new THREE.Color();
 
 export abstract class InteriorMap implements GameMap {
   readonly id: string;
@@ -146,6 +150,20 @@ export abstract class InteriorMap implements GameMap {
   protected moonScale = 1;
   /** Soft additive sun patch where each window shaft lands (0 = off; straw floors swallow the real one). */
   protected sunPoolK = 0;
+  /** Cool daylight bounce through the windows (0..1): blue-sky ambient against the warm wood + lamps. */
+  protected coolFill = 0;
+  /** Window shaft strength multiplier. */
+  protected shaftK = 1;
+  /** r16: lamps come on early (0..1 floor on the lamp level from 14:30 → 17:00). */
+  protected lampEarly = 0;
+  /** This frame's lamp level (0 day … 1 night), for room updaters. */
+  protected lampK = 0;
+  /** How much of the cool morning sky light this room takes (0..1). */
+  protected morningCool = 0.6;
+  /** This frame's cool-morning weight (computeLight). */
+  protected coolK = 0;
+  /** Moonlight shaft strength at night (the cool beam over the bed / floor). */
+  protected moonShaft = 0.025;
   protected finalized = false;
   /** Bedtime dimming 0..1 (sleep system): lamps, fire and exposure ease down before the fade. */
   dim = 0;
@@ -171,17 +189,26 @@ export abstract class InteriorMap implements GameMap {
     this.shaftMat = new THREE.ShaderMaterial({
       uniforms: { uMap: { value: shaftGradient().map }, uColor: { value: new THREE.Color() }, uTime: { value: 0 } },
       vertexShader: /* glsl */ `
-        varying vec2 vUv; varying vec3 vW; varying vec3 vN;
-        void main() { vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }`,
+        attribute float aK; attribute vec2 aWin;
+        varying vec2 vUv; varying vec3 vW; varying vec3 vN; varying float vK; varying vec2 vWin; varying float vDepth;
+        void main() { vUv = uv; vK = aK; vWin = aWin; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); vec4 mv = viewMatrix * w; vDepth = -mv.z; gl_Position = projectionMatrix * mv; }`,
       fragmentShader: /* glsl */ `
         uniform sampler2D uMap; uniform vec3 uColor; uniform float uTime;
-        varying vec2 vUv; varying vec3 vW; varying vec3 vN;
+        varying vec2 vUv; varying vec3 vW; varying vec3 vN; varying float vK; varying vec2 vWin; varying float vDepth;
         void main() {
-          float a = texture2D(uMap, vUv).r;
+          float a = texture2D(uMap, vUv).r * vK;
           float n = 0.8 + 0.2 * sin(vW.x * 3.1 + vW.y * 2.3 + uTime * 0.6) * sin(vW.z * 2.7 - uTime * 0.4);
           // Faces seen edge-on fade out: the beam's silhouette is soft, never a hard-edged slab.
           float facing = abs(dot(normalize(vN), normalize(cameraPosition - vW)));
-          gl_FragColor = vec4(uColor * a * n * smoothstep(0.04, 0.5, facing), 1.0);
+          // r18: the window's own framing carried down the beam (the cross of the glazing bars casts two
+          // darker lanes, so a shaft reads as light through panes, not a flat translucent slab) …
+          float bars = smoothstep(0.02, 0.075, abs(vWin.x - 0.5)) * smoothstep(0.025, 0.085, abs(vWin.y - 0.5));
+          // … and it thins out with depth along the view (the far faces of the prism, behind the beam's
+          // near face, add less: the volume has a front and a back instead of a doubled slab).
+          float thin = mix(1.0, 0.55, smoothstep(0.0, 1.0, (vDepth - 9.0) / 8.0));
+          // low-frequency breakup along the beam (the air is never evenly lit)
+          float breakup = 0.72 + 0.28 * sin(vUv.y * 7.0 + vW.x * 1.7 - uTime * 0.25) * sin(vUv.x * 5.0 + vW.z * 1.3);
+          gl_FragColor = vec4(uColor * a * n * mix(0.3, 1.0, bars) * thin * breakup * smoothstep(0.08, 0.6, facing), 1.0);
         }`,
       transparent: true,
       depthWrite: false,
@@ -207,25 +234,157 @@ export abstract class InteriorMap implements GameMap {
     });
 
     // Dust motes (filled in finalize once shafts exist).
-    const N = 180;
+    // (r18: more, slightly bigger motes — the sparkle in the beam carries the light now)
+    const N = 240;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
     this.dustSeeds = new Float32Array(N * 4);
     for (let i = 0; i < N * 4; i++) this.dustSeeds[i] = Math.random();
     this.dust = new THREE.Points(
       g,
-      new THREE.PointsMaterial({ size: 0.035, map: textures.softDot().map, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xfff0d0, opacity: 0.8, fog: false }),
+      new THREE.PointsMaterial({ size: 0.042, map: textures.softDot().map, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xfff0d0, opacity: 0.8, fog: false }),
     );
     this.dust.frustumCulled = false;
     this.dust.userData.noAO = true;
     this.dust.name = 'dust';
 
-    this.rim = new THREE.PointLight(0xffcf9a, 0, 2.6, 2);
+    this.rim = new THREE.PointLight(0xffdcb4, 0, 3.6, 2);
     this.rim.castShadow = false;
     this.root.add(this.rim);
 
     this.buildShell();
+    this.buildDoorway();
   }
+
+  // ─────────────────────────────────────────── doorway (the way out must read at a glance)
+
+  /**
+   * The exit, readable at gameplay zoom: a painted door frame cut at the section line (jambs a little
+   * proud of the knee wall, a dark lintel cap), a coir doormat inside, a fan of outside light spilling
+   * in over the threshold (warm daylight / cool moonlight), and a pair of bobbing floor chevrons
+   * pointing out of the door whenever the farmer is within two tiles of it.
+   */
+  private buildDoorway(): void {
+    const { D, style } = this.spec;
+    const T = 0.22;
+    const kneeH = this.spec.kneeH ?? 0.3;
+    const gap0 = this.spec.doorX - 0.1;
+    const gap1 = this.spec.doorX + 1.1;
+    const dc = this.spec.doorX + 0.5;
+    const k = new Kit();
+    const trim = style === 'house' ? 0xf6eedc : 0xf2ead8;
+    const jh = kneeH + 0.46;
+    for (const x of [gap0 - 0.04, gap1 + 0.04]) {
+      k.box('paint', [0.16, jh, T + 0.08], [x, 0, D + T / 2], { tint: trim, r: 0.02 });
+      k.box('wood', [0.2, 0.06, T + 0.12], [x, jh, D + T / 2], { tint: 0x6a4428, r: 0.02 });
+      // Iron hinge pins on the right jamb (the door itself swung away out of the cut)
+      if (x > dc) for (const y of [0.12, jh - 0.16]) k.box('iron', [0.05, 0.08, 0.05], [x - 0.09, y, D + T * 0.85], { tint: 0x2a2624, r: 0.01 });
+    }
+    if (style === 'house') {
+      // (r9) The front door itself, swung open into the room against the left jamb: a sage dutch door's
+      // lower leaf (cut at the section height like the walls), planked with a Z brace, strap hinges and a
+      // brass knob — the gap reads as a door standing open, not two stubby posts.
+      const lk = new Kit();
+      const lw = gap1 - gap0 - 0.06;
+      // (r10: closed, cut at the jambs' height — swung open it stood edge-on to the lens in the doorway)
+      const lh = jh;
+      const P = 4;
+      for (let b = 0; b < P; b++) lk.box('paint', [lw / P - 0.012, lh, 0.05], [(b + 0.5) * (lw / P), 0.02, 0], { tint: b % 2 ? 0x7f9c86 : 0x89a68e, r: 0.012 });
+      for (const y of [0.16, lh - 0.12]) lk.box('paint', [lw - 0.04, 0.1, 0.04], [lw / 2, y, -0.045], { tint: 0x6f8a76, r: 0.01 });
+      lk.box('paint', [Math.hypot(lw - 0.16, lh - 0.36), 0.09, 0.035], [lw / 2, lh / 2 - 0.045, -0.05], { tint: 0x6f8a76, rz: Math.atan2(lh - 0.36, lw - 0.16) });
+      lk.box('paint', [lw + 0.02, 0.05, 0.08], [lw / 2, lh, 0], { tint: trim, r: 0.015 });
+      for (const y of [0.22, lh - 0.2]) lk.box('iron', [0.34, 0.035, 0.012], [0.17, y, 0.032], { tint: 0x2a2624, r: 0.005 });
+      lk.sphere('brass', 0.035, [lw - 0.1, 0.62, 0.05]);
+      lk.sphere('brass', 0.035, [lw - 0.1, 0.62, -0.08]);
+      const leaf = lk.build('door-leaf');
+      // Shut in the doorway: the painted, braced face to the lens, a section-cut slab like the walls.
+      leaf.position.set(gap0 + 0.06, 0, D + T * 0.5);
+      leaf.rotation.y = 0;
+      this.statics.push(leaf);
+    }
+    // Coir doormat just inside: bristly tan field, dark woven border, two stripes
+    // (on straw floors it sits on the board walk that runs to the door: lift it clear)
+    const mz = D - 0.3;
+    const my = this.spec.floor.startsWith('straw') ? 0.032 : 0;
+    k.box('fabric', [1.0, 0.014, 0.48], [dc, my, mz], { tint: 0x5a3a22, r: 0.006 });
+    k.box('burlap', [0.9, 0.018, 0.38], [dc, my, mz], { tint: 0xc89048, r: 0.006, uv: 0.6 });
+    for (const dz of [-0.1, 0.1]) k.box('fabric', [0.9, 0.02, 0.035], [dc, my, mz + dz], { tint: 0x8a5a2e });
+    const g = k.build('doorway');
+    this.statics.push(g);
+
+    // Light spill: a trapezoid fanning in from the door gap, bright at the threshold, feathered sides.
+    const spill = new THREE.BufferGeometry();
+    const w0 = (gap1 - gap0) * 0.5;
+    const w1 = w0 + 0.75;
+    const z0 = D + T * 0.5;
+    const z1 = D - 2.3;
+    const P = [dc - w0, z0, dc + w0, z0, dc + w1, z1, dc - w1, z1];
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const UV = [0, 1, 1, 1, 1, 0, 0, 0];
+    for (const i of [0, 1, 2, 0, 2, 3]) {
+      pos.push(P[i * 2]!, 0.016, P[i * 2 + 1]!);
+      uv.push(UV[i * 2]!, UV[i * 2 + 1]!);
+    }
+    spill.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    spill.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    const sm = new THREE.MeshBasicMaterial({ map: spillTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide });
+    const sMesh = new THREE.Mesh(spill, sm);
+    sMesh.userData.noAO = true;
+    sMesh.userData.dynamic = true;
+    sMesh.renderOrder = 2;
+    sMesh.name = 'door-spill';
+    this.root.add(sMesh);
+    const moon = new THREE.Color(0x6f86c9);
+    this.updaters.push((_dt, _t, L) => sm.color.copy(L.sunColor).multiplyScalar(0.3 * L.day).add(_c.copy(moon).multiplyScalar(0.1 * L.night)).multiplyScalar(1 - this.dim));
+
+    // Exit chevrons on the threshold (shown near the door only).
+    const chev = new THREE.Shape();
+    chev.moveTo(-0.22, 0);
+    chev.lineTo(0, 0.16);
+    chev.lineTo(0.22, 0);
+    chev.lineTo(0.22, 0.08);
+    chev.lineTo(0, 0.24);
+    chev.lineTo(-0.22, 0.08);
+    chev.closePath();
+    const cg = new THREE.ShapeGeometry(chev);
+    cg.rotateX(Math.PI / 2); // shape +y → world +z (out of the door)
+    const arrows = new THREE.Group();
+    arrows.name = 'exit-arrows';
+    arrows.userData.dynamic = true;
+    const am = new THREE.MeshBasicMaterial({ color: 0xfff2cc, transparent: true, opacity: 0, depthWrite: false, toneMapped: false, fog: false, side: THREE.DoubleSide });
+    const om = new THREE.MeshBasicMaterial({ color: 0x3a2414, transparent: true, opacity: 0, depthWrite: false, toneMapped: false, fog: false, side: THREE.DoubleSide });
+    for (let i = 0; i < 2; i++) {
+      const o = new THREE.Mesh(cg, om);
+      o.scale.set(1.22, 1, 1.32);
+      o.position.set(0, 0.002, -0.03);
+      const a = new THREE.Mesh(cg, am);
+      const holder = new THREE.Group();
+      holder.add(o, a);
+      holder.position.set(0, 0, i * 0.26);
+      for (const m of [o, a]) {
+        m.renderOrder = 6;
+        m.userData.noAO = true;
+      }
+      arrows.add(holder);
+    }
+    arrows.position.set(dc, 0.05, D - 0.55);
+    arrows.visible = false;
+    this.root.add(arrows);
+    let shown = 0;
+    this.updaters.push((dt, t) => {
+      const pp = this.game.player.position;
+      const near = this.game.world.current === this && Math.hypot(pp.x - dc, (pp.z - D) * 1.1) < 2.2 && !this.game.player.busy;
+      shown += ((near ? 1 : 0) - shown) * (1 - Math.exp(-7 * dt));
+      arrows.visible = shown > 0.02;
+      if (!arrows.visible) return;
+      arrows.position.z = D - 0.55 + ((t * 0.6) % 1) * 0.18;
+      const pulse = 0.75 + 0.25 * Math.sin(t * 5);
+      am.opacity = shown * pulse;
+      om.opacity = shown * 0.55;
+    });
+  }
+
 
   // ─────────────────────────────────────────── shell
 
@@ -234,9 +393,9 @@ export abstract class InteriorMap implements GameMap {
     const k = new Kit();
     const T = 0.22;
     // Floor + slab (its cut edge shows under the knee wall at the front).
-    k.add(this.spec.floor, floorPlane(W, D + 0.02, this.spec.floor === 'straw' ? 0.5 : 1), new THREE.Matrix4().makeTranslation(W / 2, 0, D / 2), { tint: this.spec.floorTint ?? 0xffffff });
+    k.add(this.spec.floor, floorPlane(W, D + 0.02, this.spec.floor.startsWith('straw') ? 0.5 : 1), new THREE.Matrix4().makeTranslation(W / 2, 0, D / 2), { tint: this.spec.floorTint ?? 0xffffff });
     k.box('stone', [W + 2 * T + 0.1, 0.5, D + 2 * T + 0.1], [W / 2, -0.52, D / 2], { tint: 0xa8947e, uv: 1.2 });
-    k.box('wood', [W + 2 * T + 0.14, 0.1, 0.12], [W / 2, -0.07, D + T + 0.04], { tint: 0x8a5a38, r: 0.03, uv: 1.5 });
+    k.box('wood', [W + 2 * T + 0.14, 0.1, 0.12], [W / 2, -0.07, D + T + 0.04], { tint: 0xa87048, r: 0.03, uv: 1.5 });
 
     const wallMat: IMat = this.spec.wallMat ?? (style === 'house' ? 'wallpaper' : 'barn');
     const wallTint = this.spec.wallTint ?? (style === 'house' ? 0xffffff : 0xd8c8b0);
@@ -252,19 +411,26 @@ export abstract class InteriorMap implements GameMap {
     k.box('wood', [T + 0.12, 0.12, D + 2 * T + 0.12], [-T / 2, H, D / 2], { tint: cap, r: 0.04, uv: 1.5 });
     k.box('wood', [T + 0.12, 0.12, D + 2 * T + 0.12], [W + T / 2, H, D / 2], { tint: cap, r: 0.04, uv: 1.5 });
 
-    // Knee wall at the front with the door gap.
-    const kneeH = 0.42;
+    // Knee wall at the front with the door gap: skirting height, capped with a plank of the room's own
+    // floor (the cut section reads as the floor turning the corner, lit and warm, not a dark slab) and a
+    // pale nosing on its outer edge (the section outline).
+    const kneeH = this.spec.kneeH ?? 0.3;
     const gap0 = this.spec.doorX - 0.1;
     const gap1 = this.spec.doorX + 1.1;
     const frontTint = style === 'house' ? 0xe8dcc4 : 0xb89a78;
     const frontMat: IMat = style === 'house' ? 'bead' : 'barn';
+    const straw = this.spec.floor.startsWith('straw');
     for (const [a, b] of [[-T, gap0], [gap1, W + T]] as const) {
       const w = b - a;
       k.box(frontMat, [w, kneeH, T], [(a + b) / 2, 0, D + T / 2], { tint: frontTint, uv: 1 });
-      k.box('wood', [w + 0.06, 0.1, T + 0.12], [(a + b) / 2, kneeH, D + T / 2], { tint: cap, r: 0.04, uv: 1.5 });
+      // (a limewashed coop gets a whitewashed cap: the bright section line of a painted diorama)
+      const lime = this.spec.wallMat === 'limewash';
+      k.box(lime ? 'limewash' : straw ? 'plank' : 'floor', [w + 0.06, 0.08, T + 0.1], [(a + b) / 2, kneeH, D + T / 2], { tint: lime ? 0xf2ead8 : straw ? 0xf4dcb4 : 0xfff0dc, r: 0.03, uv: straw ? 1.2 : 1 });
+      k.box('paint', [w + 0.07, 0.035, 0.035], [(a + b) / 2, kneeH + 0.06, D + T + 0.035], { tint: style === 'house' ? 0xf6e8cc : 0xf0dcb8, r: 0.012 });
     }
-    // Threshold + mat
-    k.box('wood', [gap1 - gap0, 0.04, T + 0.1], [(gap0 + gap1) / 2, 0, D + T / 2], { tint: 0x7a5236 });
+    // Threshold (worn oak, lit like the floor) + a fieldstone doorstep outside it
+    k.box(straw ? 'plank' : 'floor', [gap1 - gap0, 0.04, T + 0.1], [(gap0 + gap1) / 2, 0, D + T / 2], { tint: straw ? 0xd8bc98 : 0xe8d0b0, uv: 1 });
+    k.box('stone', [gap1 - gap0 + 0.16, 0.14, 0.3], [(gap0 + gap1) / 2, -0.16, D + T + 0.17], { tint: 0xc8b8a0, r: 0.04, uv: 0.8 });
     this.statics.push(k.build('shell'));
     takeContacts(); // wall / plinth footprints are not furniture
 
@@ -305,7 +471,7 @@ export abstract class InteriorMap implements GameMap {
     const ceil = new THREE.Mesh(new THREE.BoxGeometry(W + 4, 0.3, D + 4), caster);
     ceil.position.set(W / 2, H + 0.25, D / 2);
     const front = new THREE.Mesh(new THREE.BoxGeometry(W + 4, H, 0.3), caster);
-    front.position.set(W / 2, kneeH + H / 2, D + T + 0.3);
+    front.position.set(W / 2, (this.spec.kneeH ?? 0.3) + H / 2, D + T + 0.3);
     for (const m of [ceil, front]) {
       m.castShadow = true;
       m.receiveShadow = false;
@@ -368,6 +534,8 @@ export abstract class InteriorMap implements GameMap {
       const tl = this.spec.timberLight ?? 1;
       const tt = (c: number) => _c.setHex(c).multiplyScalar(tl).getHex();
       piece('wood', start + T, end, 0, 0.2, 0.06, inner, tt(0x5a3e2a), 1);
+      // Optional whitewashed / limewashed lower boards up to the girt (a cool band under the warm wood).
+      if (this.spec.wainscotTint != null) piece(this.spec.lowerMat ?? 'limewash', start + T, end, 0.2, 1.3, 0.03, inner + 0.005, this.spec.wainscotTint, 1.1);
       piece('wood', start + T, end, 1.3, 1.46, 0.1, inner + 0.03, tt(0x6a4a30), 1);
       piece('wood', start + T, end, H - 0.3, H - 0.1, 0.12, inner + 0.03, tt(0x5a3e2a), 1);
       const n = Math.max(2, Math.round(len / 3));
@@ -423,7 +591,63 @@ export abstract class InteriorMap implements GameMap {
   // ─────────────────────────────────────────── helpers for subclasses
 
   /** Block every tile whose centre lies inside the world rect. */
+  /**
+   * Co-op presence (r10): two farmers never stand inside each other in a small room — each client
+   * eases its OWN farmer out of any other farmer closer than ~0.7 m (both sides do it, so the pair
+   * slides apart symmetrically; a dead-centre overlap splits by player id). Walkable tiles only.
+   */
+  private separateFarmers(dt: number, game: Game): void {
+    const net = game.services.net as unknown as { remotes?: { list?: Map<number, { map: string; away?: boolean; id: number; farmer: { root: THREE.Object3D } }> }; myId?: () => number } | undefined;
+    const list = net?.remotes?.list;
+    if (!list || !list.size || game.cinematic) return;
+    const pp = game.player.position;
+    // (r11: 1 m, and the push leans sideways — two chibi heads ~0.9 m wide stacked one behind the other
+    // from the high lens at 0.7 m, depth-apart reads as one silhouette with a doubled tag)
+    const R = 1.0;
+    for (const r of list.values()) {
+      if (r.away || r.map !== this.id) continue;
+      const o = r.farmer.root.position;
+      let dx = pp.x - o.x;
+      let dz = pp.z - o.z;
+      let d = Math.hypot(dx, dz);
+      if (d >= R) continue;
+      if (d < 1e-3) {
+        // Exactly on top: split along x, the lower id to the left.
+        const mine = net?.myId?.() ?? 0;
+        dx = mine < r.id ? -1 : 1;
+        dz = 0.15;
+        d = Math.hypot(dx, dz);
+      }
+      const push = Math.min((R - d) * 0.5, dt * 1.6);
+      // Screen-sideways first: weight x over depth (z) so the pair ends side by side.
+      let ux = dx / d;
+      let uz = (dz / d) * 0.45;
+      if (Math.abs(ux) < 0.25) {
+        const mine = net?.myId?.() ?? 0;
+        ux = (Math.abs(dx) > 0.02 ? Math.sign(dx) : mine < r.id ? -1 : 1) * 0.6;
+      }
+      const ul = Math.hypot(ux, uz);
+      ux /= ul;
+      uz /= ul;
+      // Straight away from them; if furniture / a wall blocks that, slide sideways (either way) instead.
+      for (const [cx, cz] of [[ux, uz], [-uz, ux], [uz, -ux], [ux * 0.7 - uz * 0.7, uz * 0.7 + ux * 0.7], [ux * 0.7 + uz * 0.7, uz * 0.7 - ux * 0.7]] as const) {
+        const nx = pp.x + cx * push;
+        const nz = pp.z + cz * push;
+        const ex = nx + cx * 0.2;
+        const ez = nz + cz * 0.2;
+        if (this.grid.isWalkable(Math.floor(ex), Math.floor(ez))) {
+          pp.set(nx, pp.y, nz);
+          break;
+        }
+      }
+    }
+  }
+
+  /** Every furniture rect passed to solid() (name cards keep off them on screen). */
+  readonly propRects: { x0: number; z0: number; x1: number; z1: number; id: string }[] = [];
+
   protected solid(x0: number, z0: number, x1: number, z1: number, id = 'furniture'): void {
+    this.propRects.push({ x0, z0, x1, z1, id });
     for (let z = Math.floor(z0); z <= Math.floor(z1); z++) {
       for (let x = Math.floor(x0); x <= Math.floor(x1); x++) {
         const cx = x + 0.5;
@@ -446,8 +670,26 @@ export abstract class InteriorMap implements GameMap {
   /** Soft additive glow pool on the floor (under lamps / in front of the hearth). */
   protected glowPool(x: number, z: number, r: number, color: number, strength: () => number, y = 0.012): void {
     const m = new THREE.MeshBasicMaterial({ map: glowDisc().map, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-    const mesh = new THREE.Mesh(floorPlane(r * 2, r * 2), m);
-    mesh.position.set(x, y, z);
+    // r21: clipped to the room's floor (the walls' inner faces): a lamp pool by the front wall spilled
+    // past it onto the black void round the cutaway diorama.
+    const { W, D } = this.spec;
+    const x0 = Math.max(x - r, 0.1);
+    const x1 = Math.min(x + r, W - 0.1);
+    const z0 = Math.max(z - r, 0.1);
+    const z1 = Math.min(z + r, D - 0.1);
+    if (x1 <= x0 || z1 <= z0) return;
+    const g = floorPlane(x1 - x0, z1 - z0);
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    const uv = g.attributes.uv as THREE.BufferAttribute;
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    for (let i = 0; i < pos.count; i++) {
+      const wx = cx + pos.getX(i);
+      const wz = cz + pos.getZ(i);
+      uv.setXY(i, (wx - (x - r)) / (2 * r), 1 - (wz - (z - r)) / (2 * r));
+    }
+    const mesh = new THREE.Mesh(g, m);
+    mesh.position.set(cx, y, cz);
     mesh.userData.noAO = true;
     mesh.userData.dynamic = true;
     mesh.renderOrder = 2;
@@ -479,7 +721,7 @@ export abstract class InteriorMap implements GameMap {
     mesh.renderOrder = 2;
     mesh.name = 'sun-pool';
     this.root.add(mesh);
-    this.updaters.push((_dt, _t, L) => m.color.copy(L.sunColor).multiplyScalar(this.sunPoolK * L.day));
+    this.updaters.push((_dt, _t, L) => m.color.copy(L.sunColor).multiplyScalar(this.sunPoolK * 1.3 * L.day));
   }
 
   /** Call once after furnishing: merges statics, builds light shafts + dust for the windows. */
@@ -556,8 +798,9 @@ export abstract class InteriorMap implements GameMap {
     const L = this.light.sunDir.clone().negate(); // travel direction
     const T = 0.22;
     for (const h of this.spec.windows) {
-      const u0 = h.at - h.w / 2 + 0.04;
-      const u1 = h.at + h.w / 2 - 0.04;
+      // (r18: narrower — the beam enters through the glass, not the whole opening incl. the frame)
+      const u0 = h.at - h.w / 2 + Math.max(0.04, h.w * 0.11);
+      const u1 = h.at + h.w / 2 - Math.max(0.04, h.w * 0.11);
       const corners: THREE.Vector3[] = [];
       for (const [u, y] of [[u0, h.y0], [u1, h.y0], [u1, h.y1], [u0, h.y1]] as const) {
         if (h.wall === 'back') corners.push(new THREE.Vector3(u, y, 0));
@@ -575,8 +818,14 @@ export abstract class InteriorMap implements GameMap {
       }
       const pos: number[] = [];
       const uv: number[] = [];
+      const kk: number[] = [];
+      const win: number[] = [];
+      const WIN = [[0, 0], [1, 0], [1, 1], [0, 1]] as const;
       // 4 side faces of the prism window-quad → floor-quad (v: 1 at window, 0 at floor).
       for (let i = 0; i < 4; i++) {
+        const wa = WIN[i]!;
+        const wb = WIN[(i + 1) % 4]!;
+        for (const w of [wa, wb, wb, wa, wb, wa]) win.push(w[0], w[1]);
         const a = corners[i]!;
         const b = corners[(i + 1) % 4]!;
         const fa = floor[i]!;
@@ -586,11 +835,14 @@ export abstract class InteriorMap implements GameMap {
         quad.forEach((p, j) => {
           pos.push(p.x, p.y, p.z);
           uv.push(quv[j]![0]!, quv[j]![1]!);
+          kk.push(h.shaft ?? 1);
         });
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setAttribute('aK', new THREE.Float32BufferAttribute(kk, 1));
+      g.setAttribute('aWin', new THREE.Float32BufferAttribute(win, 2));
       g.computeVertexNormals();
       const mesh = new THREE.Mesh(g, this.shaftMat);
       mesh.renderOrder = 5;
@@ -616,29 +868,40 @@ export abstract class InteriorMap implements GameMap {
     // Daylight 0..1: dawn 5.5 → 7.0 (shafts ramp in with it), dusk 18.2 → 20.2.
     const day = h < 12 ? S(h, 5.5, 7.0) : 1 - S(h, 18.2, 20.2);
     const night = 1 - day;
-    const warm = h < 12 ? 1 - S(h, 7, 10.5) : S(h, 15.5, 19);
+    // (r9: golden light only right at dawn and through the evening — at 8 am the room read as dusk.
+    // Mornings to early afternoon get a cool near-white sky light through the windows, so the hearth and
+    // lamps read as a warm pocket against it.)
+    const warm = h < 12 ? 1 - S(h, 6.2, 7.8) : S(h, 15.5, 19);
+    const cool = day * (1 - overcast * 0.6) * (h < 12 ? S(h, 6.4, 8.0) : 1 - S(h, 13.5, 16.5)) * this.morningCool;
+    this.coolK = cool;
     const L = this.light;
     L.day = day * (1 - overcast * 0.85);
     L.night = night;
     // Sun through the windows: golden morning / evening, cream midday, cool moonlight at night.
-    const sunDay = _c.setHex(0xfff1dc).lerp(new THREE.Color(0xffb46a), warm * 0.85);
+    const sunDay = _c.setHex(0xfff1dc).lerp(new THREE.Color(0xffb46a), warm * 0.85).lerp(_c2.setHex(0xf0f4ff), cool * 0.78);
     L.sunColor.copy(sunDay).lerp(new THREE.Color(0x8aa6ff), night);
     L.sunI = day * 5.2 * (1 - overcast * 0.85) * this.dayScale + night * 1.35 * this.moonScale * (1 - overcast * 0.6);
     // Ambient: warm wood bounce by day; at night a cool moonlight fill through the windows so the
     // floor never crushes to black (the lamps then paint warm pools over it).
-    L.hemiSky.setHex(0xf2dcc0).lerp(new THREE.Color(0x8a9ac8), overcast * 0.4).lerp(new THREE.Color(0x6f86c9), night);
-    L.hemiGround.setHex(0x8a5a36).lerp(new THREE.Color(0x3a2a24), night);
-    L.hemiI = THREE.MathUtils.lerp((0.55 + day * 0.55) * (1 - overcast * 0.2) * (0.7 + 0.3 * this.dayScale), 0.46, night);
+    L.hemiSky.setHex(0xf2dcc0).lerp(new THREE.Color(0x8a9ac8), overcast * 0.4).lerp(new THREE.Color(0x7684b4), night);
+    if (this.coolFill > 0) L.hemiSky.lerp(new THREE.Color(0xb4c8ee), this.coolFill * day * (1 - overcast * 0.5));
+    L.hemiSky.lerp(_c2.setHex(0xc2d0f2), cool * 0.68);
+    L.hemiGround.setHex(0x8a5a36).lerp(new THREE.Color(0x3a2a24), night).lerp(_c2.setHex(0x665a54), cool * 0.5);
+    L.hemiI = THREE.MathUtils.lerp((0.55 + day * 0.55) * (1 - overcast * 0.2) * (0.7 + 0.3 * this.dayScale), 0.46, night) * (1 - cool * 0.1);
     L.envI = 0.12 + day * 0.14 + night * 0.06;
     // +0.4 EV indoors at night.
-    L.exposure = (1.0 + night * 0.18 + overcast * 0.1 + this.exposureBoost * day) * (1 + night * 0.32);
+    // (r13: +~0.15 EV more at night — the night house read dim on a store thumbnail)
+    L.exposure = (1.0 + night * 0.18 + overcast * 0.1 + this.exposureBoost * day) * (1 + night * 0.42);
     L.bg.setHex(0x1c140e).lerp(new THREE.Color(0x0a0a12), night);
     // Night lift keeps the corners readable (the lamps stay the key, the shadows stay blue-brown).
-    L.lift = [0.025 + night * 0.028, 0.018 + night * 0.02, 0.012 + night * 0.05];
-    L.gain = [1.06 + warm * 0.04, 1.0, 0.93 - warm * 0.03 + night * 0.06];
+    // (r24: a warmer night lift — the critic's "night edges fall into cyan-black": the shadow floor is a
+    // dim walnut brown now, the moonlight only a cool fill on top)
+    L.lift = [0.025 + night * 0.036, 0.018 + night * 0.024, 0.012 + night * 0.034];
+    L.gain = [1.06 + warm * 0.04 - this.coolFill * day * 0.02 - cool * 0.045, 1.0, 0.93 - warm * 0.03 + night * 0.06 + this.coolFill * day * 0.05 + cool * 0.06];
     L.sat = 1.1 - night * 0.05;
     L.contrast = 1.06 + night * 0.04;
-    L.vignette = 0.52 + night * 0.12;
+    // (r13: softer — the blind judge's "heavy vignette swallows the side walls")
+    L.vignette = 0.4 + night * 0.08;
     L.bloom = 0.35 + night * 0.12;
   }
 
@@ -657,6 +920,7 @@ export abstract class InteriorMap implements GameMap {
   }
 
   update(dt: number, game: Game): void {
+    this.separateFarmers(dt, game);
     this.setAtmosphere();
     this.computeLight();
     const L = this.light;
@@ -667,10 +931,14 @@ export abstract class InteriorMap implements GameMap {
     // Night: a soft warm bounce fill in front of the farmer at chest height (the lamplight coming back
     // off the floorboards), so the face reads instead of a silhouette against the hearth. Low and in
     // front, so it never blows the straw hat out from above.
-    this.rim.position.set(pp.x + 0.3, pp.y + 0.8, pp.z + 1.0);
-    this.rim.intensity = L.night * 0.95;
+    // (r25: the critic's "backlit, muddy face at night" — a true frontal fill: face height, a stride
+    // towards the lens; the brim shades it from above so the hat doesn't blow out)
+    this.rim.position.set(pp.x + 0.1, pp.y + 1.15, pp.z + 1.7);
+    this.rim.intensity = L.night * 1.5;
     this.groundMat.color.setScalar(0.55 + 0.45 * L.day);
-    const lampK = Math.max(L.night, 1 - L.day * 1.05);
+    // (r16: dim rooms — the barn — light their lanterns from mid-afternoon)
+    const lampK = Math.max(L.night, 1 - L.day * 1.05, this.lampEarly * THREE.MathUtils.smoothstep(game.calendar.hour, 14.5, 17.0));
+    this.lampK = lampK;
     for (const l of this.lamps) {
       const base = THREE.MathUtils.lerp(l.day, l.night, THREE.MathUtils.clamp(lampK, 0, 1));
       const f = l.flicker ? 1 + l.flicker * (Math.sin(t * 13 + l.seed) * 0.35 + Math.sin(t * 7.3 + l.seed * 2) * 0.4 + Math.sin(t * 23.1 + l.seed) * 0.25) : 1;
@@ -679,12 +947,14 @@ export abstract class InteriorMap implements GameMap {
     for (const e of interiorEmissive) e.material.emissiveIntensity = THREE.MathUtils.lerp(e.day, e.night, THREE.MathUtils.clamp(lampK, 0, 1));
     // Shafts: warm by day, faint blue by moonlight.
     const shaft = this.shaftMat.uniforms;
-    (shaft.uColor!.value as THREE.Color).copy(L.sunColor).multiplyScalar(0.11 * L.day * this.dayScale + 0.025 * L.night);
+    // (r18: 0.11 → 0.085 — the brightness moves into the dust motes and the bounced floor pool)
+    (shaft.uColor!.value as THREE.Color).copy(L.sunColor).multiplyScalar(0.085 * L.day * this.dayScale * this.shaftK * (1 + this.coolK * 0.7) + this.moonShaft * L.night);
     shaft.uTime!.value = t;
     // Window views: bright painted day, deep blue at night.
     const vu = this.viewMat.uniforms;
     vu.uNight!.value = L.night;
-    vu.uDayK!.value = 0.35 + 0.95 * L.day;
+    // (r24: 1.3 -> 1.0 peak — un-tonemapped, the coop's back window bloomed into a blank white slab)
+    vu.uDayK!.value = 0.3 + 0.7 * L.day;
     vu.uInvExp!.value = 1 / Math.max(0.5, L.exposure);
     this.updateDust(dt, t, L);
     for (const u of this.updaters) u(dt, t, L);
@@ -694,24 +964,39 @@ export abstract class InteriorMap implements GameMap {
     const pos = this.dust.geometry.attributes.position as THREE.BufferAttribute;
     const nb = this.dustBeams.length;
     const mat = this.dust.material as THREE.PointsMaterial;
-    mat.opacity = 0.15 + 0.75 * L.day;
+    mat.opacity = Math.min(1, 0.15 + 0.85 * L.day);
     mat.color.copy(L.sunColor);
     this.dust.visible = nb > 0;
     if (!nb) return;
     const s = this.dustSeeds;
-    const bil = (q: THREE.Vector3[], u: number, w: number, out: THREE.Vector3) =>
-      out.copy(q[0]!).lerp(q[1]!, u).lerp(_b.copy(q[3]!).lerp(q[2]!, u), w);
-    for (let i = 0; i < pos.count; i++) {
+    // (r24: scalar maths straight into the attribute array — the closure + Vector3 lerps per mote showed
+    // up as ~7 KB/frame of allocation churn in the interiors' alloc profile)
+    const arr = pos.array as Float32Array;
+    const n = pos.count;
+    for (let i = 0; i < n; i++) {
       const beam = this.dustBeams[i % nb]!;
-      const ph = s[i * 4 + 3]! * 100;
-      const u = 0.1 + 0.8 * (s[i * 4]! + Math.sin(t * 0.13 + ph) * 0.06);
-      const w = 0.1 + 0.8 * (s[i * 4 + 1]! + Math.cos(t * 0.11 + ph) * 0.06);
+      const i4 = i * 4;
+      const s0 = s[i4]!;
+      const ph = s[i4 + 3]! * 100;
+      const u = 0.1 + 0.8 * (s0 + Math.sin(t * 0.13 + ph) * 0.06);
+      const w = 0.1 + 0.8 * (s[i4 + 1]! + Math.cos(t * 0.11 + ph) * 0.06);
       // Motes drift slowly down the beam and wrap.
-      const k = (s[i * 4 + 2]! + t * 0.008 * (0.6 + s[i * 4]!)) % 1;
-      bil(beam.win, u, w, _a);
-      bil(beam.floor, u, w, _f);
-      _a.lerp(_f, 0.05 + k * 0.85);
-      pos.setXYZ(i, _a.x, _a.y + Math.sin(t * 0.7 + ph) * 0.03, _a.z);
+      const k = 0.05 + ((s[i4 + 2]! + t * 0.008 * (0.6 + s0)) % 1) * 0.85;
+      const a = beam.win;
+      const f = beam.floor;
+      const a0 = a[0]!, a1 = a[1]!, a2 = a[2]!, a3 = a[3]!;
+      const f0 = f[0]!, f1 = f[1]!, f2 = f[2]!, f3 = f[3]!;
+      // bilinear: lerp(lerp(q0, q1, u), lerp(q3, q2, u), w)
+      const ax = a0.x + (a1.x - a0.x) * u, ay = a0.y + (a1.y - a0.y) * u, az = a0.z + (a1.z - a0.z) * u;
+      const bx = a3.x + (a2.x - a3.x) * u, by = a3.y + (a2.y - a3.y) * u, bz = a3.z + (a2.z - a3.z) * u;
+      const cx = f0.x + (f1.x - f0.x) * u, cy = f0.y + (f1.y - f0.y) * u, cz = f0.z + (f1.z - f0.z) * u;
+      const dx = f3.x + (f2.x - f3.x) * u, dy = f3.y + (f2.y - f3.y) * u, dz = f3.z + (f2.z - f3.z) * u;
+      const wx = ax + (bx - ax) * w, wy = ay + (by - ay) * w, wz = az + (bz - az) * w;
+      const gx = cx + (dx - cx) * w, gy = cy + (dy - cy) * w, gz = cz + (dz - cz) * w;
+      const j = i * 3;
+      arr[j] = wx + (gx - wx) * k;
+      arr[j + 1] = wy + (gy - wy) * k + Math.sin(t * 0.7 + ph) * 0.03;
+      arr[j + 2] = wz + (gz - wz) * k;
     }
     pos.needsUpdate = true;
     void dt;
@@ -749,6 +1034,35 @@ function dioramaGround(W: number, D: number): THREE.CanvasTexture {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+let _spill: THREE.CanvasTexture | null = null;
+/** Door light spill: bright at the threshold (v = 1), fading into the room, feathered at the sides. */
+function spillTexture(): THREE.CanvasTexture {
+  if (_spill) return _spill;
+  const W = 64;
+  const H = 128;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const v = 1 - y / (H - 1); // canvas top = uv v 1 (threshold)
+    const along = Math.pow(v, 1.6);
+    for (let x = 0; x < W; x++) {
+      const u = Math.abs(x / (W - 1) - 0.5) * 2;
+      const side = 1 - THREE.MathUtils.smoothstep(u, 0.45, 1);
+      const a = along * side;
+      const i = (y * W + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(a * 255);
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  _spill = new THREE.CanvasTexture(c);
+  _spill.colorSpace = THREE.SRGBColorSpace;
+  return _spill;
 }
 
 /** Convenience: material handle (for subclasses creating custom meshes). */

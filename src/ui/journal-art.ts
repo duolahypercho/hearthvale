@@ -6,6 +6,7 @@ import { itemDef } from '../data/items';
 import { CROPS } from '../data/crops';
 import { fishDef } from '../data/fish';
 import { itemIcon } from './icons';
+import { BUNDLES } from '../data/bundles';
 
 const css = (h: number): string => `#${h.toString(16).padStart(6, '0')}`;
 function shade(h: number, k: number): string {
@@ -47,8 +48,135 @@ export function lanternSvg(color: number, glow: number, cls = 'jl-lantern'): str
 </svg>`;
 }
 
+/**
+ * The room's own lantern, painted to match its 3D cage in the Hall: Seed's verdigris globe with pink
+ * enamel petals, Sun's gilded sunburst, Harvest's iron-ribbed pumpkin, Hearth's silver onion dome with
+ * icicles, the Crafter's geared copper box, the Tide room's teal ship's lantern. `glow` 0..1.
+ */
+export function cageSvg(room: string, color: number, glow: number, cls = 'jl-lantern'): string {
+  const id = `jc${uid++}`;
+  const g = Math.max(0, Math.min(1, glow));
+  const lit = g > 0.02;
+  const METAL: Record<string, [string, string, string]> = {
+    seed: ['#9fd0b8', '#4f8a74', '#24453a'],
+    sun: ['#ffe9a0', '#d9a83a', '#7a5214'],
+    harvest: ['#8a8078', '#4a423c', '#1f1a17'],
+    hearth: ['#f4f8fc', '#a8b4c2', '#4e5a68'],
+    craft: ['#ffc89a', '#c8743a', '#6a3416'],
+    tide: ['#a8e8e0', '#3a8a84', '#16403e'],
+  };
+  const [m0, m1, m2] = METAL[room] ?? METAL.sun!;
+  const defs = `<defs>
+    <radialGradient id="${id}f" cx="50%" cy="60%" r="58%"><stop offset="0" stop-color="#fffbe8"/><stop offset=".38" stop-color="${shade(color, 1.25)}"/><stop offset="1" stop-color="${shade(color, 0.62)}"/></radialGradient>
+    <radialGradient id="${id}h" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="${css(color)}" stop-opacity=".7"/><stop offset=".55" stop-color="${css(color)}" stop-opacity=".18"/><stop offset="1" stop-color="${css(color)}" stop-opacity="0"/></radialGradient>
+    <linearGradient id="${id}d" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${shade(color, 0.3)}"/><stop offset="1" stop-color="#1e1614"/></linearGradient>
+    <linearGradient id="${id}m" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="${m0}"/><stop offset=".4" stop-color="${m1}"/><stop offset="1" stop-color="${m2}"/></linearGradient>
+  </defs>`;
+  const halo = lit ? `<circle cx="50" cy="76" r="${46 + g * 10}" fill="url(#${id}h)" opacity="${(0.3 + g * 0.7).toFixed(2)}"/>` : '';
+  const flame = (cy: number): string =>
+    lit
+      ? `<path d="M50 ${cy - 8 - g * 14} C ${43 - g * 2} ${cy - 4 - g * 6}, 44 ${cy + 4}, 50 ${cy + 8} C 56 ${cy + 4}, ${57 + g * 2} ${cy - 4 - g * 6}, 50 ${cy - 8 - g * 14} Z" fill="#fffdf2" opacity="${(0.55 + g * 0.45).toFixed(2)}"/>`
+      : `<path d="M50 ${cy} v8" stroke="#5a5048" stroke-width="2.5" stroke-linecap="round"/>`;
+  // Glass body: dark when unlit, the room's flame colour as it fills.
+  const glass = (shape: string): string => `${shape.replace('FILL', `url(#${id}d)`)}${shape.replace('FILL', `url(#${id}f)`).replace('/>', ` opacity="${g.toFixed(2)}"/>`)}`;
+  const ring = `<path d="M50 3 v9" stroke="#3a2618" stroke-width="3" stroke-linecap="round"/><circle cx="50" cy="5" r="4.2" fill="none" stroke="${m1}" stroke-width="2.6"/>`;
+  const S = `stroke="${m2}" stroke-width="2.4" stroke-linejoin="round"`;
+  let body = '';
+  switch (room) {
+    case 'seed': {
+      const petals = [-60, -30, 0, 30, 60].map((a) => `<ellipse cx="50" cy="30" rx="6" ry="13" transform="rotate(${a} 50 42)" fill="#f2a6c0" stroke="#a8466a" stroke-width="1.6"/>`).join('');
+      body = `${petals}<path d="M50 14 q-6 8 0 16 q6 -8 0 -16 Z" fill="#7ab84a" stroke="#3a6a24" stroke-width="1.4"/>
+        <rect x="40" y="40" width="20" height="6" rx="2" fill="url(#${id}m)" ${S}/>
+        ${glass(`<circle cx="50" cy="76" r="28" fill="FILL"/>`)}
+        <path d="M50 48 V104 M22 76 H78 M30 56 Q50 66 70 56 M30 96 Q50 86 70 96" stroke="${m1}" stroke-width="2.6" fill="none"/>
+        <circle cx="50" cy="76" r="28" fill="none" ${S} stroke-width="4"/>
+        ${flame(80)}
+        <path d="M38 104 H62 L58 114 H42 Z" fill="url(#${id}m)" ${S}/>`;
+      break;
+    }
+    case 'sun': {
+      const rays = Array.from({ length: 12 }, (_, i) => {
+        const a = (i / 12) * Math.PI * 2;
+        const x = 50 + Math.cos(a) * 15;
+        const y = 30 + Math.sin(a) * 15;
+        const x2 = 50 + Math.cos(a) * (i % 2 ? 22 : 27);
+        const y2 = 30 + Math.sin(a) * (i % 2 ? 22 : 27);
+        return `<path d="M${(x - Math.sin(a) * 3).toFixed(1)} ${(y + Math.cos(a) * 3).toFixed(1)} L${x2.toFixed(1)} ${y2.toFixed(1)} L${(x + Math.sin(a) * 3).toFixed(1)} ${(y - Math.cos(a) * 3).toFixed(1)} Z" fill="url(#${id}m)" stroke="${m2}" stroke-width="1"/>`;
+      }).join('');
+      body = `${rays}<circle cx="50" cy="30" r="12" fill="url(#${id}m)" ${S}/>
+        <rect x="27" y="44" width="46" height="7" rx="3" fill="url(#${id}m)" ${S}/>
+        ${glass(`<rect x="31" y="51" width="38" height="52" rx="10" fill="FILL"/>`)}
+        <path d="M43.6 51 V103 M56.4 51 V103" stroke="${m1}" stroke-width="2.4"/>
+        <rect x="31" y="51" width="38" height="52" rx="10" fill="none" ${S} stroke-width="4"/>
+        ${flame(82)}
+        <path d="M25 103 H75 L67 114 H33 Z" fill="url(#${id}m)" ${S}/>`;
+      break;
+    }
+    case 'harvest': {
+      body = `<path d="M50 30 q2 -10 10 -12" stroke="#5a7a2a" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <rect x="42" y="28" width="16" height="8" rx="2" fill="url(#${id}m)" ${S}/>
+        ${glass(`<ellipse cx="50" cy="72" rx="33" ry="30" fill="FILL"/>`)}
+        <path d="M50 42 V102 M34 45 Q24 72 34 99 M66 45 Q76 72 66 99 M42 42.5 Q36 72 42 101.5 M58 42.5 Q64 72 58 101.5" stroke="${m1}" stroke-width="3" fill="none"/>
+        <ellipse cx="50" cy="72" rx="33" ry="30" fill="none" ${S} stroke-width="4"/>
+        ${flame(76)}
+        <path d="M34 101 H66 L60 114 H40 Z" fill="url(#${id}m)" ${S}/>`;
+      break;
+    }
+    case 'hearth': {
+      const ice = [30, 37, 44, 51, 58, 65].map((x, i) => `<path d="M${x} 104 l3 ${8 + (i % 3) * 4} l3 -${8 + (i % 3) * 4} Z" fill="#e8f6ff" stroke="#8ab4d8" stroke-width="1"/>`).join('');
+      body = `<path d="M50 12 C 40 22, 28 30, 30 44 H70 C 72 30, 60 22, 50 12 Z" fill="url(#${id}m)" ${S}/>
+        <circle cx="50" cy="13" r="3" fill="${m0}" ${S} stroke-width="1.4"/>
+        ${glass(`<rect x="32" y="44" width="36" height="58" rx="6" fill="FILL"/>`)}
+        <path d="M44 44 V102 M56 44 V102 M32 73 H68" stroke="${m1}" stroke-width="2.2"/>
+        <rect x="32" y="44" width="36" height="58" rx="6" fill="none" ${S} stroke-width="4"/>
+        ${flame(78)}
+        <rect x="27" y="100" width="46" height="6" rx="2" fill="url(#${id}m)" ${S}/>${ice}`;
+      break;
+    }
+    case 'craft': {
+      const teeth = Array.from({ length: 10 }, (_, i) => `<rect x="47.5" y="15" width="5" height="7" fill="url(#${id}m)" stroke="${m2}" stroke-width="1" transform="rotate(${i * 36} 50 28)"/>`).join('');
+      body = `${teeth}<circle cx="50" cy="28" r="10" fill="url(#${id}m)" ${S}/><circle cx="50" cy="28" r="3.5" fill="${m2}"/>
+        <rect x="26" y="38" width="48" height="7" rx="1.5" fill="url(#${id}m)" ${S}/>
+        ${glass(`<rect x="29" y="45" width="42" height="56" rx="3" fill="FILL"/>`)}
+        <path d="M29 73 H71 M50 45 V101" stroke="${m1}" stroke-width="3"/>
+        <rect x="29" y="45" width="42" height="56" rx="3" fill="none" ${S} stroke-width="4.5"/>
+        ${[33, 67].map((x) => [49, 97].map((y) => `<circle cx="${x}" cy="${y}" r="1.8" fill="${m0}"/>`).join('')).join('')}
+        ${flame(80)}
+        <rect x="24" y="101" width="52" height="9" rx="1.5" fill="url(#${id}m)" ${S}/>`;
+      break;
+    }
+    default: {
+      body = `<path d="M36 34 Q50 14 64 34" stroke="${m1}" stroke-width="3.5" fill="none"/>
+        <ellipse cx="50" cy="38" rx="20" ry="6" fill="url(#${id}m)" ${S}/>
+        ${glass(`<path d="M32 44 Q30 74 32 102 H68 Q70 74 68 44 Z" fill="FILL"/>`)}
+        <path d="M40 44 Q38 74 40 102 M50 44 V102 M60 44 Q62 74 60 102" stroke="${m1}" stroke-width="2.2" fill="none"/>
+        <path d="M31 58 H69 M30.5 88 H69.5" stroke="${m1}" stroke-width="4"/>
+        <path d="M32 44 Q30 74 32 102 H68 Q70 74 68 44 Z" fill="none" ${S} stroke-width="4"/>
+        ${flame(78)}
+        <ellipse cx="50" cy="104" rx="22" ry="6" fill="url(#${id}m)" ${S}/>`;
+    }
+  }
+  return `<svg class="${cls}${lit ? ' lit' : ''}" viewBox="0 0 100 140" aria-hidden="true" style="--g:${g.toFixed(2)};--c:${css(color)}">${defs}${halo}${ring}${body}
+    <path d="M34 50 q3 -2 5 2 v20" stroke="#fff" stroke-width="2.4" fill="none" opacity="${lit ? 0.4 : 0.16}" stroke-linecap="round"/></svg>`;
+}
+
 /** Cloth bundle sack tied with a ribbon; plump + gold ribbon when complete. */
-export function sackSvg(color: number, done: boolean, fill = 0): string {
+/** Which container a bundle is drawn as — a cloth sack, a woven basket, a slatted crate or a stoneware
+ * crock — so the four tabs of a room read apart at a glance, not as four tinted gourds. */
+export type SackKind = 0 | 1 | 2 | 3;
+export function sackKindOf(bundleId: string): SackKind {
+  const def = BUNDLES.find((b) => b.id === bundleId);
+  if (!def) return 0;
+  const n = def.name.toLowerCase();
+  if (/basket|woodland|forage|flower|blossom/.test(n)) return 1;
+  if (/cellar|crate|woodpile|tool|build/.test(n)) return 2;
+  if (/jar|crock|pantry|kitchen|preserve|cook|brew/.test(n)) return 3;
+  // Otherwise by place in the room, so neighbouring tabs differ.
+  return (BUNDLES.filter((b) => b.room === def.room).indexOf(def) % 4) as SackKind;
+}
+
+export function sackSvg(color: number, done: boolean, fill = 0, kind: SackKind = 0): string {
+  if (kind) return containerSvg(color, done, kind);
   const id = `js${uid++}`;
   const c = css(color);
   const slump = done ? 0 : 1 - fill;
@@ -65,6 +193,44 @@ export function sackSvg(color: number, done: boolean, fill = 0): string {
   ${done ? `<path d="M50 48 l-14 10 l4 -12 z M50 48 l14 10 l-4 -12 z" fill="#e8b84a" stroke="#a87a1a" stroke-width="1.5"/><circle cx="50" cy="48" r="5" fill="#f5d06a" stroke="#a87a1a" stroke-width="1.5"/>` : ''}
   <path d="M30 64 q6 -4 10 2 M58 74 q6 -5 12 0" stroke="rgba(255,255,255,.25)" stroke-width="2" fill="none" stroke-linecap="round"/>
 </svg>`;
+}
+
+function containerSvg(color: number, done: boolean, kind: 1 | 2 | 3): string {
+  const id = `js${uid++}`;
+  const c = css(color);
+  const ink = shade(color, 0.42);
+  const grad = `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${shade(color, 1.25)}"/><stop offset=".55" stop-color="${c}"/><stop offset="1" stop-color="${shade(color, 0.66)}"/></linearGradient></defs>`;
+  const shadow = `<ellipse cx="50" cy="97" rx="34" ry="5" fill="rgba(60,30,10,.25)"/>`;
+  const ribbon = done
+    ? `<path d="M50 60 l-14 10 l4 -12 z M50 60 l14 10 l-4 -12 z" fill="#e8b84a" stroke="#a87a1a" stroke-width="1.5"/><circle cx="50" cy="60" r="5" fill="#f5d06a" stroke="#a87a1a" stroke-width="1.5"/>`
+    : '';
+  let body = '';
+  if (kind === 1) {
+    // Woven basket: flared tub, wicker courses, a bent-willow handle.
+    body = `<path d="M30 52 C30 22 70 22 70 52" fill="none" stroke="${shade(0xb07a3a, 0.8)}" stroke-width="6" stroke-linecap="round"/>
+  <path d="M30 52 C30 22 70 22 70 52" fill="none" stroke="#d8a860" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M14 50 L86 50 L78 92 C70 97 30 97 22 92 Z" fill="url(#${id})" stroke="${ink}" stroke-width="2.5" stroke-linejoin="round"/>
+  ${[60, 70, 80].map((y) => `<path d="M${15 + (y - 50) * 0.2} ${y} Q50 ${y + 4} ${85 - (y - 50) * 0.2} ${y}" fill="none" stroke="${shade(color, 0.6)}" stroke-width="2"/>`).join('')}
+  ${[28, 39, 50, 61, 72].map((x) => `<path d="M${x} 52 L${x + (x - 50) * -0.12} 93" stroke="${shade(color, 0.72)}" stroke-width="1.6"/>`).join('')}
+  <rect x="11" y="45" width="78" height="9" rx="4.5" fill="${shade(color, 1.12)}" stroke="${ink}" stroke-width="2.2"/>`;
+  } else if (kind === 2) {
+    // Slatted crate: three boards, corner posts, a stencilled tag.
+    body = `<rect x="14" y="38" width="72" height="56" rx="6" fill="url(#${id})" stroke="${ink}" stroke-width="2.5"/>
+  ${[56, 75].map((y) => `<path d="M16 ${y} H84" stroke="${ink}" stroke-width="2" opacity=".7"/>`).join('')}
+  <rect x="14" y="38" width="10" height="56" rx="4" fill="${shade(color, 0.8)}" stroke="${ink}" stroke-width="2"/>
+  <rect x="76" y="38" width="10" height="56" rx="4" fill="${shade(color, 0.8)}" stroke="${ink}" stroke-width="2"/>
+  <path d="M26 42 L74 90" stroke="${shade(color, 0.7)}" stroke-width="5" stroke-linecap="round"/>
+  <path d="M30 41 q8 -9 16 -3 q6 -8 14 -1 q8 -5 12 3" fill="${shade(color, 1.3)}" stroke="${ink}" stroke-width="2"/>`;
+  } else {
+    // Stoneware crock: glazed belly, cloth cap tied with twine.
+    body = `<path d="M30 40 C14 50 14 86 30 93 C42 98 58 98 70 93 C86 86 86 50 70 40 Z" fill="url(#${id})" stroke="${ink}" stroke-width="2.5"/>
+  <path d="M24 66 C40 72 60 72 76 66" fill="none" stroke="${shade(color, 1.35)}" stroke-width="3" opacity=".6"/>
+  <path d="M27 40 C24 30 76 30 73 40 C66 46 34 46 27 40 Z" fill="#efe2c4" stroke="#a8906a" stroke-width="2.2"/>
+  <path d="M30 38 C26 46 22 50 25 54 M70 38 C74 46 78 50 75 54" fill="none" stroke="#efe2c4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M29 41 C40 45 60 45 71 41" fill="none" stroke="#9a6a38" stroke-width="2.6"/>
+  <path d="M36 74 q6 -4 10 2" stroke="rgba(255,255,255,.3)" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  }
+  return `<svg class="js-sack k${kind}${done ? ' done' : ''}" viewBox="0 0 100 104" aria-hidden="true">${grad}${shadow}${body}${ribbon}</svg>`;
 }
 
 export const PIN = (color = '#d8473a'): string =>
@@ -225,5 +391,113 @@ export function valleySvg(rooms: { color: number; lit: boolean }[], glimmer = fa
     ${lamps}
   </g>
   <rect x="1" y="1" width="518" height="218" rx="14" fill="none" stroke="rgba(90,60,30,.55)" stroke-width="2"/>
+</svg>`;
+}
+
+/**
+ * Painted vignette of the Lantern Hall as it stands in the 3D square: stone gable with the six-petal
+ * rose window (a petal per room, lit in its colour), the clock tower and spire behind, the big stone
+ * chimney (smoking once the Hearth Room burns), slate wings with arched windows per room, the double
+ * door with its lantern and — once the Seed Room is lit — the blossom arch. Feathered watercolour
+ * edges and paper grain so it reads as a painting in the journal, not a vector postcard.
+ */
+export function hallVignetteSvg(rooms: { id: string; color: number; lit: boolean }[], glimmer = false): string {
+  const id = `jh${uid++}`;
+  const n = rooms.filter((r) => r.lit).length;
+  const k = n / Math.max(1, rooms.length);
+  const warm = glimmer ? '#e8f6ff' : '#ffd27a';
+  const lit = (rid: string): boolean => !!rooms.find((r) => r.id === rid)?.lit;
+  const col = (rid: string): string => (glimmer ? '#eaf8ff' : css(rooms.find((r) => r.id === rid)?.color ?? 0xffd27a));
+  // Stone courses: irregular rounded blocks in two tones.
+  let stones = '';
+  let sd = 7;
+  const rnd = (): number => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+  for (let y = 92; y < 176; y += 9) {
+    for (let x = 196 + ((y / 9) % 2) * 6; x < 324; x += 12 + rnd() * 6) {
+      stones += `<rect x="${x.toFixed(1)}" y="${y}" width="${(9 + rnd() * 5).toFixed(1)}" height="7.4" rx="2.6" fill="${rnd() < 0.5 ? '#8a7a6e' : '#a08e7e'}" opacity=".55"/>`;
+    }
+  }
+  const order = ['seed', 'harvest', 'craft', 'sun', 'hearth', 'tide'];
+  const petals = order
+    .map((rid, i) => {
+      const a = (i / 6) * 360 - 90;
+      const on = lit(rid);
+      return `<ellipse cx="260" cy="88" rx="4.2" ry="8" transform="rotate(${a} 260 101)" fill="${on ? col(rid) : '#3a3650'}" stroke="#2e2638" stroke-width="1"/>`;
+    })
+    .join('');
+  const archWin = (x: number, y: number, rid: string): string => {
+    const on = lit(rid);
+    const c = on ? col(rid) : '#2c2c44';
+    return `${on ? `<ellipse cx="${x + 7}" cy="${y + 10}" rx="16" ry="20" fill="${c}" opacity=".45" filter="url(#${id}b)"/>` : ''}<path d="M${x} ${y + 22} v-14 a7 7 0 0 1 14 0 v14 z" fill="${on ? '#ffe2a8' : c}" stroke="#3a2a22" stroke-width="2"/>${on ? `<path d="M${x + 2} ${y + 22} v-12 a5 5 0 0 1 10 0 v12 z" fill="${c}" opacity=".55"/>` : ''}<path d="M${x + 7} ${y + 1} v21 M${x} ${y + 12} h14" stroke="#3a2a22" stroke-width="1.2" opacity=".7"/><path d="M${x - 2} ${y + 22} h18" stroke="#c8b8a4" stroke-width="2.4" stroke-linecap="round"/>`;
+  };
+  const wins = [archWin(152, 128, 'seed'), archWin(176, 132, 'harvest'), archWin(132, 134, 'craft'), archWin(330, 128, 'sun'), archWin(354, 132, 'hearth'), archWin(374, 134, 'tide')].join('');
+  const smoke = lit('hearth')
+    ? [0, 1, 2, 3].map((i) => `<circle cx="${172 + i * 5 + (i % 2) * 3}" cy="${52 - i * 11}" r="${5 + i * 2.4}" fill="#d8d0dc" opacity="${(0.35 - i * 0.07).toFixed(2)}" filter="url(#${id}b)"/>`).join('')
+    : '';
+  const arch = lit('seed')
+    ? `<path d="M244 176 v-30 a16 16 0 0 1 32 0 v30" fill="none" stroke="#6a8a4a" stroke-width="3"/>${Array.from({ length: 16 }, (_, i) => {
+        const a = Math.PI + (i / 15) * Math.PI;
+        const x = 260 + Math.cos(a) * 17;
+        const y = 146 + Math.sin(a) * 17;
+        return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(2.6 + (i % 3) * 0.8).toFixed(1)}" fill="${i % 2 ? '#f6a8c4' : '#ffd6e6'}"/>`;
+      }).join('')}<circle cx="244" cy="166" r="3" fill="#f6a8c4"/><circle cx="276" cy="160" r="3" fill="#ffd6e6"/>`
+    : '';
+  const lamps = [[96, 196], [150, 190], [370, 190], [424, 196]]
+    .map(([x, y], i) => {
+      const on = i < Math.ceil(n * 0.7);
+      return `<path d="M${x} ${y} v-24" stroke="#2e2638" stroke-width="2"/>${on ? `<circle cx="${x}" cy="${y! - 27}" r="11" fill="${warm}" opacity=".4" filter="url(#${id}b)"/>` : ''}<rect x="${x! - 3.5}" y="${y! - 32}" width="7" height="9" rx="2" fill="${on ? warm : '#3a3448'}" stroke="#2e2638" stroke-width="1.4"/>`;
+    })
+    .join('');
+  return `<svg class="jn-valley jn-hallpaint" viewBox="0 0 520 220" aria-hidden="true">
+  <defs>
+    <linearGradient id="${id}s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a2f5c"/><stop offset=".5" stop-color="#5e4f86"/><stop offset=".82" stop-color="#d48e86"/><stop offset="1" stop-color="#f2c08e"/></linearGradient>
+    <radialGradient id="${id}g" cx="50%" cy="62%" r="52%"><stop offset="0" stop-color="${warm}" stop-opacity="${(0.1 + k * 0.5).toFixed(2)}"/><stop offset="1" stop-color="${warm}" stop-opacity="0"/></radialGradient>
+    <radialGradient id="${id}v" cx="50%" cy="52%" r="62%"><stop offset=".62" stop-color="#fff" stop-opacity="1"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <filter id="${id}b" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4"/></filter>
+    <filter id="${id}w" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5"/></filter>
+    <filter id="${id}p"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="9"/><feColorMatrix values="0 0 0 0 0.45  0 0 0 0 0.32  0 0 0 0 0.2  0 0 0 0.14 0"/></filter>
+    <mask id="${id}m"><rect width="520" height="220" fill="url(#${id}v)" filter="url(#${id}w)"/></mask>
+  </defs>
+  <g mask="url(#${id}m)">
+    <g filter="url(#${id}w)">
+      <rect width="520" height="220" fill="url(#${id}s)"/>
+      <ellipse cx="120" cy="58" rx="90" ry="10" fill="#8a6a9a" opacity=".35"/><ellipse cx="400" cy="44" rx="110" ry="9" fill="#b07a92" opacity=".3"/>
+      <circle cx="446" cy="40" r="12" fill="#fff4d6"/><circle cx="452" cy="36" r="10.5" fill="#57508a"/>
+      ${[[60, 26], [180, 18], [300, 30], [500, 70], [30, 80], [236, 46]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.1" fill="#fff8e0" opacity=".8"/>`).join('')}
+      <path d="M0 120 L30 92 L52 112 L80 80 L112 116 L140 96 L168 118 L520 118 L486 94 L462 108 L430 84 L400 112 L380 100 L360 118 Z" fill="#2e3452" opacity=".9"/>
+      <ellipse cx="260" cy="150" rx="${(150 + k * 80).toFixed(0)}" ry="${(60 + k * 30).toFixed(0)}" fill="url(#${id}g)"/>
+      ${smoke}
+      <!-- chimney, tower + spire behind the gable -->
+      <rect x="164" y="56" width="20" height="62" fill="#7a6a62" stroke="#3a2a22" stroke-width="2"/><rect x="161" y="52" width="26" height="7" fill="#5a4a44" stroke="#3a2a22" stroke-width="1.6"/>
+      <rect x="226" y="40" width="30" height="50" fill="#6e5e58" stroke="#3a2a22" stroke-width="2"/>
+      <path d="M222 42 L241 6 L260 42 Z" fill="#4a5a7a" stroke="#2e2638" stroke-width="2"/>
+      <circle cx="241" cy="60" r="7" fill="#efe2c8" stroke="#3a2a22" stroke-width="1.6"/><path d="M241 60 v-5 M241 60 h3.5" stroke="#3a2a22" stroke-width="1.2"/>
+      <rect x="232" y="68" width="18" height="12" fill="${k > 0 ? warm : '#2c2c44'}" opacity="${k > 0 ? 0.9 : 1}"/>
+      <!-- slate wings -->
+      <path d="M118 122 L150 100 H214 V176 H122 Z" fill="#8a7a70" stroke="#3a2a22" stroke-width="2"/>
+      <path d="M402 122 L370 100 H306 V176 H398 Z" fill="#8a7a70" stroke="#3a2a22" stroke-width="2"/>
+      <path d="M112 126 L148 96 H216 L216 110 H150 L120 132 Z" fill="#56627e" stroke="#2e2638" stroke-width="2"/>
+      <path d="M408 126 L372 96 H304 L304 110 H370 L400 132 Z" fill="#56627e" stroke="#2e2638" stroke-width="2"/>
+      ${wins}
+      <!-- the stone gable -->
+      <path d="M196 176 V100 L260 54 L324 100 V176 Z" fill="#9a8878" stroke="#3a2a22" stroke-width="2.4"/>
+      ${stones}
+      <path d="M188 104 L260 50 L332 104" fill="none" stroke="#4a3e44" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      ${n ? `<circle cx="260" cy="101" r="${(20 + k * 8).toFixed(1)}" fill="${warm}" opacity="${(0.25 + k * 0.4).toFixed(2)}" filter="url(#${id}b)"/>` : ''}
+      <circle cx="260" cy="101" r="17" fill="#2c2840" stroke="#e8dcc8" stroke-width="3"/>
+      ${petals}<circle cx="260" cy="101" r="4" fill="${n ? warm : '#3a3650'}" stroke="#2e2638" stroke-width="1"/>
+      <!-- doors, lantern, steps -->
+      ${k > 0 ? `<ellipse cx="260" cy="156" rx="${(14 + k * 12).toFixed(1)}" ry="${(16 + k * 10).toFixed(1)}" fill="${warm}" opacity="${(0.25 + k * 0.4).toFixed(2)}" filter="url(#${id}b)"/>` : ''}
+      <path d="M248 176 v-22 a12 12 0 0 1 24 0 v22 z" fill="#5a3422" stroke="#2e1a10" stroke-width="2"/><path d="M260 142 v34" stroke="#2e1a10" stroke-width="1.6"/>
+      <rect x="256" y="128" width="8" height="10" rx="2" fill="${k > 0 ? warm : '#3a3448'}" stroke="#2e2638" stroke-width="1.4"/>
+      ${arch}
+      <path d="M232 176 H288 L294 184 H226 Z" fill="#b8a898" stroke="#5a4a40" stroke-width="1.4"/><path d="M220 184 H300 L306 192 H214 Z" fill="#a89888" stroke="#5a4a40" stroke-width="1.4"/>
+      <!-- the square -->
+      <path d="M0 192 C120 184 200 190 260 192 C330 190 420 184 520 190 V220 H0 Z" fill="#4a4258"/>
+      <path d="M0 204 C140 198 380 198 520 204" stroke="#6a5e70" stroke-width="2" fill="none" opacity=".6"/>
+      ${lamps}
+    </g>
+    <rect width="520" height="220" filter="url(#${id}p)"/>
+  </g>
 </svg>`;
 }

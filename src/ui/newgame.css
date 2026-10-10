@@ -386,7 +386,7 @@
   text-overflow: ellipsis;
 }
 .ng-slot small {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -398,7 +398,7 @@
   padding: 1px 7px 2px;
   border-radius: 8px;
   font-style: normal;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -449,7 +449,7 @@
 }
 .ng-sub small {
   font-weight: 700;
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--ink-soft);
 }
 .ng-quick {

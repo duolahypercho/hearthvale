@@ -32,6 +32,8 @@ export function loadStoryFonts(): void {
   document.head.appendChild(l);
 }
 
+/** Padlock glyph for a farmhand's locked choice cards. */
+const LOCK = '<svg class="cin-lock" viewBox="0 0 16 18" aria-hidden="true"><path d="M4.5 8V5.5a3.5 3.5 0 0 1 7 0V8" fill="none" stroke="currentColor" stroke-width="2"/><rect x="2" y="8" width="12" height="9" rx="2" fill="currentColor"/><circle cx="8" cy="12.3" r="1.4" fill="#2a1a0e"/></svg>';
 const NEXT = `<svg viewBox="0 0 20 14"><path d="M2 2 L10 12 L18 2 Z" fill="#c8573e" stroke="#7a2e1e" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 
 // ─────────────────────────────────────────────── painted backdrop: the evening coach into the valley
@@ -414,18 +416,58 @@ class CoachWindow {
           for (let k = 0; k < 4; k++) {
             const ww = th * (0.34 - k * 0.07);
             const ty = b - th * (0.25 + k * 0.22);
+            g.fillStyle = '#1e1626';
             g.beginPath();
             g.moveTo(x - ww, ty + th * 0.3);
             g.lineTo(x, ty - th * 0.2);
             g.lineTo(x + ww, ty + th * 0.3);
             g.fill();
+            // Lit right flank of each tier.
+            g.fillStyle = 'rgba(96,66,86,0.7)';
+            g.beginPath();
+            g.moveTo(x, ty - th * 0.2);
+            g.lineTo(x + ww, ty + th * 0.3);
+            g.lineTo(x + ww * 0.25, ty + th * 0.3);
+            g.fill();
+            g.strokeStyle = 'rgba(255,160,120,0.38)';
+            g.lineWidth = 1;
+            g.beginPath();
+            g.moveTo(x, ty - th * 0.2);
+            g.lineTo(x + ww, ty + th * 0.3);
+            g.stroke();
           }
+          g.fillStyle = '#150f1c';
         } else {
           g.fillRect(x - th * 0.03, b - th * 0.45, th * 0.06, th * 0.45);
-          for (let k = 0; k < 6; k++) {
+          // Chunky faceted canopy like the valley's own trees: a dark plum body, a lit facet on the
+          // sunward (right) shoulder and a warm rim — form, not a cut-out.
+          for (let k = 0; k < 4; k++) {
+            const cx = x + (R() - 0.5) * th * 0.42;
+            const cy = b - th * (0.6 + R() * 0.3);
+            const rr = th * (0.2 + R() * 0.12);
+            const pts: [number, number][] = [];
+            for (let q = 0; q < 7; q++) {
+              const a = (q / 7) * Math.PI * 2 + R() * 0.3;
+              const rad = rr * (0.85 + R() * 0.25);
+              pts.push([cx + Math.cos(a) * rad, cy + Math.sin(a) * rad * 0.92]);
+            }
+            g.fillStyle = '#231a2c';
             g.beginPath();
-            g.arc(x + (R() - 0.5) * th * 0.5, b - th * (0.55 + R() * 0.35), th * (0.18 + R() * 0.14), 0, Math.PI * 2);
+            pts.forEach(([px, py], q) => (q ? g.lineTo(px, py) : g.moveTo(px, py)));
             g.fill();
+            g.fillStyle = 'rgba(92,64,88,0.75)';
+            g.beginPath();
+            g.moveTo(cx, cy);
+            for (let q = 5; q <= 7; q++) g.lineTo(pts[q % 7]![0], pts[q % 7]![1]);
+            g.fill();
+            g.strokeStyle = 'rgba(255,160,120,0.42)';
+            g.lineWidth = Math.max(1, rr * 0.08);
+            g.beginPath();
+            g.moveTo(pts[5]![0], pts[5]![1]);
+            g.lineTo(pts[6]![0], pts[6]![1]);
+            g.lineTo(pts[0]![0], pts[0]![1]);
+            g.stroke();
+            g.fillStyle = '#150f1c';
           }
         }
         // Low hedge between the trees.
@@ -446,32 +488,33 @@ class CoachWindow {
       g.globalCompositeOperation = 'source-over';
       this.layers.push({ c, T, speed: 0.13 });
     }
-    // ── telegraph poles and their sagging wires (fastest)
+    // ── the verge rushing past right under the window, out of focus (fastest): soft grass tufts and
+    // the odd fence post, blurred like a lens at f/2 — depth, not a flat cut-out.
     {
       const T = Math.round(w * 1.1);
       const [c, g] = this.mk(T, h);
-      const poles = [T * 0.25, T * 0.75];
-      const top = h * 0.3;
-      g.fillStyle = '#0e0a12';
-      for (const px of poles) {
-        g.fillRect(px - 3, top, 6, h - top);
-        g.fillRect(px - 26, top + 10, 52, 4);
-        for (const dx of [-20, -8, 8, 20]) g.fillRect(px + dx - 1.5, top + 5, 3, 6);
+      g.filter = `blur(${Math.max(2, h * 0.012).toFixed(1)}px)`;
+      g.fillStyle = '#120c16';
+      g.beginPath();
+      g.moveTo(0, h);
+      for (let x = 0; x <= T; x += 6) g.lineTo(x, h * (0.9 + 0.025 * Math.sin(x * 0.03) + 0.015 * Math.sin(x * 0.11)));
+      g.lineTo(T, h);
+      g.fill();
+      for (let k = 0; k < 26; k++) {
+        const x = R() * T;
+        const hh = h * (0.05 + R() * 0.08);
+        g.fillStyle = R() < 0.5 ? '#1a1220' : '#2a1e2a';
+        g.beginPath();
+        g.ellipse(x, h * 0.93, h * 0.02 + R() * h * 0.02, hh, (R() - 0.5) * 0.4, 0, Math.PI * 2);
+        g.fill();
       }
-      g.strokeStyle = 'rgba(14,10,18,0.9)';
-      g.lineWidth = 1;
-      // Wires between every neighbouring pair, the neighbours' tiles included (seamless wrap).
-      const P = [...poles.map((p) => p - T), ...poles, ...poles.map((p) => p + T)];
-      for (const dx of [-20, -8, 8, 20]) {
-        for (let i = 0; i + 1 < P.length; i++) {
-          const a = P[i]! + dx;
-          const b = P[i + 1]! + dx;
-          g.beginPath();
-          g.moveTo(a, top + 5);
-          g.quadraticCurveTo((a + b) / 2, top + 5 + h * 0.07, b, top + 5);
-          g.stroke();
-        }
+      for (const px of [T * 0.2, T * 0.62]) {
+        g.fillStyle = '#1c1418';
+        g.fillRect(px, h * 0.74, h * 0.03, h * 0.3);
+        g.fillStyle = 'rgba(255,150,110,0.25)';
+        g.fillRect(px + h * 0.024, h * 0.74, h * 0.008, h * 0.3);
       }
+      g.filter = 'none';
       this.layers.push({ c, T, speed: 0.42 });
     }
     // ── the coach's window: frame, mullion (left of centre, beside the letter), brass rail, curtain
@@ -547,12 +590,104 @@ class CoachWindow {
         g.bezierCurveTo(w * 0.023 * k, h * 0.35, w * 0.028 * k, h * 0.6, w * 0.02 * k, h);
         g.stroke();
       }
-      g.strokeStyle = '#d8a850';
-      g.lineWidth = 2.5;
+      // A brass wall sconce over the seat: glass chimney, warm halo on the panelling.
+      {
+        const lx = w * 0.04;
+        const ly = h * 0.2;
+        const halo = g.createRadialGradient(lx, ly, 0, lx, ly, h * 0.22);
+        halo.addColorStop(0, 'rgba(255,196,118,0.8)');
+        halo.addColorStop(0.3, 'rgba(255,160,90,0.3)');
+        halo.addColorStop(1, 'rgba(255,160,90,0)');
+        g.fillStyle = halo;
+        g.fillRect(0, 0, w * 0.3, h * 0.5);
+        // Brass backplate and a swan-neck arm.
+        g.fillStyle = '#6a4418';
+        g.beginPath();
+        g.ellipse(lx, ly + h * 0.05, h * 0.014, h * 0.03, 0, 0, Math.PI * 2);
+        g.fill();
+        g.strokeStyle = '#c8923e';
+        g.lineWidth = h * 0.006;
+        g.lineCap = 'round';
+        g.beginPath();
+        g.moveTo(lx, ly + h * 0.07);
+        g.bezierCurveTo(lx + h * 0.03, ly + h * 0.07, lx + h * 0.03, ly + h * 0.035, lx, ly + h * 0.03);
+        g.stroke();
+        // Font cup, tulip glass chimney, and the flame inside it.
+        g.fillStyle = '#d8a24a';
+        g.beginPath();
+        g.ellipse(lx, ly + h * 0.028, h * 0.016, h * 0.007, 0, 0, Math.PI * 2);
+        g.fill();
+        const gl = g.createRadialGradient(lx, ly + h * 0.002, 0, lx, ly, h * 0.024);
+        gl.addColorStop(0, 'rgba(255,246,214,0.95)');
+        gl.addColorStop(0.6, 'rgba(255,196,110,0.75)');
+        gl.addColorStop(1, 'rgba(240,140,70,0.55)');
+        g.fillStyle = gl;
+        g.beginPath();
+        g.moveTo(lx - h * 0.009, ly + h * 0.024);
+        g.bezierCurveTo(lx - h * 0.024, ly + h * 0.005, lx - h * 0.008, ly - h * 0.012, lx - h * 0.007, ly - h * 0.03);
+        g.lineTo(lx + h * 0.007, ly - h * 0.03);
+        g.bezierCurveTo(lx + h * 0.008, ly - h * 0.012, lx + h * 0.024, ly + h * 0.005, lx + h * 0.009, ly + h * 0.024);
+        g.closePath();
+        g.fill();
+        g.globalCompositeOperation = 'lighter';
+        g.fillStyle = 'rgba(255,240,190,0.95)';
+        g.beginPath();
+        g.moveTo(lx, ly - h * 0.012);
+        g.quadraticCurveTo(lx + h * 0.006, ly + h * 0.006, lx, ly + h * 0.012);
+        g.quadraticCurveTo(lx - h * 0.006, ly + h * 0.006, lx, ly - h * 0.012);
+        g.fill();
+        g.globalCompositeOperation = 'source-over';
+        g.strokeStyle = 'rgba(255,255,255,0.5)';
+        g.lineWidth = Math.max(1, h * 0.0025);
+        g.beginPath();
+        g.moveTo(lx - h * 0.012, ly + h * 0.01);
+        g.quadraticCurveTo(lx - h * 0.012, ly - h * 0.01, lx - h * 0.005, ly - h * 0.024);
+        g.stroke();
+        g.fillStyle = '#b8823a';
+        g.fillRect(lx - h * 0.009, ly - h * 0.034, h * 0.018, h * 0.005);
+      }
+      // A ticket tucked into the window frame.
+      g.save();
+      g.translate(fx + w * 0.012, fy + h * 0.05);
+      g.rotate(-0.12);
+      g.fillStyle = '#efe0bc';
+      g.fillRect(0, 0, h * 0.075, h * 0.042);
+      g.fillStyle = '#b8463a';
+      g.fillRect(0, 0, h * 0.075, h * 0.008);
+      g.fillStyle = 'rgba(80,50,30,0.6)';
+      for (let k = 0; k < 3; k++) g.fillRect(h * 0.008, h * (0.016 + k * 0.008), h * (0.04 - k * 0.008), h * 0.003);
+      g.fillStyle = '#3a2012';
       g.beginPath();
-      g.moveTo(0, h * 0.55);
-      g.quadraticCurveTo(w * 0.06, h * 0.6, w * 0.1, h * 0.54);
-      g.stroke();
+      g.arc(h * 0.064, h * 0.026, h * 0.004, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+      // The seat back along the bottom: buttoned oxblood leather with a brass-studded top roll.
+      {
+        const sy = h * 0.9;
+        const sg = g.createLinearGradient(0, sy, 0, h);
+        sg.addColorStop(0, '#6a2a22');
+        sg.addColorStop(1, '#2a0e0a');
+        g.fillStyle = sg;
+        g.beginPath();
+        g.moveTo(0, h);
+        g.lineTo(0, sy);
+        g.quadraticCurveTo(w * 0.2, sy - h * 0.025, w * 0.42, sy + h * 0.01);
+        g.lineTo(w * 0.42, h);
+        g.fill();
+        g.fillStyle = 'rgba(255,200,150,0.18)';
+        g.fillRect(0, sy - h * 0.004, w * 0.42, h * 0.006);
+        for (let k = 0; k < 9; k++) {
+          const bx = w * (0.02 + k * 0.045);
+          g.fillStyle = 'rgba(20,4,2,0.55)';
+          g.beginPath();
+          g.arc(bx, sy + h * 0.05, h * 0.006, 0, Math.PI * 2);
+          g.fill();
+          g.fillStyle = '#d8a24a';
+          g.beginPath();
+          g.arc(bx, sy + h * 0.008, h * 0.0035, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
       // The coach lamp's warm spill on the lower-left glass and the wall, and a soft vignette.
       const lamp = g.createRadialGradient(w * 0.1, h * 0.95, 0, w * 0.1, h * 0.95, w * 0.5);
       lamp.addColorStop(0, 'rgba(255,170,90,0.22)');
@@ -838,7 +973,7 @@ export class CinemaOverlay {
     this.dlgNext.classList.add('hv-hidden');
     this.choiceCount = options.length;
     this.choices.innerHTML = options
-      .map((o, i) => `<button class="cin-choice" data-i="${i}" style="--d:${i * 70}ms"><span class="key">${i + 1}</span><span class="lbl">${o.label}</span>${o.hint ? `<span class="hint">${o.hint}</span>` : ''}</button>`)
+      .map((o, i) => `<button class="cin-choice" data-i="${i}" style="--d:${i * 70}ms"${waiting ? ' tabindex="-1" aria-disabled="true"' : ''}><span class="key">${waiting ? LOCK : i + 1}</span><span class="lbl">${o.label}</span>${o.hint ? `<span class="hint">${o.hint}</span>` : ''}</button>`)
       .join('');
     this.choices.classList.remove('hv-hidden');
     this.choices.classList.toggle('locked', !!waiting);
@@ -850,15 +985,20 @@ export class CinemaOverlay {
     if (waiting) {
       const note = document.createElement('div');
       note.className = 'cin-wait';
-      note.textContent = waiting;
+      note.innerHTML = `${LOCK}<span>${waiting}</span>`;
       this.choices.appendChild(note);
       return new Promise((r) => {
         this.choiceResolve = r;
         this.choiceLocked = true;
         remote?.((i) => {
-          this.choiceLocked = false;
+          // The host's pick lights up on the farmhand's screen for a beat before the scene goes on.
           this.selectChoice(i);
-          this.pick(i);
+          this.choices.querySelectorAll<HTMLElement>('.cin-choice')[i]?.classList.add('chosen');
+          note.innerHTML = `<span>Decided</span>`;
+          window.setTimeout(() => {
+            this.choiceLocked = false;
+            this.pick(i);
+          }, 1050);
         });
       });
     }

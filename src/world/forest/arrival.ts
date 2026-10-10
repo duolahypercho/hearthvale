@@ -1,8 +1,10 @@
 /**
  * Cindergrove arrival card: a carved wooden plate with a parchment inset, hung in the upper third
- * when the farmer walks in (never over the farmer), with a leaf flourish either side and the season
- * line under the name. Eases in (drop + settle), holds ~2.4 s, lifts away. Uses the UI kit's
- * procedural wood / paper textures (`--u-wood`, `--u-paper`).
+ * when the farmer walks in, with a leaf flourish either side and the season line under the name.
+ * It dodges the farmer: when the farmer's head projects into the top band, the plate hangs in the
+ * lower-middle band instead (never over the farmer or the find being picked). Eases in (drop +
+ * settle), holds ~2.5 s, lifts away — and leaves at once on the first key / click / touch.
+ * Uses the UI kit's procedural wood / paper textures (`--u-wood`, `--u-paper`).
  */
 import type { Season } from '../../core/time';
 
@@ -13,12 +15,15 @@ const CSS = /* css */ `
   display: flex; align-items: center; gap: 10px;
   filter: drop-shadow(0 10px 14px rgba(30, 16, 4, .38));
 }
-.hvf-arrive.show { animation: hvfArrive 3.6s cubic-bezier(.2,.9,.25,1) both; }
+.hvf-arrive.low { top: 60%; }
+.hvf-arrive.show { animation: hvfArrive 3.3s cubic-bezier(.2,.9,.25,1) both; }
+.hvf-arrive.leave { animation: none; opacity: 0 !important; transform: translate(-50%, -14px) scale(.97) !important;
+  transition: opacity .22s ease-in, transform .22s ease-in; }
 @keyframes hvfArrive {
   0% { opacity: 0; transform: translate(-50%, -30px) rotate(-4deg) scale(.92); }
-  12% { opacity: 1; transform: translate(-50%, 4px) rotate(1deg) scale(1.02); }
-  20% { transform: translate(-50%, 0) rotate(0deg) scale(1); }
-  78% { opacity: 1; transform: translate(-50%, 0) rotate(0deg) scale(1); }
+  11% { opacity: 1; transform: translate(-50%, 4px) rotate(1deg) scale(1.02); }
+  17% { transform: translate(-50%, 0) rotate(0deg) scale(1); }
+  87% { opacity: 1; transform: translate(-50%, 0) rotate(0deg) scale(1); }
   100% { opacity: 0; transform: translate(-50%, -18px) rotate(-1deg) scale(.97); }
 }
 .hvf-arrive .plate {
@@ -52,8 +57,8 @@ const CSS = /* css */ `
 .hvf-arrive svg { width: 46px; height: 46px; flex: none; }
 .hvf-arrive svg.l { transform: rotate(-18deg); }
 .hvf-arrive svg.r { transform: scaleX(-1) rotate(-18deg); }
-.hvf-arrive.show svg.l { animation: hvfLeafL 3.6s ease both; }
-.hvf-arrive.show svg.r { animation: hvfLeafR 3.6s ease both; }
+.hvf-arrive.show svg.l { animation: hvfLeafL 3.3s ease both; }
+.hvf-arrive.show svg.r { animation: hvfLeafR 3.3s ease both; }
 @keyframes hvfLeafL { 0% { transform: rotate(-60deg) scale(.4); } 18% { transform: rotate(-10deg) scale(1.05); } 26%, 100% { transform: rotate(-18deg) scale(1); } }
 @keyframes hvfLeafR { 0% { transform: scaleX(-1) rotate(-60deg) scale(.4); } 18% { transform: scaleX(-1) rotate(-10deg) scale(1.05); } 26%, 100% { transform: scaleX(-1) rotate(-18deg) scale(1); } }
 `;
@@ -84,10 +89,16 @@ function leafSvg(cls: string, a: string, b: string): string {
 
 export class ArrivalCard {
   private el: HTMLElement | null = null;
+  private pinned = false;
+  private readonly dismiss = (): void => this.leave();
 
   constructor(private root: HTMLElement) {}
 
-  show(title: string, season: Season): void {
+  /**
+   * `headY` = the farmer's head height on screen (0 top .. 1 bottom): when it falls in the plate's
+   * top band (< 34 %), the plate hangs low instead.
+   */
+  show(title: string, season: Season, headY = 0.5): void {
     if (!document.getElementById('hvf-arrive-css')) {
       const st = document.createElement('style');
       st.id = 'hvf-arrive-css';
@@ -101,17 +112,48 @@ export class ArrivalCard {
     }
     const [a, b] = LEAF[season];
     this.el.innerHTML = `${leafSvg('l', a, b)}<div class="plate"><div class="paper"><div class="name">${title}</div><div class="sub"><i>~</i>${LINE[season]}<i>~</i></div></div></div>${leafSvg('r', a, b)}`;
-    this.el.classList.remove('show');
+    this.el.classList.remove('show', 'leave');
+    this.el.style.opacity = '';
+    this.el.style.transform = '';
+    this.pinned = false;
+    this.place(headY);
     void this.el.offsetWidth;
     this.el.classList.add('show');
+    // First input lifts it away (the farmer wants to play, not read).
+    window.removeEventListener('keydown', this.dismiss);
+    window.removeEventListener('pointerdown', this.dismiss);
+    setTimeout(() => {
+      window.addEventListener('keydown', this.dismiss, { once: true });
+      window.addEventListener('pointerdown', this.dismiss, { once: true });
+    }, 250);
+  }
+
+  /** Re-dodge while on screen (the camera eases after a warp). */
+  place(headY: number): void {
+    if (this.el) this.el.classList.toggle('low', headY < 0.34);
+  }
+
+  get visible(): boolean {
+    return !!this.el && (this.pinned || this.el.classList.contains('show')) && !this.el.classList.contains('leave');
   }
 
   /** Hold the card on screen (demo stills). */
   pin(): void {
     if (this.el) {
+      this.pinned = true;
       this.el.classList.remove('show');
       this.el.style.opacity = '1';
       this.el.style.transform = 'translate(-50%, 0)';
     }
+  }
+
+  leave(): void {
+    window.removeEventListener('keydown', this.dismiss);
+    window.removeEventListener('pointerdown', this.dismiss);
+    if (!this.el || this.el.classList.contains('leave')) return;
+    this.pinned = false;
+    this.el.style.opacity = '';
+    this.el.style.transform = '';
+    this.el.classList.add('leave');
   }
 }

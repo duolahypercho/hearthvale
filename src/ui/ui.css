@@ -104,7 +104,7 @@ body.u-calm #ui-root *::after {
 .u-tab span {
   font-family: var(--font-head);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 14px;
   color: #fff4dc;
   text-shadow: 0 1px 0 #4a2810;
 }
@@ -214,7 +214,7 @@ body.u-calm #ui-root *::after {
   line-height: 1.1;
 }
 .inv-card .stats small {
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #a08060;
   text-transform: uppercase;
@@ -242,7 +242,7 @@ body.u-calm #ui-root *::after {
 .inv-label small {
   font-family: var(--font-body);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 14px;
   color: #a08060;
 }
 .inv-grid {
@@ -372,7 +372,7 @@ body.u-calm #ui-root *::after {
 .idt-name .t-cat {
   padding: 1px 9px 2px;
   border-radius: 20px;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -402,7 +402,7 @@ body.u-calm #ui-root *::after {
   align-items: center;
   gap: 5px;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #5f8a3a;
 }
@@ -434,7 +434,7 @@ body.u-calm #ui-root *::after {
   line-height: 1;
 }
 .idt-val small {
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #d8b888;
 }
@@ -567,7 +567,7 @@ body.u-calm #ui-root *::after {
 }
 .shop-name small {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #a08060;
   text-align: center;
@@ -630,7 +630,7 @@ body.u-calm #ui-root *::after {
   font-variant-numeric: tabular-nums;
 }
 .shop-purse small {
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -767,7 +767,7 @@ body.u-calm #ui-root *::after {
   border-radius: 10px;
   font-family: var(--font-body);
   font-style: normal;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 900;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -788,7 +788,7 @@ body.u-calm #ui-root *::after {
   bottom: 1px;
 }
 .shop-row .nm small {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -867,7 +867,7 @@ body.u-calm #ui-root *::after {
   text-overflow: ellipsis;
 }
 .pk-item small {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #a08060;
 }
@@ -896,7 +896,7 @@ body.u-calm #ui-root *::after {
   animation: hTick 300ms var(--ease-back);
 }
 .pk-n small {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 800;
   color: #a08060;
   text-transform: uppercase;
@@ -976,7 +976,7 @@ body.u-calm #ui-root *::after {
 }
 .craft-head small {
   font-family: var(--font-body);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #a08060;
 }
@@ -1036,7 +1036,7 @@ body.u-calm #ui-root *::after {
   box-sizing: border-box;
   text-align: center;
   line-height: 1.2;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
   color: #a08060;
 }
@@ -1133,7 +1133,7 @@ img.sil {
   margin: 5px 0 6px;
   padding: 1px 9px 2px;
   border-radius: 20px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -1262,7 +1262,7 @@ img.sil {
 .cd-prev small {
   margin-top: 8px;
   text-align: center;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #6a8a3a;
 }
@@ -1283,7 +1283,7 @@ img.sil {
   font-size: 16px;
 }
 .cd-out small {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #a08060;
 }
@@ -1297,7 +1297,7 @@ img.sil {
 .cd-out .ar {
   padding: 2px 9px 3px;
   border-radius: 20px;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 900;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -1576,12 +1576,6 @@ svg.valley {
     transform: translateY(-7px);
   }
 }
-.m-face {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  overflow: hidden;
-}
 .m-npc {
   cursor: help;
   animation: mNpc 2.6s ease-in-out infinite alternate;
@@ -1594,17 +1588,6 @@ svg.valley {
 .m-npc:hover circle {
   stroke: #e8674a;
   stroke-width: 3;
-}
-.m-npcface {
-  width: 23px;
-  height: 23px;
-  border-radius: 50%;
-  overflow: hidden;
-}
-.m-npcface svg {
-  width: 100%;
-  height: 100%;
-  display: block;
 }
 .m-mill {
   animation: mMill 9s linear infinite;
@@ -1695,7 +1678,7 @@ svg.valley {
   color: var(--ink-soft);
 }
 .set-seg .seg small {
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
   color: #a08060;
 }
@@ -1784,7 +1767,7 @@ svg.valley {
   font-size: 15px;
 }
 .set-toggle .lb small {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -1858,7 +1841,7 @@ svg.valley {
   padding: 10px;
   border-radius: 10px;
   background: rgba(120, 80, 40, 0.1);
-  font-size: 12.5px;
+  font-size: 14px;
 }
 .set-fixed div {
   display: flex;
@@ -2047,7 +2030,7 @@ svg.valley {
   font-size: 18px;
 }
 .td-row small {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -2062,7 +2045,7 @@ svg.valley {
   align-items: center;
   gap: 5px;
   margin-bottom: 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #8a6440;
   text-transform: uppercase;
@@ -2082,7 +2065,7 @@ svg.valley {
 }
 .td-quest small {
   display: block;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1.3;
   color: #8a6a4a;
@@ -2149,7 +2132,7 @@ svg.valley {
 .td-prog .lbl {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #8a6440;
   text-transform: uppercase;
@@ -2219,7 +2202,7 @@ svg.valley {
   bottom: 6px;
   padding: 1px 8px 2px;
   border-radius: 8px;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #fff;
   background: rgba(40, 20, 6, 0.7);
@@ -2245,7 +2228,7 @@ svg.valley {
   height: 18px;
 }
 .save-card .meta small {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -2861,7 +2844,7 @@ svg.valley {
 .de-rest small {
   display: block;
   margin-top: 2px;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -2894,7 +2877,7 @@ svg.valley {
   box-shadow: 0 1px 2px rgba(90, 50, 14, 0.2);
 }
 .de-note small {
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   letter-spacing: 0.6px;
   text-transform: uppercase;
@@ -2961,7 +2944,7 @@ svg.valley {
 }
 .de-pen small {
   display: block;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #8a5040;
 }
@@ -3013,7 +2996,7 @@ svg.valley {
   font-size: 17px;
 }
 .de-tmr small {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #a08060;
 }
@@ -3068,7 +3051,7 @@ svg.valley {
   padding: 1px 7px 2px;
   margin-right: 4px;
   border-radius: 6px;
-  font: 800 12.5px var(--font-body);
+  font: 800 14px var(--font-body);
   color: #5a3414;
   background: linear-gradient(180deg, #fffaf0, #eedcb8);
   box-shadow: 0 2px 0 #b89a70, inset 0 0 0 1.5px rgba(122, 80, 40, 0.35);
@@ -3119,7 +3102,7 @@ svg.valley {
   height: 58px;
 }
 .ic-cell span {
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 800;
   text-align: center;
   line-height: 1.15;
@@ -3789,7 +3772,7 @@ svg.valley {
 }
 .cd-chips i {
   font-style: normal;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   padding: 1px 8px 2px;
   border-radius: 9px;
@@ -3864,7 +3847,7 @@ svg.valley {
   border-radius: 12px;
   font-family: var(--font-head);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 14px;
   color: #fff6e0;
   background: linear-gradient(180deg, #c98a4a, #a0602c);
   box-shadow: 0 2px 0 #5a3418, 0 4px 8px rgba(60, 30, 6, 0.25);
@@ -3998,7 +3981,7 @@ svg.valley {
 }
 .set-fpsline small {
   margin-left: auto;
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: #a08060;
   white-space: nowrap;
 }
@@ -4022,7 +4005,7 @@ svg.valley {
   color: var(--ink-soft);
 }
 .set-caprow .lb small {
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 700;
   color: #a08060;
 }
@@ -4030,7 +4013,7 @@ svg.valley {
   grid-template-columns: 1fr;
   gap: 4px;
   margin: 10px 0;
-  font-size: 12.5px;
+  font-size: 14px;
 }
 .set-fixed b {
   white-space: nowrap;
@@ -4185,7 +4168,7 @@ svg.valley {
 }
 .save-card .meta .who {
   font-style: normal;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   letter-spacing: 0.3px;
   color: #b8602a;
@@ -4372,7 +4355,7 @@ svg.valley {
 }
 .shop-have small {
   display: block;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 900;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -4599,7 +4582,7 @@ svg.valley {
 }
 .cd-facts .fact small {
   display: block;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #a08060;
   white-space: nowrap;
@@ -4660,7 +4643,7 @@ svg.valley {
   font-size: 15px;
 }
 .cd-facts.stack .fact small {
-  font-size: 11.5px;
+  font-size: 13.5px;
   line-height: 1.2;
 }
 .craft-detail.many .pedestal {
@@ -4728,7 +4711,7 @@ svg.valley {
 .set-sec h3 small {
   margin-left: auto;
   font-family: var(--font-body, inherit);
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #a08060;
 }
@@ -4791,7 +4774,7 @@ svg.valley {
 .set-pad .gl.sh {
   width: 34px;
   border-radius: 8px 8px 6px 6px;
-  font-size: 12px;
+  font-size: 14px;
   background: #5a6474;
 }
 .set-pad .gl.st {
@@ -4801,7 +4784,7 @@ svg.valley {
 .set-pad .gl.sys {
   width: 30px;
   border-radius: 9px;
-  font-size: 12px;
+  font-size: 14px;
   background: #3e4654;
 }
 .set-col.b .set-slider {
@@ -4841,7 +4824,7 @@ svg.valley {
   top: 50%;
   translate: 0 -50%;
   font-style: normal;
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 900;
   color: #b8742a;
   white-space: nowrap;
@@ -4858,7 +4841,7 @@ svg.valley {
   padding: 0 5px 1px;
   border-radius: 5px;
   font-family: var(--font-head);
-  font-size: 12px;
+  font-size: 14px;
   text-align: center;
   background: #fffdf6;
   box-shadow: 0 0 0 1.5px #8a6440, 0 2px 0 #8a6440;
@@ -4944,11 +4927,9 @@ body.u-contrast #ui-root {
   text-decoration-thickness: 2px;
 }
 /* Map: the "+N" villager badge at the end of the square's arc. */
-.m-npc[data-npc='+'] .m-npcface {
-  display: grid;
-  place-items: center;
-  font: 800 11px/1 'Fredoka', sans-serif;
-  color: #5a3418;
+.m-npc[data-npc='+'] .m-plus {
+  font: 800 13.5px/1 'Fredoka', sans-serif;
+  fill: #5a3418;
 }
 /* Backpack detail card: "Carrying" tag while a stack is lifted. */
 .idt-name .idt-carry {
@@ -4956,7 +4937,7 @@ body.u-contrast #ui-root {
   border-radius: 8px;
   background: #e8a03a;
   color: #fff8e6;
-  font: 700 11px/1.5 var(--font-head);
+  font: 700 13.5px/1.5 var(--font-head);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   box-shadow: inset 0 -2px 0 rgba(90, 40, 0, 0.3);
@@ -5078,7 +5059,7 @@ body.u-contrast #ui-root {
   mask-image: repeating-radial-gradient(circle at 30% 40%, #000 0 2px, rgba(0, 0, 0, 0.78) 2px 3px);
 }
 .de-stamp small {
-  font: 800 10px/1 var(--font-body);
+  font: 800 13px/1 var(--font-body);
   letter-spacing: 0.6px;
 }
 .de-tot.go .de-stamp {
@@ -5187,7 +5168,7 @@ body.u-contrast #ui-root {
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.55);
   box-shadow: inset 0 0 0 1.5px rgba(138, 100, 64, 0.2);
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 800;
   color: var(--ink-soft);
   transition: background 160ms, box-shadow 160ms;
@@ -5291,4 +5272,1629 @@ body.u-calm .de-star .medal {
 }
 .shop-bubble p .ghost {
   opacity: 0;
+}
+
+/* ═══ UI r17: tool tiers (tooltips, backpack card) + Odessa's forge upgrades ═══════════════════════
+   Four metal pips (Basic steel / Copper / Iron / Gold) lit up to the tool's tier, what that tier does,
+   and where to get the next one. Upgrade rows carry a metal corner chip on the icon and an ore have/need
+   cell beside the fee; the purchase bar swaps the quantity stepper for the ore the smith needs. */
+.t-toolrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1.5px dashed rgba(138, 100, 64, 0.3);
+  font-size: 14px;
+  font-weight: 800;
+  color: #6a4a2a;
+}
+.t-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.t-tier .pips {
+  display: inline-flex;
+  gap: 3px;
+}
+.t-tier .tp {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  transform: rotate(45deg);
+  background: rgba(138, 100, 64, 0.16);
+  box-shadow: inset 0 0 0 1.5px rgba(106, 74, 42, 0.35);
+}
+.t-tier .tp.on {
+  background: linear-gradient(135deg, #fff 0%, var(--tc) 38%, color-mix(in srgb, var(--tc) 62%, #3a2410) 100%);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--tc) 45%, #3a2410), 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.t-tier b {
+  padding: 1px 8px;
+  border-radius: 8px;
+  font: 700 13.5px/1.5 var(--font-head);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #3a2410;
+  background: color-mix(in srgb, var(--tc) 55%, #fff6e0);
+  box-shadow: inset 0 -2px 0 rgba(58, 36, 16, 0.18);
+}
+.t-toolrow .t-pow {
+  flex: 1 1 auto;
+}
+.t-toolrow .t-up {
+  flex-basis: 100%;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #b0703a;
+}
+.t-toolrow .t-up::before {
+  content: '▲ ';
+  font-size: 12.5px;
+}
+.u-tip .t-upto {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-weight: 800;
+  color: #2f6a2a;
+}
+.u-tip .t-upto small {
+  flex-basis: 100%;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a6440;
+}
+.inv-detail .t-toolrow {
+  margin-top: 8px;
+  font-size: 13.5px;
+}
+/* Upgrade chips: a little metal ingot in the icon's corner. */
+.up-tier {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 18px;
+  height: 12px;
+  border-radius: 3px 3px 4px 4px;
+  clip-path: polygon(14% 0, 86% 0, 100% 100%, 0 100%);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.22), inset 0 2px 0 rgba(255, 255, 255, 0.55);
+}
+.up-tier.t1 { background: #d4804a; }
+.up-tier.t2 { background: #cfd8e2; }
+.up-tier.t3 { background: #f2c24a; }
+.shop-row.up .u-slot,
+.pk-item .u-slot {
+  position: relative;
+}
+.shop-row .pr .ore {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 10px;
+  padding: 2px 8px 2px 3px;
+  border-radius: 12px;
+  background: rgba(138, 100, 64, 0.12);
+  font: 700 14px var(--font-head);
+  color: #4f7a38;
+}
+.shop-row .pr .ore img {
+  width: 24px;
+  height: 24px;
+}
+.shop-row .pr .ore em {
+  font-style: normal;
+}
+.shop-row .pr .ore.no {
+  color: #c0392b;
+  background: rgba(192, 57, 43, 0.1);
+}
+.shop-picker .pk-ore {
+  grid-area: qty;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pk-ore .u-slot.mini {
+  width: 40px;
+  height: 40px;
+}
+.pk-ore .u-slot img {
+  width: 32px;
+  height: 32px;
+}
+.pk-ore b {
+  display: block;
+  font: 700 18px/1.1 var(--font-head);
+  color: #4f7a38;
+}
+.pk-ore b em {
+  font-style: normal;
+  font-size: 13px;
+  color: #a08060;
+}
+.pk-ore small {
+  font-size: 14px;
+  font-weight: 800;
+  color: #a08060;
+}
+.pk-ore.no b {
+  color: #c0392b;
+}
+/* Forge: the "In your pack" card becomes "Your Hoe": current tier pips → the tier on offer, what it does now. */
+.shop-have .hv.up {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.shop-have .hv.up small {
+  flex-basis: 100%;
+}
+.shop-have .hv.up .to {
+  font: 700 15px var(--font-head);
+  font-style: normal;
+  color: #4f9a36;
+}
+.shop-have .hv.up .to.no {
+  color: #a08060;
+}
+.shop-have:has(.hv.up) .fr {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1.5px dashed rgba(138, 100, 64, 0.25);
+  text-align: left;
+}
+.shop-have:has(.hv.up) .fr small {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 14px;
+  color: #6a4a2a;
+}
+/* Day end: a fine film grain over the moonlit grab, dithering the dark gradient (the upscaled 640×360 frame
+   banded into soft blocks under the cool multiply). Static tile — composited once, never re-rasterised. */
+.de-photo .de-grade::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.09;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+.shop-have .hv.up .t-tier b {
+  font: 700 14px/1.5 var(--font-head);
+  letter-spacing: 0.06em;
+}
+.shop-have .hv.up .t-tier .tp {
+  width: 11px;
+  height: 11px;
+}
+
+/* ═══ r4 (title perf, pillar 14): the lantern swings on its own small composited layer (an animated SVG child
+   re-ran SVG layout + repaint every frame); focus pulse is an opacity-only halo (no outline-offset repaint). ═══ */
+.ts-hang .lamp {
+  animation: none;
+}
+.ts-lamp {
+  position: absolute;
+  left: 99.556%;
+  top: 0;
+  margin-top: 2.444%;
+  width: 10.667%;
+  transform-origin: 50% 1.5%;
+  animation: tsLamp 3.4s ease-in-out infinite alternate;
+  will-change: transform;
+  pointer-events: none;
+}
+.ts-lamp svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+.ts-btn.u-focus {
+  animation: uPop 520ms var(--ease-back) both;
+}
+.ts-btn.u-focus::before {
+  content: '';
+  position: absolute;
+  inset: -9px;
+  border-radius: 24px;
+  pointer-events: none;
+  box-shadow: 0 0 0 3px rgba(255, 224, 138, 0.9), 0 0 22px 6px rgba(255, 210, 110, 0.55);
+  animation: tsFocusGlow 1.1s ease-in-out infinite alternate;
+  will-change: opacity;
+}
+@keyframes tsFocusGlow {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.ts-btn.u-focus {
+  outline: none !important;
+}
+.ts-petals i {
+  will-change: transform;
+}
+.ts-motes b {
+  will-change: transform, opacity;
+}
+
+/* ═══ r4 day-end ledger: 36 px icons (32 px in a dense list) so the painted icons are enjoyed, quality star
+   pinned to the slot's corner like the backpack. ═══ */
+.de-row .u-slot.mini,
+.de-rows.dense .de-row .u-slot.mini {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 9px;
+}
+.de-row .u-slot.mini img,
+.de-rows.dense .de-row .u-slot.mini img {
+  width: 36px;
+  height: 36px;
+}
+.de-rows.dense .de-row .u-slot.mini {
+  width: 36px;
+  height: 36px;
+}
+.de-rows.dense .de-row .u-slot.mini img {
+  width: 32px;
+  height: 32px;
+}
+.de-row .u-slot.mini .u-star,
+.de-star .u-slot .u-star {
+  position: absolute;
+  left: -3px;
+  bottom: -3px;
+  width: 17px;
+  height: 17px;
+  filter: drop-shadow(0 1px 0 rgba(40, 20, 4, 0.45));
+}
+.de-star .u-slot {
+  position: relative;
+}
+.de-star .u-slot .u-star {
+  width: 22px;
+  height: 22px;
+}
+
+/* ═══ r4 Shop: a wider counter — two-column goods grid (12 rows on show, not 5), a bigger keeper portrait
+   whose expression changes on a sale / a big buy / an empty purse. ═══ */
+.hv-shop .shop-right {
+  width: 820px;
+}
+.hv-shop .shop-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: min-content;
+  align-content: start;
+  column-gap: 10px;
+  row-gap: 6px;
+  height: 438px;
+}
+.hv-shop .shop-shelf,
+.hv-shop .shop-empty {
+  grid-column: 1 / -1;
+}
+.hv-shop .shop-row {
+  min-width: 0;
+}
+.hv-shop .shop-row .nm {
+  min-width: 0;
+}
+.hv-shop .shop-row .nm b,
+.hv-shop .shop-row .nm small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hv-shop .shop-keeper {
+  width: 280px;
+}
+.hv-shop .shop-portrait {
+  width: 262px;
+  height: 262px;
+}
+
+/* ═══ r4 crafting: the placement card is a crop of the real farm in front of you (9×9 tiles), filling the card,
+   with a fits / blocked tag; blocked target pulses red. ═══ */
+.craft-detail .cd-prev svg.grid.iso.real,
+.craft-detail .cd-prev svg.grid.iso {
+  width: 100%;
+  max-width: 300px;
+}
+.pv-frame.bad {
+  animation: pvFrameBad 0.9s ease-in-out infinite alternate;
+}
+@keyframes pvFrameBad {
+  to {
+    fill: rgba(255, 90, 70, 0.62);
+    stroke: #fff0ea;
+  }
+}
+.craft-detail .cd-prev .cd-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+}
+.craft-detail .cd-prev .cd-h em {
+  margin-left: auto;
+  padding: 1px 9px 2px;
+  border-radius: 9px;
+  font-style: normal;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: #5fa83c;
+  box-shadow: 0 2px 0 #2f6a1e;
+}
+.craft-detail .cd-prev .cd-h em:empty {
+  display: none;
+}
+.craft-detail .cd-prev .cd-h em.no {
+  background: #c8483a;
+  box-shadow: 0 2px 0 #7a2018;
+}
+.craft-detail .cd-prev small.sub {
+  margin-top: 4px;
+  background: none;
+  box-shadow: none;
+  font-size: 13.5px;
+  color: #8a6a44;
+}
+.craft-detail .cd-prev svg.grid.iso.real,
+.craft-detail .cd-prev svg.grid.iso {
+  max-width: 100%;
+}
+
+/* ═══ r4 pause: the co-op card's perk list carries the whole middle (no void above the farmers), the
+   neighbour nudge is one full-width tight line under the faces. ═══ */
+.pause-wrap > .coop-pause > .u-paper::after {
+  content: '\2767  Shared fields, gold & bin\A \2767  Your own pack and energy\A \2767  All sleep to end the day\A \2767  T to chat \00B7  hold G to emote\A \2767  Saved in the host\2019s journal';
+  line-height: 1.95;
+  padding-bottom: 160px;
+}
+.td-friends.meet .nudge {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.3;
+  font-weight: 800;
+  text-align: center;
+  color: #8a6440;
+  letter-spacing: -0.1px;
+}
+.craft-detail .cd-prev svg.grid.iso.real {
+  width: 100%;
+  max-width: none;
+}
+
+/* ═══ r4 legibility (1080p thumbnail test): micro-labels up a size and two shades darker; "Tool · not for
+   sale" is a flat dashed tag (never mistaken for a button); warmer, lightly vignetted menu backdrop. ═══ */
+.inv-card .stats small {
+  font-size: 13.5px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #7a5432;
+}
+.inv-label small {
+  font-size: 13px;
+  font-weight: 800;
+  color: #8a6440;
+  font-style: italic;
+}
+.inv-hint {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: #8a6440;
+}
+.inv-hint b {
+  color: #4a2a12;
+}
+.t-toolrow .t-up {
+  font-size: 13px;
+  color: #a4581e;
+}
+.idt-val.tool {
+  background: rgba(255, 252, 240, 0.6);
+  box-shadow: none;
+  outline: 2px dashed rgba(138, 100, 64, 0.5);
+  outline-offset: -2px;
+  cursor: default;
+}
+.idt-val.tool svg {
+  opacity: 0.6;
+  filter: grayscale(1);
+}
+.idt-val.tool b {
+  color: #6a4a2a;
+  font-size: 16px;
+}
+.idt-val.tool small {
+  color: #8a6440;
+  font-size: 14px;
+}
+.u-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 75% 70% at 50% 48%, rgba(255, 214, 150, 0.1), transparent 60%, rgba(20, 8, 2, 0.32) 100%);
+}
+.craft-detail .cd-prev .pv-stage {
+  place-items: center;
+}
+.pv-legend {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 2px 0 2px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #6a4a2a;
+}
+.pv-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pv-legend i {
+  width: 12px;
+  height: 8px;
+  transform: skewX(-30deg);
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.8), 0 0 0 1px rgba(60, 30, 10, 0.35);
+}
+.pv-legend i.ok {
+  background: #7ed86a;
+}
+.pv-legend i.no {
+  background: #e65a4a;
+}
+.pv-legend i.wet {
+  background: #4aa0e8;
+}
+.pv-legend i.ring {
+  background: #f0c060;
+}
+/* the real-farm crop never spills over its legend: the box is capped, the drawing letterboxes inside it */
+.craft-detail .cd-prev svg.grid.iso.real {
+  height: 246px;
+  max-height: 100%;
+}
+.craft-detail .cd-prev .pv-stage {
+  overflow: hidden;
+  padding-top: 4px;
+}
+
+/* ═══ UI r5 (critic r4) · day end ════════════════════════════════════════════════════════════════════════
+   Lighter moonlight grade over the dusk farm (warm windows survive), a ledger that always shows every line
+   (dense 30 px rows → two columns → a "+N more" chip on its own line), the shipping crate the lines hop into,
+   a purse that reads old → new, and a season-so-far strip + milestone bar filling the side column. */
+.de-photo .ph canvas {
+  filter: saturate(0.82) brightness(1.18) contrast(1.03);
+}
+.de-photo .de-grade {
+  background:
+    radial-gradient(85% 75% at 50% 48%, transparent 50%, rgba(6, 8, 28, 0.42) 100%),
+    linear-gradient(180deg, rgba(24, 30, 76, 0.22), rgba(40, 30, 80, 0.02) 50%, rgba(12, 10, 34, 0.3));
+}
+.de-photo .de-grade::before {
+  background: #8f9cd0;
+  opacity: 0.24;
+}
+.de-photo.d2n .de-grade::before {
+  background: #6270bc;
+  opacity: 0.55;
+}
+.de-photo.d2n .ph canvas {
+  filter: saturate(0.75) brightness(1.02) contrast(1.06);
+}
+.de-card {
+  top: 50%;
+  width: 940px;
+}
+.de-body {
+  align-items: stretch;
+}
+.de-ledger {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* every line on show: rows 30 px, the box grows to the column's height */
+.de-rows {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(138, 100, 64, 0.65) rgba(138, 100, 64, 0.1);
+}
+.de-rows.fit {
+  max-height: none;
+  min-height: 0;
+  flex: 1 1 0;
+}
+.de-row {
+  min-height: 34px;
+}
+.de-tot b .bt {
+  font-size: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.de-rows.more,
+.de-rows.more.end,
+.de-rows.top,
+.de-rows.top.more:not(.end),
+.de-rows.top.more.end {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.de-rows.dense {
+  gap: 2px;
+  background: repeating-linear-gradient(180deg, transparent 0 29px, rgba(120, 150, 200, 0.16) 29px 30px), rgba(255, 253, 244, 0.72);
+}
+.de-rows.dense .de-row {
+  height: 28px;
+  font-size: 14.5px;
+}
+.de-rows.dense .de-row .u-slot.mini {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+.de-rows.dense .de-row .u-slot.mini img {
+  width: 25px;
+  height: 25px;
+}
+.de-rows.dense .de-row .u-slot.mini .u-star {
+  width: 13px;
+  height: 13px;
+}
+.de-rows.dense .de-grp {
+  height: 22px;
+  margin-top: 3px;
+}
+/* a big bin: two ledger columns under each category header */
+.de-rows.cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+  row-gap: 2px;
+  align-content: start;
+}
+.de-rows.cols .de-grp {
+  grid-column: 1 / -1;
+}
+.de-rows.cols .de-row .q {
+  min-width: 30px;
+}
+.de-rows.cols .de-row b {
+  min-width: 52px;
+}
+.de-row .rv {
+  font-variant-numeric: tabular-nums;
+}
+.de-more {
+  align-self: flex-end;
+  margin: 6px 4px 0 0;
+  padding: 3px 12px 4px;
+  border: 0;
+  border-radius: 999px;
+  font: 700 13px/1.2 var(--font-head);
+  color: #fff8e6;
+  background: linear-gradient(180deg, #9a6a3a, #7a4c22);
+  box-shadow: 0 2px 0 #4a2810, inset 0 1px 0 rgba(255, 220, 170, 0.5);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.de-more i {
+  font-style: normal;
+  display: inline-block;
+  animation: deMoreBob 1.1s ease-in-out infinite alternate;
+}
+@keyframes deMoreBob {
+  to {
+    translate: 0 2px;
+  }
+}
+.de-more[hidden] {
+  display: none;
+}
+.de-tot {
+  margin-top: auto;
+  padding-top: 12px;
+  align-items: center;
+}
+.de-bin {
+  width: 40px;
+  height: 37px;
+  margin-right: -4px;
+  flex: none;
+  filter: drop-shadow(0 2px 0 rgba(74, 40, 16, 0.3));
+}
+.de-bin svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* purse: the old purse struck through → tonight's purse, popping in once the earnings have rolled */
+.de-purse.sum b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.de-purse.sum s {
+  font: 700 15px/1 var(--font-head);
+  color: #a08060;
+  text-decoration-thickness: 2px;
+  text-decoration-color: rgba(160, 128, 96, 0.8);
+}
+.de-purse.sum .ar {
+  font-style: normal;
+  color: #b08a5a;
+}
+.de-purse.sum .ar,
+.de-purse.sum svg,
+.de-purse.sum .pv,
+.de-purse.sum .pv + * {
+  transition: opacity 260ms ease, scale 380ms var(--ease-back);
+}
+.de-card:not(.paid) .de-purse.sum .ar,
+.de-card:not(.paid) .de-purse.sum svg,
+.de-card:not(.paid) .de-purse.sum .pv {
+  opacity: 0;
+  scale: 0.6;
+}
+.de-card:not(.paid) .de-purse.sum s {
+  text-decoration-color: transparent;
+  color: var(--ink);
+}
+.de-purse.sum s {
+  transition: color 300ms ease, text-decoration-color 300ms ease;
+}
+/* season so far: 28 day bars (today in gold, best day ribboned) + the next lifetime shipping milestone */
+.de-season {
+  padding: 9px 12px 10px;
+  border-radius: 14px;
+  background: rgba(255, 252, 240, 0.66);
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.18);
+}
+.de-season .de-h {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.de-season .de-h b {
+  font-size: 15px;
+  letter-spacing: 0.4px;
+  color: #3f7a26;
+  text-transform: none;
+}
+.de-season .spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 44px;
+  padding: 0 1px 2px;
+  border-bottom: 2px solid rgba(138, 100, 64, 0.35);
+}
+.de-season .spark i {
+  flex: 1;
+  height: calc(var(--h, 0) * 100%);
+  min-height: 2px;
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(180deg, #8cc860, #5a9a38);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transform-origin: 50% 100%;
+  animation: deBar 520ms var(--ease-back) both;
+  animation-delay: calc(500ms + var(--j, 0) * 22ms);
+}
+.de-season .spark i.best {
+  background: linear-gradient(180deg, #78b0e8, #3a78c0);
+}
+.de-season .spark i.now {
+  background: linear-gradient(180deg, #ffe38a, #e0a020);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 0 8px rgba(255, 200, 80, 0.75);
+  animation-delay: var(--tEarn, 1.6s);
+}
+.de-season .spark i.fut {
+  height: 4px;
+  min-height: 4px;
+  align-self: flex-end;
+  margin-bottom: -1px;
+  background: rgba(138, 100, 64, 0.22);
+  box-shadow: none;
+  border-radius: 2px;
+  animation: none;
+}
+@keyframes deBar {
+  from {
+    scale: 1 0;
+  }
+}
+.de-season .sl {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #8a6440;
+}
+.de-season .sl b {
+  color: var(--ink);
+}
+.de-season .ms {
+  margin-top: 8px;
+}
+.de-season .mt {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  font-weight: 800;
+  color: #8a6440;
+}
+.de-season .mt b {
+  font-family: var(--font-head);
+  font-weight: 600;
+  color: var(--ink);
+}
+.de-season .mt em {
+  font-style: normal;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.de-season .ms .bar {
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 99px;
+  background: rgba(90, 52, 20, 0.16);
+  box-shadow: inset 0 1px 2px rgba(60, 30, 8, 0.3);
+  overflow: hidden;
+}
+.de-season .ms .bar i {
+  display: block;
+  height: 100%;
+  width: calc(var(--p, 0) * 100%);
+  border-radius: inherit;
+  background: linear-gradient(180deg, #ffd977, #e0a020);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  animation: deFillW 900ms var(--ease-out) var(--tEarn, 1.6s) both;
+}
+@keyframes deFillW {
+  from {
+    width: 0;
+  }
+}
+.de-side {
+  gap: 10px;
+}
+
+/* ═══ UI r5 (critic r4) · workbench ═══════════════════════════════════════════════════════════════════════
+   Neutral parchment recipe cards (~110×130) on shelves (All / Farming / Storage / Decor / Supplies); each card
+   carries a per-ingredient progress strip (green when met) and one line — "makes N" or the missing count in
+   red; short-of-stuff recipes go cool grey. The placement plate fills its card, the target tile pulses over
+   everything with a cast shadow under the item, and its four neighbours take a soft tint. */
+.craft-left {
+  width: 476px;
+}
+.craft-tabs {
+  display: flex;
+  gap: 5px;
+  margin: 0 0 10px;
+}
+.craft-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 6px 8px;
+  border: 0;
+  border-radius: 10px 10px 8px 8px;
+  font: 700 14px/1 var(--font-head);
+  color: #7a5432;
+  background: rgba(138, 100, 64, 0.12);
+  box-shadow: inset 0 -2px 0 rgba(90, 52, 20, 0.16);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 140ms, color 140ms, translate 160ms var(--ease-back);
+}
+.craft-tab svg {
+  width: 16px;
+  height: 16px;
+}
+.craft-tab em {
+  min-width: 16px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-style: normal;
+  font-size: 13.5px;
+  color: #8a6440;
+  background: rgba(255, 250, 235, 0.7);
+}
+.craft-tab:hover {
+  background: rgba(138, 100, 64, 0.2);
+}
+.craft-tab.on {
+  color: #fff8e8;
+  background: linear-gradient(180deg, #a8703a, #7e4c22);
+  box-shadow: 0 2px 0 #4a2810, inset 0 1px 0 rgba(255, 220, 170, 0.5);
+  translate: 0 -1px;
+}
+.craft-tab.on em {
+  color: #6a3c18;
+  background: #ffe9b8;
+}
+.craft-tab.u-focus {
+  outline: 3px solid #f0b040;
+  outline-offset: 2px;
+}
+.craft-cards {
+  grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: 132px;
+  align-content: start;
+  gap: 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 2px 4px 6px 2px;
+  margin: -2px -4px 0 -2px;
+}
+.craft-card {
+  height: 132px;
+  align-content: start;
+  padding: 10px 6px 8px;
+  gap: 3px;
+  background: linear-gradient(180deg, #fffcf2, #f7ecd2);
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.24), 0 3px 0 rgba(120, 70, 20, 0.16);
+}
+.craft-card.ok {
+  background: linear-gradient(180deg, #fffcf2, #f7ecd2);
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.24), 0 3px 0 rgba(120, 70, 20, 0.16);
+}
+.craft-card .pic {
+  width: 58px;
+  height: 58px;
+}
+.craft-card .pic img {
+  width: 54px;
+  height: 54px;
+}
+.craft-card .nm {
+  font-size: 13.5px;
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.craft-card .yield {
+  left: 6px;
+  top: 6px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 14px;
+}
+.craft-card .prog {
+  display: flex;
+  gap: 3px;
+  width: 78%;
+  margin-top: 2px;
+}
+.craft-card .prog i {
+  flex: 1;
+  height: 6px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #d8603a calc(var(--p) * 100%), rgba(90, 52, 20, 0.16) calc(var(--p) * 100%));
+  box-shadow: inset 0 1px 1px rgba(40, 20, 4, 0.2);
+}
+.craft-card .prog i.half {
+  background: linear-gradient(90deg, #e0a030 calc(var(--p) * 100%), rgba(90, 52, 20, 0.16) calc(var(--p) * 100%));
+}
+.craft-card .prog i.met {
+  background: linear-gradient(180deg, #8cd060, #4f9a30);
+}
+.craft-card small.mk,
+.craft-card small.ms {
+  padding: 0;
+  font-size: 13.5px;
+  line-height: 1.15;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.craft-card small.mk {
+  color: #3f7a26;
+}
+.craft-card small.ms {
+  color: #b8321e;
+}
+.craft-card small.ms b {
+  font-family: var(--font-head);
+  font-size: 14px;
+}
+/* short of ingredients: cool, desaturated card */
+.craft-card.short {
+  background: linear-gradient(180deg, #f2f1ec, #e4e2da);
+  box-shadow: inset 0 0 0 2px rgba(110, 112, 120, 0.22), 0 3px 0 rgba(60, 60, 70, 0.12);
+}
+.craft-card.short .pic img {
+  filter: grayscale(0.75) brightness(1.04) contrast(0.9) drop-shadow(0 3px 0 rgba(40, 40, 50, 0.18));
+  opacity: 0.85;
+}
+.craft-card.short .nm {
+  color: #6a6660;
+}
+.craft-card.on,
+.craft-card.on.ok,
+.craft-card.on.short {
+  background: linear-gradient(180deg, #fff8e0, #fbe8b8);
+  box-shadow: inset 0 0 0 3px #e8a040, 0 6px 14px rgba(200, 130, 40, 0.3);
+}
+.craft-card.on.short .pic img {
+  filter: grayscale(0.35) drop-shadow(0 3px 0 rgba(70, 36, 10, 0.2));
+  opacity: 1;
+}
+.craft-card.locked {
+  background: repeating-linear-gradient(135deg, rgba(120, 90, 60, 0.06) 0 8px, rgba(120, 90, 60, 0.11) 8px 16px);
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.16);
+}
+.craft-card.locked .pic img {
+  width: 46px;
+  height: 46px;
+}
+.craft-card.locked small {
+  font-size: 13.5px;
+  padding: 0 4px;
+}
+/* placement plate fills its card */
+.craft-detail .cd-prev .pv-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+.craft-detail .cd-prev svg.grid.iso,
+.craft-detail .cd-prev svg.grid.iso.real {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: 300px;
+}
+.pv-pulse {
+  animation: pvPulse 1.1s ease-in-out infinite;
+  filter: drop-shadow(0 0 2px rgba(120, 255, 120, 0.9));
+}
+.pv-pulse.bad {
+  filter: drop-shadow(0 0 2px rgba(255, 80, 60, 0.9));
+}
+@keyframes pvPulse {
+  0%,
+  100% {
+    stroke-opacity: 1;
+    stroke-width: 2.4;
+  }
+  50% {
+    stroke-opacity: 0.45;
+    stroke-width: 1.2;
+  }
+}
+/* qty stepper labels: never under 12 px */
+.pk-n small {
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+.craft-left {
+  width: 452px;
+}
+.craft-tabs {
+  gap: 4px;
+}
+.craft-tab {
+  flex: 1 1 auto;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 5px 6px;
+  font-size: 13px;
+}
+.craft-tab svg {
+  width: 14px;
+  height: 14px;
+}
+.craft-tab em {
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 13px;
+}
+.craft-blank {
+  height: 132px;
+  border-radius: 14px;
+  box-sizing: border-box;
+  border: 2px dashed rgba(138, 100, 64, 0.2);
+  background: rgba(255, 250, 235, 0.25);
+  animation: uRise 340ms var(--ease-out) both;
+}
+.craft-detail .cd-prev svg.grid.iso,
+.craft-detail .cd-prev svg.grid.iso.real {
+  overflow: hidden;
+  max-height: 290px;
+}
+
+/* ═══ UI r5 (critic r4) · pause ═══════════════════════════════════════════════════════════════════════════
+   One baseline: the hanging sign, Today and Co-op stretch to the same foot. Quit is a quiet link with an inline
+   confirm. The Co-op card's stick-figure art is gone: the farmers' own avatars stand along a fence rail. */
+.pause-wrap {
+  align-items: stretch;
+}
+.pause-sign {
+  display: flex;
+  flex-direction: column;
+}
+.pause-sign .board {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.pause-sign .pause-menu {
+  align-content: start;
+}
+.pause-today {
+  display: flex;
+  flex-direction: column;
+}
+.pause-today > .u-paper {
+  flex: 1;
+  align-content: start;
+}
+.pause-wrap > .coop-pause {
+  align-self: stretch;
+}
+.pause-quit {
+  margin-top: auto;
+  padding-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+#ui-root .pause-quit button {
+  font: 700 15px/1 var(--font-head);
+  cursor: pointer;
+  pointer-events: auto;
+}
+#ui-root .pq-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px 8px;
+  border: 0;
+  border-radius: 10px;
+  color: #ffe6c0;
+  background: rgba(40, 18, 4, 0.22);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 220, 170, 0.28);
+  text-shadow: 0 1px 0 #4a2810;
+  transition: background 140ms, color 140ms;
+}
+.pq-link svg {
+  width: 18px;
+  height: 18px;
+  opacity: 0.85;
+}
+#ui-root .pq-link:hover,
+#ui-root .pq-link.u-focus {
+  color: #fff;
+  background: rgba(150, 40, 20, 0.45);
+}
+.pause-quit .pq-q {
+  flex-basis: 100%;
+  font-size: 13.5px;
+  font-weight: 800;
+  line-height: 1.3;
+  color: #ffe6c0;
+  text-shadow: 0 1px 0 #4a2810;
+}
+.pause-quit.ask {
+  animation: uPop 260ms var(--ease-back);
+}
+#ui-root .pq-yes,
+#ui-root .pq-no {
+  min-width: 96px;
+  padding: 7px 14px 8px;
+  border: 0;
+  border-radius: 10px;
+}
+#ui-root .pq-yes {
+  color: #fff;
+  background: linear-gradient(180deg, #d8604a, #a8302a);
+  box-shadow: 0 3px 0 #5a1a0c;
+}
+#ui-root .pq-no {
+  color: #4a2810;
+  background: linear-gradient(180deg, #fff4d8, #e8cc98);
+  box-shadow: 0 3px 0 #6a4020;
+}
+#ui-root .pq-yes.u-focus,
+#ui-root .pq-no.u-focus {
+  outline: 3px solid #ffd870;
+  outline-offset: 2px;
+}
+/* co-op card: perks list, then the farm gate with the farmers' avatars */
+.pause-wrap > .coop-pause p::after {
+  display: none;
+}
+.pause-wrap > .coop-pause > .u-paper::after {
+  order: 1;
+  flex: 1;
+  margin: 2px 0 10px;
+  padding: 10px 14px;
+  background: rgba(255, 250, 236, 0.75);
+  line-height: 1.9;
+}
+.coop-vig {
+  order: 2;
+  position: relative;
+  margin: 0 0 14px;
+  padding: 6px 4px 0;
+}
+.coop-vig .row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+.coop-vig .seat {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  width: 60px;
+}
+.coop-vig .seat small {
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 800 14px/1.1 var(--font-body);
+  color: #6a4424;
+}
+.coop-vig .seat.on .coop-av {
+  box-shadow: 0 0 0 3px var(--c, #5fa83c), 0 4px 8px rgba(40, 20, 4, 0.35);
+  border-radius: 50%;
+}
+.coop-vig .seat.me .coop-av {
+  animation: coopWave 2.6s ease-in-out infinite;
+}
+@keyframes coopWave {
+  0%,
+  70%,
+  100% {
+    rotate: 0deg;
+  }
+  78% {
+    rotate: -7deg;
+  }
+  86% {
+    rotate: 6deg;
+  }
+}
+.coop-vig .seat.open i {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  font: 700 26px/1 var(--font-head);
+  font-style: normal;
+  color: #b89a78;
+  background: rgba(255, 250, 240, 0.85);
+  box-shadow: inset 0 0 0 2.4px rgba(184, 154, 120, 0.85);
+  outline: 2px dashed rgba(184, 154, 120, 0.7);
+  outline-offset: -2px;
+}
+.coop-vig .seat.open small {
+  color: #a08060;
+}
+.coop-vig .rail {
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  bottom: 22px;
+  height: 22px;
+  z-index: 0;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 34px, #8a5a30 34px 41px, transparent 41px 75px) 0 0 / 100% 100% no-repeat,
+    linear-gradient(180deg, transparent 3px, #b07a44 3px 8px, #6a4020 8px 9px, transparent 9px 13px, #b07a44 13px 18px, #6a4020 18px 19px, transparent 19px);
+  opacity: 0.7;
+  border-radius: 3px;
+}
+.craft-cards {
+  grid-auto-rows: 124px;
+}
+.craft-card,
+.craft-blank {
+  height: 124px;
+}
+.craft-card {
+  padding-top: 8px;
+}
+.craft-tab {
+  padding: 6px 4px 7px;
+  font-size: 13.5px;
+}
+.craft-detail .cd-out .cd-chips {
+  gap: 4px;
+}
+.craft-detail .cd-out .cd-chips i {
+  padding: 1px 6px 2px;
+  font-size: 13.5px;
+}
+.craft-detail .cd-prev svg.grid.iso,
+.craft-detail .cd-prev svg.grid.iso.real {
+  max-height: 320px;
+}
+/* the farm gate is the card's hero: a little sunlit meadow strip, the list hugs its lines above it */
+.pause-wrap > .coop-pause > .u-paper::after {
+  flex: none;
+}
+.coop-vig {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 150px;
+  margin: 0 0 14px;
+  padding: 0 8px 8px;
+  border-radius: 12px;
+  overflow: hidden;
+  background:
+    radial-gradient(60% 50% at 78% 18%, rgba(255, 236, 170, 0.75), transparent 70%),
+    linear-gradient(180deg, #cfe6f0 0%, #e6f0dc 46%, #a8cf78 64%, #86b85a 100%);
+  box-shadow: inset 0 0 0 1.5px rgba(106, 138, 58, 0.35), inset 0 -10px 18px -10px rgba(40, 70, 20, 0.35);
+}
+.coop-vig::before {
+  /* far hills */
+  content: '';
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  top: 40%;
+  height: 40%;
+  border-radius: 50% 50% 0 0 / 60% 60% 0 0;
+  background: #b8d890;
+  opacity: 0.8;
+}
+.coop-vig .row {
+  padding-bottom: 2px;
+}
+.coop-vig .seat {
+  width: 62px;
+}
+.coop-vig .seat small {
+  color: #2f4a1a;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.coop-vig .seat.open i {
+  width: 50px;
+  height: 50px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 250, 0.7);
+}
+.coop-vig .seat.open small {
+  color: #4a6a2a;
+}
+.coop-vig .rail {
+  bottom: 30px;
+  left: 0;
+  right: 0;
+  opacity: 0.85;
+}
+
+/* ═══ UI r5 (critic r4) · shop ════════════════════════════════════════════════════════════════════════════
+   Buy / Sell are real tabs: the active one a raised wood tab joined to the list's rail, the other recessed.
+   52 px row icons; the list window ends on whole rows; the "more" chip has its own clear line; the purse sits
+   under the pack card and the keeper's friendship card closes the column; the qty stepper is 36 px. */
+.hv-shop .shop-tabs {
+  position: relative;
+  gap: 4px;
+  margin-bottom: 0;
+  padding: 0 0 0 8px;
+  border-bottom: 4px solid #a86a34;
+  box-shadow: 0 1px 0 rgba(255, 222, 170, 0.6);
+}
+#ui-root .hv-shop .shop-tab {
+  padding: 7px 20px 7px 14px;
+  border-radius: 13px 13px 0 0;
+  color: #8a6a48 !important;
+  background: linear-gradient(180deg, rgba(120, 80, 40, 0.16), rgba(120, 80, 40, 0.26));
+  box-shadow: inset 0 4px 7px -2px rgba(40, 20, 4, 0.3), inset 0 0 0 1.5px rgba(120, 80, 40, 0.2);
+  transform: none;
+  translate: 0 2px;
+}
+#ui-root .hv-shop .shop-tab:hover {
+  background: linear-gradient(180deg, rgba(120, 80, 40, 0.1), rgba(120, 80, 40, 0.2));
+}
+#ui-root .hv-shop .shop-tab.on {
+  z-index: 1;
+  padding-bottom: 11px;
+  margin-bottom: -4px;
+  color: #fff8e6 !important;
+  text-shadow: 0 2px 0 #4a2810;
+  background: var(--u-wood) 0 0 / 512px 256px, linear-gradient(180deg, #d0945a, #a86a34);
+  box-shadow: inset 0 2px 0 rgba(255, 228, 180, 0.7), 0 -2px 0 #6a3c18, -2px 0 0 #6a3c18, 2px 0 0 #6a3c18;
+  translate: 0 0;
+}
+#ui-root .hv-shop .shop-tab.on svg {
+  filter: drop-shadow(0 1px 0 #4a2810);
+}
+.hv-shop .shop-listwrap {
+  position: relative;
+  padding-top: 6px;
+  border-radius: 0 0 12px 12px;
+  background: linear-gradient(180deg, rgba(168, 106, 52, 0.12), transparent 40px);
+}
+.hv-shop .shop-list {
+  position: relative;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 8px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 8px), transparent 100%);
+  padding-bottom: 6px;
+}
+.hv-shop .shop-row .u-slot.mini {
+  width: 52px;
+  height: 52px;
+  flex: none;
+}
+.hv-shop .shop-row .u-slot.mini > img.u-ic {
+  width: 48px;
+  height: 48px;
+}
+.hv-shop .shop-morebar {
+  height: 32px;
+  margin-top: 4px;
+}
+.hv-shop .shop-morebar::before,
+.hv-shop .shop-morebar::after {
+  display: none;
+}
+#ui-root .hv-shop .shop-more {
+  padding: 4px 16px 5px 12px;
+  border-radius: 999px;
+  box-shadow: 0 3px 0 #4a2810, 0 4px 10px rgba(40, 20, 4, 0.25);
+}
+.hv-shop .shop-purse {
+  margin-top: 12px;
+}
+.shop-friend {
+  margin-top: auto;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px 10px;
+  border-radius: 12px;
+  background: rgba(255, 252, 240, 0.78);
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 64, 0.2);
+}
+.shop-friend:empty {
+  display: none;
+}
+.shop-friend .sf-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font: 700 16px/1.2 var(--font-head);
+  color: var(--ink);
+}
+.shop-friend .hearts {
+  display: flex;
+  gap: 3px;
+}
+.shop-friend .hearts i {
+  width: 18px;
+  height: 16px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 18'%3E%3Cpath d='M10 16.5 C4 12 1.5 9 1.5 5.6 C1.5 3 3.5 1.5 5.6 1.5 C7.6 1.5 9 2.8 10 4.4 C11 2.8 12.4 1.5 14.4 1.5 C16.5 1.5 18.5 3 18.5 5.6 C18.5 9 16 12 10 16.5Z' fill='%23eadcc4' stroke='%23a08060' stroke-width='1.6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.shop-friend .hearts i.full {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 18'%3E%3Cpath d='M10 16.5 C4 12 1.5 9 1.5 5.6 C1.5 3 3.5 1.5 5.6 1.5 C7.6 1.5 9 2.8 10 4.4 C11 2.8 12.4 1.5 14.4 1.5 C16.5 1.5 18.5 3 18.5 5.6 C18.5 9 16 12 10 16.5Z' fill='%23e8504a' stroke='%237a2018' stroke-width='1.6'/%3E%3Cellipse cx='6' cy='5.5' rx='2' ry='1.2' fill='%23fff' opacity='.6'/%3E%3C/svg%3E");
+}
+.shop-friend .hearts i.half {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 18'%3E%3Cpath d='M10 16.5 C4 12 1.5 9 1.5 5.6 C1.5 3 3.5 1.5 5.6 1.5 C7.6 1.5 9 2.8 10 4.4 C11 2.8 12.4 1.5 14.4 1.5 C16.5 1.5 18.5 3 18.5 5.6 C18.5 9 16 12 10 16.5Z' fill='%23eadcc4' stroke='%23a08060' stroke-width='1.6'/%3E%3Cpath d='M10 16.5 C4 12 1.5 9 1.5 5.6 C1.5 3 3.5 1.5 5.6 1.5 C7.6 1.5 9 2.8 10 4.4Z' fill='%23e8504a'/%3E%3C/svg%3E");
+}
+.shop-friend .sf-rows {
+  display: grid;
+  gap: 3px;
+  margin-top: 6px;
+}
+.shop-friend .sf-rows span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #8a6440;
+}
+.shop-friend .sf-rows svg,
+.shop-friend .sf-rows img {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+.shop-friend .sf-rows em {
+  font-style: normal;
+  min-width: 58px;
+}
+.shop-friend .sf-rows b {
+  color: var(--ink);
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 14px;
+}
+/* qty stepper: 36 px buttons, a 12 px QTY label */
+#ui-root .hv-shop .pk-qty .u-btn.small,
+#ui-root .craft-detail .pk-qty .u-btn.small {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 9px 2px;
+}
+.hv-shop .pk-n small {
+  font-size: 14px;
+}
+.pause-plaque {
+  margin: auto 8px 0;
+  padding: 10px 12px 11px;
+  border-radius: 12px;
+  background: rgba(60, 30, 8, 0.24);
+  box-shadow: inset 0 3px 6px rgba(30, 12, 2, 0.45), 0 1px 0 rgba(255, 222, 170, 0.45);
+  text-align: center;
+}
+.pause-plaque b {
+  display: block;
+  font: 700 20px/1.15 var(--font-head);
+  color: #ffe6c0;
+  text-shadow: 0 -1px 0 rgba(30, 12, 2, 0.7), 0 1px 0 rgba(255, 222, 170, 0.3);
+}
+.pause-plaque small {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #e8c898;
+}
+.pause-quit {
+  margin-top: 0;
+}
+.hv-shop .shop-list {
+  box-sizing: border-box;
+}
+
+/* ═══ UI r5 (critic r4) · map ═════════════════════════════════════════════════════════════════════════════
+   One frame, not two: the painted sheet (its own torn, deckled edge) runs to the panel's paper with no inner
+   border line; the legend rides over the map's foot as a slim chip, so the sheet gets the full height. */
+.map-frame > .u-paper {
+  position: relative;
+  padding: 12px 12px 10px;
+}
+.map-frame svg.valley {
+  box-shadow: none;
+  border-radius: 0;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 640' preserveAspectRatio='none'%3E%3Cpath d='M6 10 L60 4 L130 9 L210 3 L300 8 L380 2 L470 7 L560 3 L650 9 L740 4 L830 8 L910 3 L994 8 L997 80 L992 170 L998 260 L993 350 L998 440 L992 530 L996 634 L920 638 L840 632 L750 637 L660 631 L570 637 L480 632 L390 638 L300 632 L210 637 L120 631 L40 637 L4 632 L8 540 L2 450 L7 360 L2 270 L8 180 L3 90 Z' fill='black'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 640' preserveAspectRatio='none'%3E%3Cpath d='M6 10 L60 4 L130 9 L210 3 L300 8 L380 2 L470 7 L560 3 L650 9 L740 4 L830 8 L910 3 L994 8 L997 80 L992 170 L998 260 L993 350 L998 440 L992 530 L996 634 L920 638 L840 632 L750 637 L660 631 L570 637 L480 632 L390 638 L300 632 L210 637 L120 631 L40 637 L4 632 L8 540 L2 450 L7 360 L2 270 L8 180 L3 90 Z' fill='black'/%3E%3C/svg%3E");
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+}
+.map-frame .map-legend {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  translate: -50% 0;
+  align-self: auto;
+  display: flex;
+  gap: 18px;
+  margin: 0;
+  padding: 5px 14px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: rgba(251, 240, 214, 0.92);
+  box-shadow: 0 0 0 2px rgba(106, 68, 40, 0.55), 0 3px 8px rgba(30, 14, 4, 0.3);
+  z-index: 2;
+}
+
+/* ═══ UI r5 (critic r4) · title ═══════════════════════════════════════════════════════════════════════════
+   The story hook is part of the logo lock-up now: a handwritten two-line caption under the ribbon that fades
+   in after 2 s (no floating note in the corner). A deeper scrim behind the wordmark and a soft dim over the
+   middle of the frame quiet the big red roof so the logo leads; petals are capped (≤ 14 px, no flip-stretch)
+   and fade before the bottom of the frame; button subtitles + footer read at thumbnail size. */
+.ts-tale {
+  margin: 12px auto 0;
+  max-width: 760px;
+  font-family: 'Caveat', var(--font-body);
+  font-weight: 700;
+  font-size: 27px;
+  line-height: 1.12;
+  color: #fff6e2;
+  text-shadow: 0 2px 0 #3a1a08, 0 0 3px #3a1a08, 0 0 14px rgba(30, 10, 0, 0.75);
+  animation: tsTaleIn 1200ms ease 2000ms both;
+}
+.ts-tale b {
+  color: #ffd98a;
+}
+@keyframes tsTaleIn {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+.ts-scrim {
+  top: 56%;
+  width: 122%;
+  height: 120%;
+  background: radial-gradient(closest-side, rgba(36, 12, 0, 0.56), rgba(36, 12, 0, 0.26) 58%, transparent);
+}
+.ts-vignette {
+  background:
+    radial-gradient(34% 26% at 56% 50%, rgba(36, 10, 12, 0.2), transparent 100%),
+    radial-gradient(120% 95% at 50% 42%, transparent 52%, rgba(40, 16, 26, 0.42) 100%),
+    linear-gradient(180deg, rgba(255, 186, 110, 0.26), transparent 36%, transparent 70%, rgba(28, 12, 24, 0.4));
+}
+.ts-petals i {
+  width: calc(12px * var(--s));
+  height: calc(8px * var(--s));
+  max-width: 14px;
+  background: linear-gradient(135deg, #ffe4ee, #ffadc8 55%, #f07aa0);
+  animation-name: hvPetalR5;
+}
+@keyframes hvPetalR5 {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 0;
+  }
+  6% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(-70px, 50vh) rotate(260deg) scale(0.92, 0.7);
+  }
+  78% {
+    opacity: 0.85;
+  }
+  92% {
+    transform: translate(10px, 86vh) rotate(480deg) scale(1, 0.75);
+    opacity: 0;
+  }
+  100% {
+    transform: translate(40px, 96vh) rotate(560deg);
+    opacity: 0;
+  }
+}
+.ts-btn .tx small {
+  font-size: 16.5px;
+  letter-spacing: -0.1px;
+  text-shadow: 0 1.5px 0 #3a1a06, 0 0 2px #3a1a06, 0 0 8px rgba(40, 16, 2, 0.7);
+}
+.ts-foot {
+  background: rgba(24, 10, 2, 0.72);
+  box-shadow: 0 0 0 1.5px rgba(255, 220, 160, 0.3), 0 4px 10px rgba(10, 4, 0, 0.4);
+}
+/* the ribbon is lifted 64 px by `top` (no flow change): pull the caption up to sit just under it */
+.ts-tale {
+  margin-top: -50px;
+}
+.de-rows.dense .de-row {
+  min-height: 0;
+}
+#ui-root .pk-n small {
+  font-size: 14px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  color: #8a6440;
 }

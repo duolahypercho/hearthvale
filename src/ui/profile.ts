@@ -10,6 +10,7 @@
  * The farmer's look lives with the co-op profile (net.profile().look) so one creator drives both.
  */
 import type { Game } from '../core/game';
+import { NPCS } from '../data/npcs';
 
 export interface PetChoice {
   species: 'dog' | 'cat';
@@ -98,4 +99,37 @@ export function registerJournalSave(game: Game): void {
       /* storage full / blocked */
     }
   });
+}
+
+// ── Farmer names vs the town (r5) ─────────────────────────────────────────────────────────────────────────
+// A farmer called "Marigold" or "Pip" read as the shopkeeper in the roster, the chat and the shop. Every
+// villager's first name, surname and the shop names are reserved; the creators refuse them with a hint, and
+// a clashing name that arrives some other way (an old save, a remote profile) shows with a farmer suffix.
+const SHOP_WORDS = ['Thimble', 'Pip', 'Hearth Oven', 'Glimmerco', 'Glimmer'];
+let reserved: Map<string, string> | null = null;
+
+function reservedNames(): Map<string, string> {
+  if (reserved) return reserved;
+  reserved = new Map();
+  for (const n of Object.values(NPCS)) {
+    const full = n.name.trim();
+    const parts = full.split(/\s+/).filter((w) => !/^(Dr|Mr|Mrs|Ms|Mx)\.?$/.test(w));
+    reserved.set(full.toLowerCase(), full);
+    for (const w of parts) if (w.length > 1) reserved.set(w.toLowerCase(), full);
+  }
+  for (const w of SHOP_WORDS) reserved.set(w.toLowerCase(), w === 'Pip' || w === 'Thimble' ? "Thimble & Pip's" : w);
+  return reserved;
+}
+
+/** The villager / shop a farmer name collides with ("Marigold Thimble"), or null when it's free. */
+export function nameClash(name: string): string | null {
+  const t = name.trim().toLowerCase();
+  if (!t) return null;
+  const r = reservedNames();
+  return r.get(t) ?? r.get(t.split(/\s+/)[0] ?? '') ?? null;
+}
+
+/** A display-safe farmer name: a clashing one gets a farmer suffix so it never reads as the villager. */
+export function farmerName(name: string): string {
+  return nameClash(name) ? `${name.trim()} (farmer)` : name;
 }

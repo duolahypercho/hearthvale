@@ -124,7 +124,9 @@ export class LetterPanel implements Panel {
       return;
     }
     this.current = id;
-    const paras = L.body.map((p) => `<p>${esc(p)}</p>`).join('');
+    // The fold crease sits in the gap between the two middle paragraphs, never through a line.
+    const mid = Math.max(1, Math.round(L.body.length / 2));
+    const paras = L.body.map((p, i) => `${i === mid && L.body.length > 1 ? '<div class="lt-crease"></div>' : ''}<p>${esc(p)}</p>`).join('');
     let attach = '';
     if (L.attach) {
       const a = L.attach;
@@ -145,7 +147,8 @@ export class LetterPanel implements Panel {
       <div class="lt-body">${paras}</div>
       <div class="lt-sign">${esc(L.sign).replace(/\n/g, '<br/>')}</div>
       ${L.ps ? `<div class="lt-ps">P.S. ${esc(L.ps)}</div>` : ''}
-      ${attach}`;
+      ${attach}
+      <div class="lt-foothint">click to fold away</div>`;
     this.el.classList.remove('hv-hidden', 'closing');
     this.paper.classList.remove('unfold');
     void this.paper.offsetWidth;

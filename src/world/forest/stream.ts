@@ -359,7 +359,7 @@ export function buildFlow(points: [number, number][], y: number, halfWidth: (t: 
         float wob = hvNoise(vec2(along * 0.25 - t * 0.2, 1.7)) * 0.3;
         float n1 = hvNoise(vec2((u + wob) * 9.0, along * 0.7 - t));
         float n2 = hvNoise(vec2((u - wob) * 17.0 + 5.0, along * 1.3 - t * 1.35));
-        float threads = smoothstep(0.66, 0.86, n1 * 0.6 + n2 * 0.4);
+        float threads = smoothstep(0.66, 0.86, n1 * 0.6 + n2 * 0.4) * (1.0 - 0.5 * uRain);
         float edge = smoothstep(0.0, 0.2, u) * smoothstep(1.0, 0.8, u);
         float bankFoam = (1.0 - smoothstep(0.0, 0.16, min(u, 1.0 - u))) * smoothstep(0.45, 0.7, hvNoise(vec2(u * 6.0, along * 1.8 - t * 1.2)));
         vec3 light = uSunColor * 0.6 + uSkyColor * 0.6;
@@ -371,7 +371,7 @@ export function buildFlow(points: [number, number][], y: number, halfWidth: (t: 
         vec3 H = normalize(normalize(uSunDir) + V);
         float spec = pow(max(H.y, 0.0), 24.0);
         // Rain: the current's sun glints go (overcast), and every drop rings the surface.
-        glint *= 1.0 - 0.7 * uRain;
+        glint *= 1.0 - 0.97 * uRain;
         col += uSunColor * glint * spec * (1.0 - uNight * 0.8);
         float rings = 0.0;
         if (uRain > 0.01) {
@@ -386,7 +386,7 @@ export function buildFlow(points: [number, number][], y: number, halfWidth: (t: 
             rings += smoothstep(0.045, 0.0, abs(r - rr)) * (1.0 - ph) * step(hvHash12(id + 3.3), 0.75);
           }
         }
-        float a = (threads * 0.34 + bankFoam * 0.3) * edge + glint * spec * 0.4 * edge + rings * 0.42 * uRain * edge;
+        float a = (threads * 0.34 + bankFoam * 0.3) * edge + glint * spec * 0.4 * edge + rings * 0.2 * uRain * edge;
         // (and the rain-dulled current carries fewer, greyer foam threads)
         col = mix(col, col * vec3(0.86, 0.9, 0.94), uRain * 0.5);
         a *= 1.0 - ice;

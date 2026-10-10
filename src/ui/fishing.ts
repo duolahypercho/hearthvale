@@ -12,6 +12,7 @@
 import './fishing.css';
 import type { FishDef } from '../data/fish';
 import { fishSvg } from './fishing-art';
+import { fishPortraitUrl } from './fishing-portrait';
 import { itemIcon } from './icons';
 
 export interface ReelView {
@@ -25,7 +26,7 @@ export interface ReelView {
   holding: boolean;
   inside: boolean;
   perfect: boolean;
-  /** Bar bounce squash (0..1), set by the sim when the bar hits the bottom. */
+  /** Bar bounce squash (0..1 off the floor, 0..-1 off the ceiling), set by the sim. */
   bounce: number;
   /** The bar lies idle on the floor: the line is slack and earns nothing. */
   slack?: boolean;
@@ -33,6 +34,15 @@ export interface ReelView {
   tell?: number;
   /** 0..1 while the fish thrashes (the frame shakes, progress bleeds). */
   thrash?: number;
+  /** 0..1 hot streak (long unbroken tracking reels faster; the bar glows gold). */
+  hot?: number;
+}
+
+/** Where the catch card docks: the angler's screen point + other farmers' screen boxes to keep clear. */
+export interface CardAnchor {
+  x: number;
+  y: number;
+  avoid?: { x: number; y: number; w: number; h: number }[];
 }
 
 export interface CatchCard {
@@ -50,6 +60,9 @@ export interface CatchCard {
   leveled?: boolean;
   /** Perfect-catch streak. */
   streak?: number;
+  /** Time-of-day light on the scene (CSS colour + 0..1 strength): the illustration takes the same
+   *  golden-hour cast as the 3D fish held up beside it, so they read as one fish. */
+  grade?: { color: string; k: number };
 }
 
 export interface ReelGear {
@@ -101,6 +114,8 @@ export class FishingOverlay {
   private dpr = 1;
   private cardTimer = 0;
   private remoteBangs = new Map<number, HTMLElement>();
+  /** Measured reel panel height (px, unscaled). */
+  private reelH = 0;
   private remoteTags = new Map<number, HTMLElement>();
 
   constructor(parent: HTMLElement) {
@@ -215,7 +230,8 @@ export class FishingOverlay {
     this.reelHead.innerHTML = `Reel it in! <span style="color:#d0582a;letter-spacing:-1px">${'●'.repeat(stars)}<span style="opacity:.25">${'●'.repeat(5 - stars)}</span></span>`;
     const tags: string[] = [];
     if (gear) {
-      tags.push(`<span class="lv">Lv ${gear.level}</span>`);
+      // Levels read 1-based (the sim's level 0 is "Lv 1": a "Lv 0" tag read as an error).
+      tags.push(`<span class="lv">Lv ${gear.level + 1}</span>`);
       if (gear.bait) tags.push(`<span class="gear" title="Bait">${itemIcon('bait')}</span>`);
       if (gear.cork) tags.push(`<span class="gear" title="Cork Bobber">${itemIcon('corkBobber')}</span>`);
       if (gear.lure) tags.push(`<span class="gear" title="Glimmer Lure">${itemIcon('treasureLure')}</span>`);
@@ -231,6 +247,7 @@ export class FishingOverlay {
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
     this.canvas.width = Math.round(126 * this.dpr);
     this.canvas.height = Math.round(420 * this.dpr);
+    this.reelH = this.reel.offsetHeight;
   }
 
   closeReel(): void {
@@ -246,9 +263,23 @@ export class FishingOverlay {
   placeReel(x: number, y: number): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const left = x + 150 + 152 < w - 16 ? x + 120 : x - 120 - 152;
-    this.reel.style.left = `${Math.max(12, left)}px`;
-    this.reel.style.top = `${Math.min(h - 250, Math.max(250, y))}px`;
+    const left = Math.max(12, x + 150 + 152 < w - 16 ? x + 120 : x - 120 - 152);
+    // (r7b, critic r6: at 1600 x 900 the "Reel it in!" tag ran into the clock HUD and off the top.)
+    // The panel (centred on `top`) keeps its tag ≥ 12 px below whatever HUD box it would overlap
+    // (the clock plate), and inside the bottom edge; on a short window it scales down to fit.
+    const half = (this.reelH || 490) / 2;
+    let safeTop = 12 + 22;
+    const clock = document.querySelector('.h-clock');
+    if (clock) {
+      const r = clock.getBoundingClientRect();
+      if (r.height > 0 && left < r.right && left + 152 > r.left) safeTop = Math.max(safeTop, r.bottom + 12 + 22);
+    }
+    const lo = safeTop + half;
+    const hi = h - 96 - half;
+    const k = hi >= lo ? 1 : Math.max(0.6, (h - 96 - safeTop) / (half * 2));
+    this.reel.style.setProperty('--reel-k', k.toFixed(3));
+    this.reel.style.left = `${left}px`;
+    this.reel.style.top = `${hi >= lo ? Math.min(hi, Math.max(lo, y)) : safeTop + half * k}px`;
   }
 
   drawReel(v: ReelView, dt: number): void {
@@ -342,32 +373,62 @@ export class FishingOverlay {
     const toY = (u: number): number => ty + th - 12 - u * (th - 24);
     const barTop = toY(v.bar + v.barH);
     const barBot = toY(v.bar);
-    const squash = v.bounce * 5;
+    // Squash on a floor / ceiling knock: the bar flattens against what it hit and bulges sideways.
+    const sq = Math.abs(v.bounce) * 9;
+    const top = v.bounce < 0;
+    const squash = sq;
     const inside = v.inside && !v.slack;
+    // Hot streak (r7b): long unbroken tracking reels faster; the bar warms green → gold and glows.
+    const hot = inside ? Math.max(0, Math.min(1, v.hot ?? 0)) : 0;
     g.save();
-    g.shadowColor = inside ? 'rgba(160,255,140,0.9)' : 'rgba(0,0,0,0)';
-    g.shadowBlur = inside ? 16 : 0;
+    g.shadowColor = inside ? (hot > 0.05 ? `rgba(255,${Math.round(255 - hot * 50)},${Math.round(140 - hot * 60)},0.95)` : 'rgba(160,255,140,0.9)') : 'rgba(0,0,0,0)';
+    g.shadowBlur = inside ? 16 + hot * (10 + Math.sin(this.t * 14) * 4) : 0;
     const bg = g.createLinearGradient(tx, 0, tx + tw, 0);
     if (inside) {
-      bg.addColorStop(0, 'rgba(110,220,110,0.82)');
-      bg.addColorStop(0.5, 'rgba(160,250,140,0.9)');
-      bg.addColorStop(1, 'rgba(90,200,100,0.82)');
+      const mixC = (a: number[], b: number[], al: number): string => `rgba(${Math.round(a[0]! + (b[0]! - a[0]!) * hot)},${Math.round(a[1]! + (b[1]! - a[1]!) * hot)},${Math.round(a[2]! + (b[2]! - a[2]!) * hot)},${al})`;
+      bg.addColorStop(0, mixC([110, 220, 110], [235, 180, 60], 0.82));
+      bg.addColorStop(0.5, mixC([160, 250, 140], [255, 228, 120], 0.9));
+      bg.addColorStop(1, mixC([90, 200, 100], [225, 160, 50], 0.82));
     } else {
       bg.addColorStop(0, 'rgba(130,200,120,0.6)');
       bg.addColorStop(0.5, 'rgba(170,230,150,0.66)');
       bg.addColorStop(1, 'rgba(120,190,110,0.6)');
     }
-    rr(g, tx + 4 - squash * 0.4, barTop + squash, tw - 8 + squash * 0.8, barBot - barTop - squash, 9);
+    const bTop = top ? barTop : barTop + squash;
+    const bH = barBot - barTop - squash;
+    rr(g, tx + 4 - squash * 0.4, bTop, tw - 8 + squash * 0.8, bH, 9);
     g.fillStyle = bg;
     g.fill();
     g.restore();
     g.lineWidth = 2.5;
     g.strokeStyle = inside ? '#eaffd8' : 'rgba(230,255,220,0.7)';
-    rr(g, tx + 4 - squash * 0.4, barTop + squash, tw - 8 + squash * 0.8, barBot - barTop - squash, 9);
+    rr(g, tx + 4 - squash * 0.4, bTop, tw - 8 + squash * 0.8, bH, 9);
     g.stroke();
     g.fillStyle = 'rgba(255,255,255,0.35)';
-    rr(g, tx + 9, barTop + 5 + squash, 6, Math.max(4, barBot - barTop - 10 - squash), 3);
+    rr(g, tx + 9, bTop + 5, 6, Math.max(4, bH - 10), 3);
     g.fill();
+    if (sq > 0.5) {
+      // A puff of bubbles off the knock.
+      g.fillStyle = `rgba(255,255,255,${Math.min(0.7, sq * 0.08)})`;
+      const ky = top ? bTop - 3 : bTop + bH + 3;
+      for (let i = 0; i < 5; i++) {
+        g.beginPath();
+        g.arc(tx + 12 + i * 14 + Math.sin(this.t * 20 + i) * 2, ky + (top ? -1 : 1) * (2 + (i % 2) * 3), 1.6 + (i % 3), 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    if (hot > 0.6) {
+      // Rising sparks off the hot bar.
+      g.save();
+      g.fillStyle = `rgba(255,236,150,${(hot - 0.6) * 2})`;
+      for (let i = 0; i < 4; i++) {
+        const ph = (this.t * 1.4 + i * 0.27) % 1;
+        g.beginPath();
+        g.arc(tx + 14 + i * ((tw - 28) / 3) + Math.sin(this.t * 5 + i * 2) * 3, bTop - ph * 18, 1.8 * (1 - ph) + 0.6, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.restore();
+    }
     if (v.slack) {
       // Slack line: the idle bar greys out and earns nothing until you reel again.
       rr(g, tx + 4, barTop, tw - 8, barBot - barTop, 9);
@@ -385,17 +446,25 @@ export class FishingOverlay {
     // Treasure chest.
     if (v.treasure && !v.treasure.got) {
       const cy = toY(v.treasure.pos);
-      const cx = tx + tw * 0.5;
-      drawChest(g, cx, cy, 1 + Math.sin(this.t * 6) * 0.04);
+      // When the fish swims over the chest, the chest steps aside, shrinks and drops behind it as a
+      // dashed ghost (the two icons never sit on top of each other).
+      const near = Math.max(0, Math.min(1, (44 - Math.abs(toY(v.fish) - cy)) / 24));
+      const cx = tx + tw * 0.5 + near * tw * 0.22;
+      g.save();
+      g.globalAlpha = 1 - near * 0.5;
+      drawChest(g, cx, cy, (1 + Math.sin(this.t * 6) * 0.04) * (1 - near * 0.25));
       g.lineWidth = 3;
       g.strokeStyle = 'rgba(0,0,0,0.35)';
+      if (near > 0.05) g.setLineDash([4, 4]);
       g.beginPath();
       g.arc(cx, cy, 17, 0, Math.PI * 2);
       g.stroke();
+      g.setLineDash([]);
       g.strokeStyle = '#ffd84a';
       g.beginPath();
       g.arc(cx, cy, 17, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * v.treasure.prog);
       g.stroke();
+      g.restore();
     }
     // Fish sprite.
     const fy = toY(v.fish);
@@ -463,16 +532,44 @@ export class FishingOverlay {
     const hue = p < 0.5 ? 8 + p * 2 * 42 : 50 + (p - 0.5) * 2 * 62;
     const fh = (th - 8) * p;
     if (fh > 1) {
-      const pg = g.createLinearGradient(px, 0, px + pw, 0);
-      pg.addColorStop(0, `hsl(${hue} 70% 42%)`);
-      pg.addColorStop(0.45, `hsl(${hue} 85% 58%)`);
-      pg.addColorStop(1, `hsl(${hue} 70% 40%)`);
-      rr(g, px + 4, ty + th - 4 - fh, pw - 8, fh, 7);
+      // The fill runs red at the bottom → gold → green at the top of the tube (so a still shows how
+      // far the fight has come), its head glowing in the current hue; near full it pulses.
+      const yTop = ty + th - 4 - fh;
+      const yBot = ty + th - 4;
+      const full = (th - 8);
+      const pg = g.createLinearGradient(0, yBot, 0, yBot - full);
+      pg.addColorStop(0, 'hsl(6 78% 46%)');
+      pg.addColorStop(0.45, 'hsl(44 92% 54%)');
+      pg.addColorStop(0.75, 'hsl(84 72% 50%)');
+      pg.addColorStop(1, 'hsl(118 64% 46%)');
+      rr(g, px + 4, yTop, pw - 8, fh, 7);
       g.fillStyle = pg;
+      g.fill();
+      // Cylinder shading across the tube.
+      const cg = g.createLinearGradient(px + 4, 0, px + pw - 4, 0);
+      cg.addColorStop(0, 'rgba(0,0,0,0.22)');
+      cg.addColorStop(0.45, 'rgba(255,255,255,0.12)');
+      cg.addColorStop(1, 'rgba(0,0,0,0.28)');
+      g.fillStyle = cg;
       g.fill();
       g.fillStyle = 'rgba(255,255,255,0.45)';
       rr(g, px + 6, ty + th - fh, 3, Math.max(0, fh - 8), 2);
       g.fill();
+      // Meniscus glow at the fill's head (and a pulse past 80 %).
+      const pulse = p > 0.8 ? 0.5 + 0.5 * Math.sin(this.t * 12) : 0;
+      g.save();
+      g.shadowColor = `hsl(${hue} 95% 62%)`;
+      g.shadowBlur = 8 + pulse * 10;
+      g.fillStyle = `hsla(${hue} 95% ${70 + pulse * 15}% / ${0.75 + pulse * 0.25})`;
+      rr(g, px + 4, yTop, pw - 8, Math.min(6, fh), 3);
+      g.fill();
+      g.restore();
+      if (!v.inside && !v.slack && p > 0.02) {
+        // Slipping: the head of the fill flickers red as it drains.
+        g.fillStyle = `rgba(255,70,40,${0.35 + 0.3 * Math.sin(this.t * 30)})`;
+        rr(g, px + 4, yTop, pw - 8, Math.min(14, fh), 4);
+        g.fill();
+      }
     }
     g.strokeStyle = 'rgba(255,255,255,0.12)';
     g.lineWidth = 1;
@@ -489,46 +586,74 @@ export class FishingOverlay {
     g.stroke();
 
     this.reel.classList.toggle('shake', (!v.inside && v.progress < 0.35) || (v.thrash ?? 0) > 0);
+    // Any slip (the fish out of the bar, progress draining) jitters the panel a little.
+    this.reel.classList.toggle('slip', !v.inside && !v.slack && v.progress >= 0.35 && (v.thrash ?? 0) === 0);
     this.reel.classList.toggle('tense', v.progress > 0.75);
+    this.reel.classList.toggle('hot', hot > 0.6);
     this.reelPerfect.classList.toggle('lost', !v.perfect);
   }
 
   // ── catch card ───────────────────────────────────────────
   /** `at` = the farmer's screen position: the card sits beside them (never over the hero). */
-  showCard(c: CatchCard, at?: { x: number; y: number }): void {
+  showCard(c: CatchCard, at?: CardAnchor): void {
     this.hideCard(true);
     const card = el('div', 'hvf-card');
     if (at) this.placeCard(card, at, true);
     const q = c.quality > 0 ? `<span class="chip q${c.quality}">${STAR(c.quality)}${['', 'Silver', 'Gold', 'Iridium'][c.quality]}</span>` : '';
     card.innerHTML = `<div class="frame">
       ${c.isNew ? '<div class="ribbon">NEW!</div>' : ''}${c.isRecord && !c.isNew ? '<div class="ribbon record">RECORD!</div>' : ''}
-      <div class="art">${fishSvg(c.def, { size: 160, detail: true, tilt: -6 })}</div>
+      <div class="art">${((u) => (u ? `<img class="fish3d" alt="" src="${u}">` : fishSvg(c.def, { size: 160, detail: true, tilt: -6 })))(fishPortraitUrl(c.def))}${c.grade && c.grade.k > 0.02 ? `<i class="grade" style="background:${c.grade.color};opacity:${c.grade.k.toFixed(2)}"></i>` : ''}</div>
       <div class="info">
         <div class="kicker">You caught</div>
         <div class="name">${c.def.name}</div>
         <div class="stats"><span class="chip">${RULER}${c.lengthCm.toFixed(1)} cm</span>${q}<span class="chip gold">${COIN}${c.price}g</span></div>
         <div class="blurb">${c.def.blurb}</div>
         ${c.treasure ? `<div class="treasure">✦ Treasure: ${c.treasure}</div>` : ''}
-        ${c.xp !== undefined ? `<div class="xp"><span class="lv${c.leveled ? ' up' : ''}">Fishing Lv ${c.level ?? 0}${c.leveled ? ' ▲' : ''}</span><span class="bar"><i style="width:${Math.round((c.levelFrac ?? 0) * 100)}%"></i></span><span class="gain">+${c.xp} XP</span>${(c.streak ?? 0) > 1 ? `<span class="streak">Perfect ×${c.streak}</span>` : ''}</div>` : ''}
+        ${c.xp !== undefined ? `<div class="xp"><span class="lv${c.leveled ? ' up' : ''}">Fishing Lv ${(c.level ?? 0) + 1}${c.leveled ? ' ▲' : ''}</span><span class="bar"><i style="width:${Math.round((c.levelFrac ?? 0) * 100)}%"></i></span><span class="gain">+${c.xp} XP</span>${(c.streak ?? 0) > 1 ? `<span class="streak">Perfect ×${c.streak}</span>` : ''}</div>` : ''}
       </div></div>`;
     this.root.appendChild(card);
     this.card = card;
     this.cardTimer = 4.5;
   }
 
-  private placeCard(card: HTMLElement, at: { x: number; y: number }, first = false): void {
+  private placeCard(card: HTMLElement, at: CardAnchor, first = false): void {
     const W = 470;
+    const H = 230;
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const right = first ? at.x + 110 + W < w - 16 : card.classList.contains('r');
-    const x = right ? Math.min(at.x + 110, w - 16 - W) : Math.max(16, at.x - 110 - W);
-    if (first) card.classList.add('beside', right ? 'r' : 'l');
-    card.style.left = `${Math.round(x)}px`;
-    card.style.top = `${Math.round(Math.min(h - 330, Math.max(90, at.y - 90)))}px`;
+    // (r7b, critic r6: in co-op the card landed on the other farmer, hiding her and her name tag.)
+    // Try both sides of the angler at a few heights; keep the spot that covers the least of any other
+    // farmer's projected box (ties: the current / preferred side, then the base height).
+    const prefRight = first ? at.x + 170 + W < w - 16 : card.classList.contains('r');
+    const avoid = at.avoid ?? [];
+    let best = { x: 0, y: 0, right: prefRight, cost: Infinity };
+    for (const right of [prefRight, !prefRight]) {
+      // (r9: 170 px clear of the anchor — the held fish is the first read, the card the second.)
+      const x = right ? Math.min(at.x + 170, w - 16 - W) : Math.max(16, at.x - 170 - W);
+      // A side that would sit over the angler's own fish / body is out.
+      const self = right ? Math.max(0, at.x + 110 - x) : Math.max(0, x + W - (at.x - 110));
+      for (const dy of [0, -150, 140, -260]) {
+        const y = Math.min(h - 330, Math.max(90, at.y - 90 + dy));
+        let cost = self * H * 4 + Math.abs(dy) * 20 + (right === prefRight ? 0 : 900);
+        for (const r of avoid) {
+          const ox = Math.max(0, Math.min(x + W, r.x + r.w) - Math.max(x, r.x));
+          const oy = Math.max(0, Math.min(y + H, r.y + r.h) - Math.max(y, r.y));
+          cost += ox * oy * 6;
+        }
+        if (cost < best.cost) best = { x, y, right, cost };
+      }
+    }
+    if (first) card.classList.add('beside', best.right ? 'r' : 'l');
+    else if (card.classList.contains('r') !== best.right) {
+      card.classList.toggle('r', best.right);
+      card.classList.toggle('l', !best.right);
+    }
+    card.style.left = `${Math.round(best.x)}px`;
+    card.style.top = `${Math.round(best.y)}px`;
   }
 
   /** Keep a docked catch card beside the farmer while the camera settles (e.g. a trophy push-in). */
-  moveCard(at: { x: number; y: number }): void {
+  moveCard(at: CardAnchor): void {
     if (this.card?.classList.contains('beside')) this.placeCard(this.card, at);
   }
 

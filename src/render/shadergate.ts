@@ -35,6 +35,10 @@ export class ShaderGate {
   private queue: THREE.Object3D[] = [];
   /** Objects gated so far (debug / perf report). */
   count = 0;
+  /** Objects still held back or queued for compile (a frozen menu backdrop keeps refreshing until they land). */
+  get busy(): boolean {
+    return this.held.size > 0 || this.queue.length > 0;
+  }
 
   constructor(
     private renderer: THREE.WebGLRenderer,

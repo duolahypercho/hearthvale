@@ -33,16 +33,16 @@ import { BatchPool, InstancedSet } from './instanced';
 import { globalUniforms } from '../../render/uniforms';
 
 /** Ridge crest height above the terrain. */
-export const SOIL_HEIGHT = 0.065;
+export const SOIL_HEIGHT = 0.069;
 /** Kept for callers: the beds now follow the terrain exactly (no pad lift). */
 export const SOIL_LIFT = 0;
 /** Furrow troughs above the terrain; ridges add RIDGE on top. */
-const BASE = 0.03;
+const BASE = 0.034;
 const RIDGE = 0.035;
 /** Height of the bed's rim where it meets untilled ground (the bevel's foot). */
-const LIP = 0.012;
+const LIP = 0.018;
 /** Shoulder width inside the tile and skirt width outside it (m). */
-const SH = 0.2;
+const SH = 0.15;
 const SK = 0.2;
 /** Samples per tile (x across the furrows' length, z across the furrows) and skirt rows. */
 const NX = 10;
@@ -123,7 +123,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
       shader.uniforms.uHeave = uHeave;
       shader.uniforms.uSnowSink = globalUniforms.uSnow;
       let vs = shader.vertexShader;
-      vs = before(vs, 'void main() {', 'attribute vec4 soilA;\nvarying float vSoilH;\nvarying float vSoilEdge;\nvarying float vSoilFresh;\nuniform float uSnowSink;\nuniform sampler2D uHeave;\nuniform vec2 uWetSize;');
+      vs = before(vs, 'void main() {', 'attribute vec4 soilA;\nvarying float vSoilH;\nvarying float vSoilEdge;\nvarying float vSoilRim;\nvarying float vSoilFresh;\nuniform float uSnowSink;\nuniform sampler2D uHeave;\nuniform vec2 uWetSize;');
       vs = after(
         vs,
         '#include <begin_vertex>',
@@ -137,20 +137,24 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           transformed.y += nh - h + (hv.b - 0.5) * 0.08 * smoothstep(-0.01, 0.02, h);
           vSoilH = h;
           vSoilEdge = soilA.y;
+          vSoilRim = soilA.z;
           vSoilFresh = hv.g;
         }`,
       );
       shader.vertexShader = vs;
       let fs = shader.fragmentShader;
-      fs = before(fs, 'void main() {', `varying float vSoilH;\nvarying float vSoilEdge;\nvarying float vSoilFresh;\nuniform sampler2D uWetMask;\nuniform vec2 uWetSize;\n${NOISE_GLSL}\n`);
+      fs = before(fs, 'void main() {', `varying float vSoilH;\nvarying float vSoilEdge;\nvarying float vSoilRim;\nvarying float vSoilFresh;\nuniform sampler2D uWetMask;\nuniform sampler2D uHeave;\nuniform vec2 uWetSize;\n${NOISE_GLSL}\n`);
       // Crumbly fringe: the outer skirt breaks up into dirt specks over the turf.
       fs = after(
         fs,
         'void main() {',
         /* glsl */ `
-        if (vSoilEdge < 0.45) {
-          float crumb = hvNoise(vHvWorldPos.xz * 26.0) * 0.65 + hvNoise(vHvWorldPos.xz * 7.0 + 3.0) * 0.35;
-          if (crumb > vSoilEdge * 2.1 + 0.08) discard;
+        if (vSoilEdge < 0.62) {
+          // The outline wanders (low-frequency reach) so a bed never reads as a ruled rectangle /
+          // a rug laid on the turf: in places the skirt spills far, elsewhere the sod bites right in.
+          float reach = hvNoise(vHvWorldPos.xz * 2.3 + 17.0) * 0.7 + hvNoise(vHvWorldPos.xz * 5.2 + 1.0) * 0.3;
+          float crumb = hvNoise(vHvWorldPos.xz * 26.0) * 0.55 + hvNoise(vHvWorldPos.xz * 9.0 + 3.0) * 0.45;
+          if (crumb > vSoilEdge * 2.1 + 0.08 - (0.62 - reach) * 1.1) discard;
         }`,
       );
       fs = after(
@@ -158,6 +162,7 @@ function soilMaterial(): THREE.MeshStandardMaterial {
         '#include <color_fragment>',
         /* glsl */ `
         float hvSoilWet;
+        float hvSoilMenis;
         {
           vec2 wq = vHvWorldPos.xz;
           float wm = texture2D(uWetMask, wq / uWetSize).r;
@@ -166,14 +171,21 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           float nb = hvNoise(wq * 13.3 + 4.0);
           float we = (na - 0.5) * 0.22 + (nb - 0.5) * 0.1;
           hvSoilWet = smoothstep(0.34, 0.6, wm + we);
+          // Meniscus: a dark, saturated band right at the advancing wet front (and the soaked
+          // tile's rim), so a fresh soak reads as water spreading, not a fade.
+          float menis = smoothstep(0.26, 0.42, wm + we) * (1.0 - smoothstep(0.42, 0.66, wm + we));
+          hvSoilMenis = menis;
           // Damp halo just outside the watered area.
           float halo = smoothstep(0.1, 0.4, wm + we) * (1.0 - hvSoilWet);
           vec3 base = diffuseColor.rgb;
           // Dry: pale, warm, a little dusty, the ridge crests sun-bleached, a fine crazing of hairline
           // cracks between lighter crusted plates.
-          vec3 dry = base * vec3(2.02, 1.94, 1.78);
+          // (Ochre-leaning: a desaturated red-brown reads mauve / pink under the warm grade.)
+          // (r14: ~+22 % value over r13 — dry beds read dusty tan so a soak is an obvious payoff.)
+          // (r20: sandier and warmer still — the whole dry bed sat in the wet value range at gameplay zoom.)
+          vec3 dry = base * vec3(2.3, 2.08, 1.62);
           float dl = dot(dry, vec3(0.3, 0.59, 0.11));
-          dry = mix(vec3(dl), dry, 0.62);
+          dry = mix(vec3(dl) * vec3(1.04, 0.99, 0.86), dry, 0.7);
           float crest = smoothstep(0.05, 0.066, vSoilH);
           dry *= 1.0 + crest * 0.1;
           float cw = min(abs(na - 0.5), abs(nb - 0.5) * 1.3);
@@ -181,18 +193,94 @@ function soilMaterial(): THREE.MeshStandardMaterial {
           float plate = smoothstep(0.06, 0.2, cw);
           dry *= (1.0 - crack * 0.16) * (1.0 + plate * 0.05);
           // Wet: dark, cooler, saturated; the texture's crumbs still read.
-          vec3 wet = base * vec3(0.66, 0.6, 0.6);
+          // (r17) Warmer + more saturated (blue drops fastest): soaked earth, never cool grey glass.
+          vec3 wet = base * vec3(0.44, 0.32, 0.225);
+          // Furrows read in any light: troughs in shade, crests catching it (a lone fresh tile shows
+          // the same ploughed ridges as the beds around it, not a flat smear).
+          float ridgeT = smoothstep(0.032, 0.062, vSoilH);
+          // (r15: deeper troughs — dry beds read ploughed, never as flat tan tiles.)
+          dry *= 0.7 + 0.4 * ridgeT;
+          wet *= 0.86 + 0.2 * ridgeT;
           vec3 c = mix(dry, wet, hvSoilWet);
+          // (r23) Freshness per TILE, not the bilinear per-vertex blend (r10 critic: the new tile was
+          // only a dark smudge in its middle, the rest as bleached as the dry bed): read the tile's own
+          // texel and fill the square out to a crumbly, noise-bitten edge.
+          // (r27, pillar 14) Branch out of the per-tile freshness fetches / crumb noise wherever the
+          // tile is not fresh (almost every fragment of a bed): f0 = 0 makes hx / hz / hd all 0, so
+          // hvFresh is exactly the vertex term there.
+          float hvFresh = vSoilFresh * 0.4;
+          float hvF0 = texture2D(uHeave, (floor(wq) + 0.5) / uWetSize).g;
+          if (hvF0 > 0.0005) {
+            vec2 tq = fract(wq);
+            vec2 te = min(tq, 1.0 - tq);
+            float nz = (hvNoise(wq * 9.0 + 11.0) - 0.5) * 0.09;
+            // (r25) Fade only toward a neighbour that is NOT fresh: a contiguous slam reads as one
+            // turned patch with no tile seams (r10 critic: faint grid lines across a 3×3 slam).
+            vec2 cl = floor(wq);
+            vec2 sn = vec2(tq.x < 0.5 ? -1.0 : 1.0, tq.y < 0.5 ? -1.0 : 1.0);
+            float f0 = hvF0;
+            float fxn = texture2D(uHeave, (cl + vec2(sn.x, 0.0) + 0.5) / uWetSize).g;
+            float fzn = texture2D(uHeave, (cl + vec2(0.0, sn.y) + 0.5) / uWetSize).g;
+            float fdn = texture2D(uHeave, (cl + sn + 0.5) / uWetSize).g;
+            float hx = mix(min(f0, fxn), f0, smoothstep(-0.02, 0.06, te.x + nz));
+            float hz = mix(min(f0, fzn), f0, smoothstep(-0.02, 0.06, te.y + nz));
+            float hd = mix(min(f0, fdn), f0, smoothstep(-0.02, 0.06, max(te.x, te.y) + nz));
+            hvFresh = min(min(hx, hz), hd);
+            hvFresh = max(hvFresh, vSoilFresh * 0.4);
+          }
           c *= 1.0 - halo * 0.18;
-          // Freshly turned earth: darker and moist for a moment after the hoe bites.
-          c = mix(c, base * vec3(0.95, 0.86, 0.8), vSoilFresh * (1.0 - hvSoilWet) * 0.85);
+          c *= 1.0 - menis * 0.3;
+          // (r20) A cool sheen riding the wet edge (water standing at the meniscus), so the soak's
+          // boundary reads against dry tan even from the gameplay lens.
+          c = mix(c, c * vec3(0.8, 0.95, 1.2) + vec3(0.012, 0.02, 0.035), menis * 0.6);
+          // Sod lip: a darker inner rim just inside the bed's shoulder (the tilled square reads with
+          // an outline against the turf, like a hand-dug edge) — strongest on a lone fresh tile.
+          float rimIn = (1.0 - smoothstep(0.2, 0.9, vSoilRim)) * step(0.99, vSoilEdge);
+          c *= 1.0 - rimIn * 0.45;
+          // A faint, wobbly tread between tiles (the crop grid reads at a glance, like trodden
+          // seams between planting squares) — never a ruled line.
+          {
+            vec2 tq = fract(wq + vec2(hvNoise(wq * 3.7) - 0.5, hvNoise(wq * 3.7 + 9.0) - 0.5) * 0.06);
+            vec2 te = min(tq, 1.0 - tq);
+            float seam = (1.0 - smoothstep(0.0, 0.045, te.x)) * 0.7 + (1.0 - smoothstep(0.0, 0.035, te.y)) * 0.45;
+            // (r15: no tread across freshly hoed ground — a charged strip is one turned patch,
+            // never nine floor tiles.)
+            c *= 1.0 - min(1.0, seam) * 0.05 * smoothstep(0.7, 1.0, vSoilEdge) * (1.0 - hvFresh);
+          }
+          // Freshly turned earth (r15): dark, moist, crumbly — deep furrow shading, the crests
+          // breaking into paler dry crumbs — easing back to the bed's tone over a few seconds.
+          // (Kept well above wet: a fresh furrow must not already look watered.)
+          float fk = hvFresh * (1.0 - hvSoilWet);
+          if (fk > 0.002) {
+            float crumbs = smoothstep(0.6, 0.78, hvNoise(wq * 29.0 + 5.0)) * (0.4 + 0.6 * ridgeT);
+            float clumps = hvNoise(wq * 11.0 + 2.0);
+            // (r17) Darker than the dry bed (turned earth is moist under the crust), crumbs only a
+            // shade paler — never the bleached plate the r10 critic saw.
+            vec3 turned = base * vec3(0.86, 0.68, 0.5) * (0.78 + 0.36 * clumps) * (0.6 + 0.55 * ridgeT);
+            // (r26) Crumbly, not a smooth dark smudge: lumps of turned earth with lit tops and near-black
+            // crevices between them (two scales of cells), so the new square reads as broken clods.
+            {
+              float l1 = hvNoise(wq * 17.0 + 7.0);
+              float l2 = hvNoise(wq * 41.0 + 3.0);
+              float lump = smoothstep(0.38, 0.62, l1 * 0.65 + l2 * 0.35);
+              float crev = 1.0 - smoothstep(0.08, 0.2, abs(l1 - 0.5));
+              turned *= (0.7 + 0.42 * lump) * (1.0 - crev * 0.4 * smoothstep(0.3, 0.7, l2));
+            }
+            turned = mix(turned, base * vec3(1.25, 1.05, 0.82), crumbs * 0.45);
+            c = mix(c, turned, fk * 0.94);
+          }
           // The fringe dries out into pale, dusty dirt as it spills over the turf.
-          float fr = 1.0 - smoothstep(0.35, 1.0, vSoilEdge);
-          c = mix(c, vec3(0.5, 0.4, 0.29) * (0.85 + 0.3 * hvNoise(wq * 17.0)), fr * 0.55 * (1.0 - hvSoilWet * 0.6));
+          // Patchy, not a uniform band: earthy ochre crumbs with an olive cast where it meets the sod.
+          float fr = (1.0 - smoothstep(0.35, 1.0, vSoilEdge)) * (0.55 + 0.6 * hvNoise(wq * 3.1 + 7.0));
+          vec3 dust = mix(vec3(0.43, 0.34, 0.22), vec3(0.36, 0.36, 0.2), smoothstep(0.55, 0.2, vSoilEdge) * 0.6);
+          c = mix(c, dust * (0.85 + 0.3 * hvNoise(wq * 17.0)), clamp(fr, 0.0, 1.0) * 0.5 * (1.0 - hvSoilWet * 0.6));
           diffuseColor.rgb = c;
         }`,
       );
-      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(roughnessFactor, 0.42, max(hvSoilWet, vSoilFresh * 0.5));');
+      // (r17) Soaked soil is matte-damp (0.68), glossy only along the advancing meniscus — a low
+      // roughness everywhere mirrored the sky and read as a glass / ice pane lighter than dry soil.
+      fs = after(fs, '#include <roughnessmap_fragment>', 'roughnessFactor = mix(mix(roughnessFactor, 0.68, hvSoilWet), 0.36, hvSoilMenis * 0.85);');
+      fs = after(fs, '#include <lights_fragment_maps>', '#ifdef USE_ENVMAP\n  radiance *= 1.0 - 0.85 * hvSoilWet;\n#endif');
       shader.fragmentShader = fs;
     });
   }
@@ -516,7 +604,7 @@ export class SoilBeds {
         const n = 0.94 + 0.06 * vnoise(wx * 31, wz * 31);
         const ao = s >= 0 ? (0.74 + 0.26 * (r * f + (1 - f) * 0.45)) * (0.72 + 0.28 * f) * n : 0.72 * (0.9 + 0.1 * edge) * n;
         col.push(ao, ao * 0.98, ao * 0.96);
-        attr.push(h, edge, 0, 0);
+        attr.push(h, edge, s >= 0 ? f : 0, 0);
       }
     }
     const idx: number[] = [];
@@ -574,7 +662,7 @@ export class SoilBeds {
         const ao = tone * (0.7 + 0.3 * Math.max(0, v.y));
         col.push(ao, ao * 0.97, ao * 0.94);
         // Clods count as crest height (they sit on top), and never fringe-dither away.
-        attr.push(h + r * 0.4, Math.max(0.6, edge), 0, 0);
+        attr.push(h + r * 0.4, Math.max(0.6, edge), 1, 0);
       }
       for (let k = 0; k < CLOD.idx.length; k++) idx.push(base + CLOD.idx[k]!);
     }
@@ -694,6 +782,8 @@ export class SoilBeds {
     const was = this.wetTile[i] === 1;
     this.wetTile[i] = wet ? 1 : 0;
     if (!fade) {
+      // A tile already drying off keeps its fade (a re-pour mid-fade floods from what's left).
+      if (!wet && this.drying.has(i)) return;
       this.floods.delete(i);
       this.drying.delete(i);
       this.fillTile(x, z, wet ? 255 : 0);
@@ -738,7 +828,7 @@ export class SoilBeds {
     // Freshly hoed: the bed is there from the first frame, low and dark, and springs up.
     if (opts.animate) {
       this.anims.set(i, { t: 0, x, z, amp: 1 });
-      this.writeHeave(x, z, 0.55, 1, 0.5);
+      this.writeHeave(x, z, 0.03, 1, 0.5);
     }
   }
 
@@ -798,6 +888,12 @@ export class SoilBeds {
 
   /** Rebuild dirty chunks, animate heaves + wetness floods / drying. Call every frame. */
   tick(dt: number): void {
+    // (r22, pillar 14) Husks only exist in winter (scaled to nothing otherwise): outside winter the
+    // batch is hidden, so it stops drawing (and stops being a moving shadow caster every frame).
+    if (huskMat) {
+      const on = globalUniforms.uSeasonW.value.w > 0.45;
+      for (const m of this.pool.meshesFor(huskMat)) if (m.visible !== on) m.visible = on;
+    }
     if (this.dirty.size) {
       for (const ci of this.dirty) this.rebuild(ci);
       this.dirty.clear();
@@ -807,17 +903,22 @@ export class SoilBeds {
         f.t += dt;
         const x = i % this.width;
         const z = Math.floor(i / this.width);
-        // Radial front from the pour point: reaches the far corner in ~0.4 s.
-        const R = (f.t / 0.4) * 1.15;
+        // (r16) A timed soak: a soft radial front from where the water lands reaches the far corner
+        // in ~0.6 s (the length of the pour), and the whole patch deepens as it soaks in, so the
+        // darkening reads as a gradient spreading under the stream rather than a snap.
+        // (r23) Faster bite: a dark spot blooms under the splash on the landing frame and the front
+        // crosses the tile in ~0.35 s (the r22 soak barely showed until the can was lowered).
+        const R = 0.12 + (f.t / 0.35) * 1.2;
+        const soak = 0.62 + 0.38 * THREE.MathUtils.smoothstep(f.t, 0.03, 0.6);
         for (let jj = 0; jj < WR; jj++) {
           const row = (z * WR + jj) * this.tw + x * WR;
           for (let ii = 0; ii < WR; ii++) {
             const d = Math.hypot((ii + 0.5) / WR - f.cx, (jj + 0.5) / WR - f.cz);
-            const v = Math.round(THREE.MathUtils.clamp((R - d) / 0.3, 0, 1) * 255);
+            const v = Math.round(THREE.MathUtils.clamp((R - d) / 0.45, 0, 1) * soak * 255);
             if (v > this.wetData[row + ii]!) this.wetData[row + ii] = v;
           }
         }
-        if (f.t >= 0.55) {
+        if (f.t >= 0.8) {
           this.floods.delete(i);
           this.fillTile(x, z, 255);
         }
@@ -839,22 +940,32 @@ export class SoilBeds {
       a.t += dt;
       if (a.t < 0) continue;
       if (a.amp >= 1) {
-        // Rise with an overshoot (easeOutBack) from 55 %, the moist darkness fading over ~1.6 s.
-        const t = Math.min(1, a.t / 0.3);
-        const c1 = 2.4;
-        const e = 1 + (c1 + 1) * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-        const scale = 0.55 + 0.45 * e;
-        const fresh = 1 - smooth(0.25, 1.6, a.t);
-        this.writeHeave(a.x, a.z, scale / 2, fresh, 0.5);
-        if (a.t >= 1.6) {
+        // Springs out of the turf: 0 → 1.3 (over ~70 ms) → 1 with a damped wobble (~120 ms to
+        // settle), the moist darkness fading over ~2 s.
+        let scale: number;
+        // (r20) A bigger pop (→ 1.45) held ~2 frames, so the new furrow visibly heaves out of the turf.
+        if (a.t < 0.06) scale = 0.05 + 1.4 * Math.sin((a.t / 0.06) * Math.PI * 0.5);
+        else if (a.t < 0.09) scale = 1.45;
+        else scale = 1 + 0.45 * Math.exp(-(a.t - 0.09) * 18) * Math.cos((a.t - 0.09) * 28);
+        // Freshly turned earth stays dark and moist for a beat, then settles to the bed's tone
+        // over ~2 s (so a charged strip reads as "just worked" against the older beds).
+        // (r15: lingers ~5 s, and the fresh earth stands fluffed up — furrows ~50 % taller — before
+        // it settles to the bed's height: freshly hoed ground reads as deformed, not a flat tile.)
+        const fresh = 1 - smooth(1.4, 5.5, a.t);
+        // (r20: fluffed ~75 % taller and sitting ~1.5 cm proud of the bed while fresh — a raised,
+        // lumpy new furrow, not a dark smear.)
+        this.writeHeave(a.x, a.z, (scale * (1 + 0.75 * fresh)) / 2, fresh, 0.5 + 0.19 * fresh);
+        if (a.t >= 5.5) {
           this.writeHeave(a.x, a.z, 0.5, 0, 0.5);
           this.anims.delete(i);
         }
       } else {
-        // Slam heave: the bed is punched down, then springs back with a wobble.
+        // Slam heave: the bed is punched down, then springs back with a wobble — and a hard strike
+        // (amp ≥ 0.5) turns the bed over: it reads freshly worked for a few seconds too (r15).
         const osc = Math.exp(-a.t * 9) * Math.cos(a.t * 26);
-        this.writeHeave(a.x, a.z, (1 - osc * 0.45 * a.amp) / 2, 0, 0.5 - osc * 0.12 * a.amp);
-        if (a.t > 0.5) {
+        const fresh = a.amp >= 0.5 ? 1 - smooth(1.4, 5.5, a.t) : 0;
+        this.writeHeave(a.x, a.z, ((1 - osc * 0.45 * a.amp) * (1 + 0.5 * fresh)) / 2, fresh, 0.5 - osc * 0.12 * a.amp);
+        if (a.t > (a.amp >= 0.5 ? 5.5 : 0.5)) {
           this.writeHeave(a.x, a.z, 0.5, 0, 0.5);
           this.anims.delete(i);
         }

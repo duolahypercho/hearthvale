@@ -42,6 +42,10 @@ export class Input {
   readonly pointer = { x: 0, y: 0, inside: false };
   readonly mouse = { left: false, right: false };
   private pressedActions = new Set<Action>();
+  /** Presses latched for the fixed-step sim: a tap shorter than a frame (or landing on a frame that
+   * runs no fixed step) is still seen by the player's next fixedUpdate. Cleared once a frame has run
+   * at least one fixed step. */
+  private fixedLatch = new Set<Action>();
   private heldActions = new Set<Action>();
   private wheel = 0;
   private toolbarPressed: number | null = null;
@@ -120,7 +124,21 @@ export class Input {
   private fire(a: Action): void {
     if (!this.enabled && !MENU_ACTIONS.has(a)) return;
     this.pressedActions.add(a);
+    this.fixedLatch.add(a);
     this.heldActions.add(a);
+  }
+
+  /** For fixedUpdate code: true once per press, even if the press landed on a frame with no fixed
+   * step or the key went up before the frame. Consumes the latch. */
+  takeFixed(a: Action): boolean {
+    const had = this.fixedLatch.has(a);
+    this.fixedLatch.delete(a);
+    return had;
+  }
+
+  /** Call after a frame that ran >= 1 fixed step (unconsumed presses are dropped). */
+  endFixed(): void {
+    this.fixedLatch.clear();
   }
 
   /** True only on the frame the action was pressed. */
@@ -137,6 +155,7 @@ export class Input {
   consume(a: Action): boolean {
     const had = this.pressedActions.has(a);
     this.pressedActions.delete(a);
+    this.fixedLatch.delete(a);
     return had;
   }
 
