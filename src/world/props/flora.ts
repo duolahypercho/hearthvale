@@ -430,9 +430,9 @@ export function buildFlora(kind: FloraKind, r: Rng, variant: number, lod: number
         // Four understory silhouettes so the forest floor is never one tiled star: arching drooping
         // fronds, a lush broad-leaf hosta clump, a one-sided sword fan, and a soft grass clump.
         const FV = [
-          { n: 11, len: 0.52, w: 0.07, bend: 0.95, tilt: -0.5, spread: 1, dark: 0x2b5f2a, light: 0x76b247 },
+          { n: 13, len: 0.46, w: 0.06, bend: 1.0, tilt: -0.75, spread: 1, dark: 0x2b5f2a, light: 0x76b247 },
           { n: 7, len: 0.42, w: 0.15, bend: 0.7, tilt: -0.3, spread: 1, dark: 0x2c6a35, light: 0x6fb85a },
-          { n: 8, len: 0.72, w: 0.085, bend: 0.8, tilt: -0.65, spread: 0.55, dark: 0x356b2a, light: 0x8ac04e },
+          { n: 9, len: 0.6, w: 0.11, bend: 0.65, tilt: -0.9, spread: 0.45, dark: 0x356b2a, light: 0x8ac04e },
           { n: 17, len: 0.38, w: 0.04, bend: 0.4, tilt: -0.08, spread: 1, dark: 0x3d6e22, light: 0xa5c957 },
         ][variant % 4]!;
         const n = fern ? FV.n : 7 + r.int(0, 3);
@@ -456,7 +456,7 @@ export function buildFlora(kind: FloraKind, r: Rng, variant: number, lod: number
       }
       const g = b.geometries().get(wm)!;
       // Ferns (few, big) cast; the hundreds of field weeds rely on baked ground AO instead.
-      return [{ geometry: g, material: wm, depthMaterial: windDepthMaterial({ height: 0.5, amplitude: 0.1 }), castShadow: fern }];
+      return [{ geometry: g, material: wm, depthMaterial: windDepthMaterial({ height: 0.5, amplitude: 0.1 }), castShadow: fern, tinted: fern }];
     }
     case 'bush':
     case 'berryBush': {

@@ -406,14 +406,15 @@ export class DayNight {
     // Plain rain borrows half the storm's cold slate grade and dips ~0.2 EV so the day reads as
     // overcast and heavy, not a desaturated haze (local value contrast stays via rainOnly above).
     if (rainOnly > 0.001) {
-      (g.uLift!.value as THREE.Vector3).lerp(_stormLift, rainOnly * 0.55);
-      (g.uGain!.value as THREE.Vector3).lerp(_stormGain, rainOnly * 0.5);
-      this.rc.renderer.toneMappingExposure *= 1 - rainOnly * 0.12;
-      g.uContrast!.value *= 1 + rainOnly * 0.08;
+      (g.uLift!.value as THREE.Vector3).lerp(_stormLift, rainOnly * 0.8);
+      (g.uGain!.value as THREE.Vector3).lerp(_stormGain, rainOnly * 0.9);
+      this.rc.renderer.toneMappingExposure *= 1 - rainOnly * 0.24;
+      g.uContrast!.value *= 1 + rainOnly * 0.12;
+      g.uSaturation!.value *= 1 - rainOnly * 0.1;
     }
     // Lightning: the whole frame blooms blue-white for an instant.
     if (this.flash > 0.001) (g.uLift!.value as THREE.Vector3).add(_flashLift.set(0.03, 0.035, 0.05).multiplyScalar(this.flash));
-    g.uVignette!.value = L(a.vignette, b.vignette, t);
+    g.uVignette!.value = L(a.vignette, b.vignette, t) * (1 + rainOnly * 0.4);
     // Bloom threshold stays high day and night (only emissives / sun glints exceed it); night only
     // raises the strength a little so lit windows and lanterns glow — lamp-lit ground never blooms.
     this.rc.post.setBloom(0.3 + this.night * 0.22, 0.92);

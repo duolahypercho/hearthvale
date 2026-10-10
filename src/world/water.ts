@@ -132,14 +132,14 @@ export function createWater(terrain: Terrain, bounds: { x0: number; z0: number; 
         float diff = 0.55 + 0.45 * max(dot(n, L), 0.0);
         vec3 lit = col * (uSunColor * diff * 0.9 * cloud + uSkyColor * 0.55);
         // Storm water: darker, slate-steel body instead of bright turquoise.
-        lit = mix(lit, lit * vec3(0.55, 0.66, 0.78), uRain * 0.7);
+        lit = mix(lit, lit * vec3(0.38, 0.5, 0.62), uRain * 0.85);
         // Reflection: the sky gradient along the reflected ray, with the dark tree-lined banks
         // mirrored in a band near the shore (cheap stand-in for a planar reflection).
         vec3 Rv = reflect(-V, n);
         vec3 skyR = mix(uHorizonColor, uSkyColor, smoothstep(0.0, 0.7, Rv.y));
         float bank = smoothstep(0.7, 0.15, dd) * (0.55 + 0.45 * hvNoise(p * 0.9 + n.xz * 2.0));
         vec3 bankCol = mix(vec3(0.05, 0.1, 0.05), vec3(0.12, 0.2, 0.08), hvNoise(p * 2.2)) * (uSunColor * 0.4 + uSkyColor * 0.5);
-        vec3 refl = mix(skyR * 1.05, bankCol, bank * 0.75) * (1.0 - 0.32 * uRain);
+        vec3 refl = mix(skyR * 1.05, bankCol, bank * 0.75) * (1.0 - 0.5 * uRain);
         vec3 c = mix(lit, refl, clamp(fres * 1.6 + bank * 0.35, 0.0, 0.85));
 
         vec3 R = reflect(-L, n);

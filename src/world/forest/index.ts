@@ -545,6 +545,19 @@ export class ForestMap implements GameMap {
     this.giants.add(kind, x, y, z, s);
     this.terrain.stampCover('ao', x, z, kind === 'elder' ? 2.6 * s : 2 * s, 0.75);
     this.terrain.stampCover('moss', x, z, 3.8 * s, 0.7);
+    // Root contact: a ring of leaf litter (dry-leaf cast on the ground) with leaves and fern tufts
+    // tucked between the buttresses, so every trunk sits IN the floor instead of standing on it.
+    this.terrain.stampCover('dry', x, z, 3.0 * s, 0.55);
+    const lr = this.rng.fork(`litter:${x.toFixed(1)}:${z.toFixed(1)}`);
+    const R0 = (kind === 'elder' ? 1.5 : 1.0) * s;
+    for (let i = 0; i < 9; i++) {
+      const a = lr.next() * Math.PI * 2;
+      const d = R0 * (0.9 + lr.next() * 1.3);
+      const px = x + Math.cos(a) * d;
+      const pz = z + Math.sin(a) * d;
+      if (this.terrain.heightAt(px, pz) < WATER_LOW + 0.08 || this.terrain.splatAt(px, pz, 'path') > 0.1 || this.staged(px, pz)) continue;
+      this.nature.place(i % 3 === 0 ? 'fern' : 'leaves', px, this.terrain.heightAt(px, pz), pz, { scale: 0.8 + lr.next() * 0.6 });
+    }
     if (!solid) return;
     const r = kind === 'elder' ? 1.3 * s : 0.9 * s;
     for (let tz = Math.floor(z - r); tz <= Math.floor(z + r); tz++) {
@@ -770,13 +783,13 @@ export class ForestMap implements GameMap {
         const walk = d < -0.2 && pm < 0.2;
         if (walk && !this.freeTile(jx, jz)) continue;
         if (this.staged(jx, jz)) continue;
-        if (roll < fernP * 0.5) place('fern', jx, jz, { scale: 1.0 + r.next() * 0.9 + bed * 0.4 });
+        if (roll < fernP * 0.5) place('fern', jx, jz, { scale: 0.7 + r.next() * 0.8 + bed * 0.4 });
         else if (roll < fernP * 0.5 + edge * 0.1 + nearGiant * 0.035 + bed * 0.02) this.shrubs.add(jx, h, jz, 0.8 + r.next() * 0.7);
         else if (bank > 0.3 && roll < fernP * 0.5 + 0.16 * bank) place('reed', jx, jz, { scale: 0.9 + r.next() * 0.4 });
         else if (roll < fernP * 0.5 + 0.02 + nearGiant * 0.12) place('leaves', jx, jz, { scale: 1.0 + r.next() * 0.6 });
         else if ((glade > 0.3 || clearing > 0.3) && roll < 0.36) place(r.pick(['flower', 'daisy', 'buttercup', 'flower'] as NatureKind[]), jx, jz, { color: r.pick([0xffffff, 0xffd166, 0xc77dff, 0x9fd4ff, 0xff8fab]), scale: 1.05 });
         else if (roll < fernP * 0.5 + 0.16 + nearGiant * 0.22) place('clover', jx, jz, { scale: 0.9 + r.next() * 0.5 });
-        else if (roll < fernP * 0.5 + 0.2 + bank * 0.1) tuft(jx, jz, 0.8 + r.next() * 0.5);
+        else if (roll < fernP * 0.5 + 0.27 + bank * 0.12) tuft(jx, jz, 0.8 + r.next() * 0.6);
         else if (bank > 0.2 && roll < 0.26) place('pebbles', jx, jz, { scale: 0.8 + r.next() * 0.6 });
         else if (pathEdge > 0.2 && roll < 0.3) place(r.next() < 0.5 ? 'pebbles' : 'daisy', jx, jz, { scale: 0.8 + r.next() * 0.4 });
       }

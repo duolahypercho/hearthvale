@@ -149,7 +149,9 @@ export class Nature {
       new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot),
       new THREE.Vector3(s, s, s),
     );
-    const id = set.add(m, opts.color !== undefined ? new THREE.Color(opts.color) : undefined);
+    // Ferns: per-instance tint (hue drift blue-green ↔ yellow-green, value 0.8-1.1) so no two clumps match.
+    const tint = opts.color !== undefined ? new THREE.Color(opts.color) : kind === 'fern' ? new THREE.Color().setHSL(0.1 + this.rng.next() * 0.42, 0.15 + this.rng.next() * 0.25, 0.78 + this.rng.next() * 0.22).lerp(new THREE.Color(1, 1, 1), 0.35) : undefined;
+    const id = set.add(m, tint);
     const h: NatureHandle = { kind, set, id };
     if (kind === 'weed' || kind === 'tallGrass') h.extra = this.place('deadTwig', x, y, z, { rot, scale: s * (kind === 'tallGrass' ? 1.3 : 1) });
     return h;

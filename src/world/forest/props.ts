@@ -1030,7 +1030,7 @@ export function buildFootbridge(rng: Rng, len: number): THREE.Group {
     for (let k = 0; k <= 4; k++) {
       const t = 0.06 + (k / 4) * 0.88;
       const x = (t - 0.5) * len;
-      b.add('woodDark', roundedBox(0.12, 0.95, 0.12, 0.03, 1), mat(x, 0.36 + arch(t) + 0.45, side * 0.66));
+      b.add('woodDark', roundedBox(0.2, k === 0 || k === 4 ? 1.25 : 0.98, 0.2, 0.04, 1), mat(x, 0.36 + arch(t) + (k === 0 || k === 4 ? 0.62 : 0.47), side * 0.66));
     }
     for (let k = 0; k < 8; k++) {
       const t0 = 0.06 + (k / 8) * 0.88;
@@ -1038,11 +1038,17 @@ export function buildFootbridge(rng: Rng, len: number): THREE.Group {
       const a = new THREE.Vector3((t0 - 0.5) * len, 1.22 + arch(t0), side * 0.66);
       const c = new THREE.Vector3((t1 - 0.5) * len, 1.22 + arch(t1), side * 0.66);
       const d = c.clone().sub(a);
-      b.add('wood', roundedBox(d.length() + 0.06, 0.09, 0.1, 0.03, 1), mat((a.x + c.x) / 2, (a.y + c.y) / 2, side * 0.66, 0, 0, Math.atan2(d.y, d.x)), { tint: 0xc8a070 });
+      b.add('wood', roundedBox(d.length() + 0.06, 0.15, 0.17, 0.04, 1), mat((a.x + c.x) / 2, (a.y + c.y) / 2, side * 0.66, 0, 0, Math.atan2(d.y, d.x)), { tint: 0xc8a070 });
+      // Mid-rail so the side reads as a rail, not one floating hairline.
+      b.add('woodDark', roundedBox(d.length() + 0.04, 0.07, 0.09, 0.02, 1), mat((a.x + c.x) / 2, (a.y + c.y) / 2 - 0.42, side * 0.66, 0, 0, Math.atan2(d.y, d.x)));
     }
   }
   // Stone abutments.
-  for (const e of [-1, 1]) b.add('stone', boxUV(roundedBox(0.7, 0.5, 1.7, 0.1), 1), mat(e * (len / 2 - 0.1), 0.1, 0), { tint: 0xa8a090 });
+  for (const e of [-1, 1]) {
+    b.add('stone', boxUV(roundedBox(1.1, 0.7, 1.9, 0.12), 1), mat(e * (len / 2 + 0.05), 0.0, 0), { tint: 0xa8a090 });
+    // Plank ramp from the abutment down onto the bank, so the deck meets the ground.
+    b.add('wood', boxUV(roundedBox(0.7, 0.08, 1.3, 0.025, 1), 1), mat(e * (len / 2 + 0.65), 0.1, 0, 0, 0, -e * 0.12), { tint: 0xc8a070 });
+  }
   return b.build({ name: 'footbridge' });
 }
 

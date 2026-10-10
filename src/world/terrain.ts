@@ -684,7 +684,7 @@ export class Terrain {
         ground = mix(vec3(hvLum), hvWetG, 1.0 + 0.18 * hvWetPath);
         ground *= mix(1.0, 0.6, hvPudRim * hvPudRim * (3.0 - 2.0 * hvPudRim));
         // Standing water: the dirt under it goes near-black (the mirror term carries the colour).
-        ground *= mix(1.0, mix(0.34, 0.1, hvPudDeep), hvPuddle);
+        ground *= mix(1.0, mix(0.26, 0.07, hvPudDeep), hvPuddle);
         ground = mix(ground, ground * vec3(0.8, 0.92, 1.12), hvPuddle);
         float hvTPath = pathM;
 
@@ -707,7 +707,7 @@ export class Terrain {
           vec3 Vp = normalize(cameraPosition - vTWorld);
           // Near top-down the mirror is weak (Fresnel): the dark soaked mud shows through and only the
           // sky openings flash, so a puddle never reads as a flat pale paper cut-out.
-          float fr = (0.3 + 0.55 * pow(1.0 - max(Vp.y, 0.0), 2.0)) * mix(0.5, 1.2, hvPudDeep);
+          float fr = (1.0 - 0.35 * uRain) * (0.3 + 0.55 * pow(1.0 - max(Vp.y, 0.0), 2.0)) * mix(0.5, 1.2, hvPudDeep);
           // Mirror of the sky with the dark masses of trees / eaves reflected in it (a cheap
           // screen-free "probe": low-frequency blotches offset along the view direction).
           // The reflected ray climbs away from the lens: it sees the far side of the puddle's sky, so
