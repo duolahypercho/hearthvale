@@ -240,6 +240,7 @@ export class RenderContext {
    */
   backdropHz = 0;
   private lastRenderAt = -1;
+  private menuLite = false;
   private lastFrameAt = -1;
 
   constructor(private container: HTMLElement, quality: Quality) {
@@ -320,6 +321,13 @@ export class RenderContext {
       if (this.backdropHz < 0 ? !this.shaderGate.busy : now - this.lastRenderAt < 1000 / this.backdropHz - 1) return;
     }
     this.lastRenderAt = now;
+    // Behind a full-screen panel the world is blurred and held: skip the AO pass (a full extra scene render)
+    // for those refresh frames so panel scenes stay inside the triangle budget (town + shop was 1.79M).
+    const lite = this.backdropHz !== 0;
+    if (lite !== this.menuLite) {
+      this.menuLite = lite;
+      this.post.setAOEnabled(!lite && this.governor.level <= 1);
+    }
     runBakes(this.renderer);
     this.lights.update(this.scene, this.camera, this.rig.focus, dt);
     this.shaderGate.flush();
