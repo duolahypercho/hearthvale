@@ -45,11 +45,11 @@ const KINTARA_CAM = { yaw: 4, pitch: 33, distance: 15, offsetX: -2.6, offsetZ: -
 
 export const DEMOS: Record<string, DemoDef> = {
   // Kintara pod: the Exchange stall (`kintara`), its panel open (`ui-kintara`, `&ui=kintara:mint|collection|market`).
-  kintara: { map: 'town', x: 28.6, z: 35.2, facing: 'up', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, showcase: ['kintara'] },
-  'ui-kintara': { map: 'town', x: 28.6, z: 35.2, facing: 'up', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara', showcase: ['kintara'] },
-  'ui-kintara-mint': { map: 'town', x: 28.6, z: 35.2, facing: 'up', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara:mint', showcase: ['kintara'] },
-  'ui-kintara-collection': { map: 'town', x: 28.6, z: 35.2, facing: 'up', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara:collection', showcase: ['kintara'] },
-  'ui-kintara-market': { map: 'town', x: 28.6, z: 35.2, facing: 'up', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara:market', showcase: ['kintara'] },
+  kintara: { map: 'town', x: 31.0, z: 34.6, facing: 'left', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, showcase: ['kintara'] },
+  'ui-kintara': { map: 'town', x: 31.0, z: 34.6, facing: 'left', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara', showcase: ['kintara'] },
+  'ui-kintara-mint': { map: 'town', x: 31.0, z: 34.6, facing: 'left', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara:mint', showcase: ['kintara'] },
+  'ui-kintara-collection': { map: 'town', x: 31.0, z: 34.6, facing: 'left', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara:collection', showcase: ['kintara'] },
+  'ui-kintara-market': { map: 'town', x: 31.0, z: 34.6, facing: 'left', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara:market', showcase: ['kintara'] },
   'farm-morning': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 7.6, season: 'spring', weather: 'sun', camera: HOME_CAM },
   'farm-noon': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 12.5, season: 'summer', weather: 'sun', camera: { ...HOME_CAM, yaw: -8 } },
   'farm-evening': { map: 'farm', x: 31.2, z: 20.2, facing: 'down', time: 19, season: 'spring', weather: 'sun', camera: { ...HOME_CAM, yaw: 22, offsetX: -0.4 } },

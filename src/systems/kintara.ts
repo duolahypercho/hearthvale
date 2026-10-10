@@ -210,6 +210,7 @@ export class KintaraSystem implements System, KintaraApi {
   private stall: KintaraStallParts | null = null;
   private keeper: Villager | null = null;
   private stallMap: string | null = null;
+  private noticed = false;
 
   init(game: Game): void {
     this.game = game;
@@ -723,7 +724,7 @@ export class KintaraSystem implements System, KintaraApi {
     if (!town) return;
     if (!this.stall) {
       this.stall = buildKintaraStall();
-      this.game.lighting.addNightLight(this.stall.light, 1.5);
+      this.game.lighting.addNightLight(this.stall.light, 2.4);
       this.stall.setTier(this.fundTier());
       const def = { id: KEEPER.id, name: KEEPER.name, role: KEEPER.role, look: KEEPER.look, schedule: [[6, 'stall', 'read']], walk: { speed: 1, stride: 0.4, bounce: 0.03, sway: 0.1, hunch: 0.1, arms: 0.3 } } as unknown as NpcDef;
       this.keeper = new Villager(def);
@@ -749,7 +750,23 @@ export class KintaraSystem implements System, KintaraApi {
 
   update(dt: number): void {
     if (this.stallMap !== 'town' || this.game.world.current?.id !== 'town' || !this.keeper) return;
-    this.keeper.update(dt, (x, z) => this.game.world.current!.heightAt(x, z), !this.game.paused);
+    const k = this.keeper;
+    const hr = this.game.calendar.hour;
+    this.stall?.tick(this.game.time, hr >= 19 || hr < 6.5 ? 1 : Math.max(0, Math.min(1, (hr - 16) / 3)));
+    // She notices the farmer: turns to face them inside ~6 m and waves once per approach.
+    const p = this.game.player.position;
+    const d = Math.hypot(p.x - k.position.x, p.z - k.position.z);
+    if (d < 6) {
+      k.talkTo = p;
+      if (!this.noticed && d < 5.4) {
+        this.noticed = true;
+        k.gesture('wave', 2.2);
+      }
+    } else {
+      k.talkTo = null;
+      if (d > 8) this.noticed = false;
+    }
+    k.update(dt, (x, z) => this.game.world.current!.heightAt(x, z), !this.game.paused);
   }
 
   private nearStall(x: number, z: number): boolean {
