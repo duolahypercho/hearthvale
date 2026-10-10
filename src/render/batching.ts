@@ -92,6 +92,9 @@ export function setBatchDetail(mesh: THREE.BatchedMesh, geometryId: number, geom
 const _m = new THREE.Matrix4();
 const _frustum = new THREE.Frustum();
 const _sphere = new THREE.Sphere();
+const _camPos = new THREE.Vector3();
+/** Colour-pass distance past which batched detail parts are dropped (metres from the lens). */
+const FAR_DETAIL_M = 24;
 
 /**
  * Shadow caster cull volume (pillar 14). The sun's ortho box is the light-space bounding rectangle of the
@@ -194,6 +197,9 @@ function cachedBeforeRender(this: Internal, renderer: THREE.WebGLRenderer, scene
   const cull = this.perObjectFrustumCulled;
   // Shadow passes arrive via onBeforeShadow with a null scene.
   const det = detailStats.enabled && (scene === null || detailPass) ? this._hvDetail : undefined;
+  // Colour pass: small detail parts (moss, petals, beads) past FAR_DETAIL_M of the lens are sub-pixel — draw the
+  // non-detail prefix only (the same prefix the depth passes use).
+  const far = !det && detailStats.enabled ? this._hvDetail : undefined;
   const slots = det ? st.dslots : st.slots;
   // Without per-object culling the list is camera-independent: one shared slot.
   const slotKey = cull ? camera : null;
@@ -245,6 +251,7 @@ function cachedBeforeRender(this: Internal, renderer: THREE.WebGLRenderer, scene
     let changed = false;
     const w = this.matrixWorld.elements;
     const ws = vol ? this.matrixWorld.getMaxScaleOnAxis() : 1;
+    const camPos = _camPos.setFromMatrixPosition(camera.matrixWorld);
     for (let i = 0, l = info.length; i < l; i++) {
       const inst = info[i]!;
       if (!inst.visible || !inst.active) continue;
@@ -286,7 +293,18 @@ function cachedBeforeRender(this: Internal, renderer: THREE.WebGLRenderer, scene
         }
       }
       const g = geos[gi]!;
-      const cnt = det ? (det[gi] ?? g.count) : g.count;
+      let cnt = det ? (det[gi] ?? g.count) : g.count;
+      if (far && far[gi] !== undefined && cull) {
+        const o = i * 16;
+        const bc = geos[gi]!.boundingSphere!.center;
+        const lx = mats[o]! * bc.x + mats[o + 4]! * bc.y + mats[o + 8]! * bc.z + mats[o + 12]!;
+        const ly = mats[o + 1]! * bc.x + mats[o + 5]! * bc.y + mats[o + 9]! * bc.z + mats[o + 13]!;
+        const lz = mats[o + 2]! * bc.x + mats[o + 6]! * bc.y + mats[o + 10]! * bc.z + mats[o + 14]!;
+        const wx = w[0]! * lx + w[4]! * ly + w[8]! * lz + w[12]! - camPos.x;
+        const wy = w[1]! * lx + w[5]! * ly + w[9]! * lz + w[13]! - camPos.y;
+        const wz = w[2]! * lx + w[6]! * ly + w[10]! * lz + w[14]! - camPos.z;
+        if (wx * wx + wy * wy + wz * wz > FAR_DETAIL_M * FAR_DETAIL_M) cnt = far[gi]!;
+      }
       if (cnt === 0) continue;
       const s = g.start * bpe;
       if (!changed && (indirect[n] !== i || n >= slot.count)) changed = true;

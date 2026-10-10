@@ -313,7 +313,7 @@ export class Player {
           b.add(white, new THREE.SphereGeometry(0.008, 6, 4), mat(-0.014, -0.022, 0.038));
         }, 'eye'),
       );
-      eye.position.set(sx * 0.12, headR * 0.9, headR * 0.9);
+      eye.position.set(sx * 0.12, headR * 0.9, headR * 0.85);
       eye.rotation.x = -0.12;
       this.head.add(eye);
       this.eyes.push(eye);
@@ -373,6 +373,11 @@ export class Player {
     this.position.set(x, this.game.world.heightAt(x, z), z);
     this.root.position.copy(this.position);
     this.velocity.set(0, 0, 0);
+  }
+
+  /** Stage an exact heading (radians, 0 = towards the camera); the cardinal facing stays whichever it is nearest. */
+  setYaw(yaw: number): void {
+    this.targetYaw = this.yaw = yaw;
   }
 
   setFacing(f: Facing): void {

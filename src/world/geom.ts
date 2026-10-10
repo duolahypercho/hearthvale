@@ -238,7 +238,7 @@ export const DETAIL_R = ((): number => {
   } catch {
     /* not in a browser */
   }
-  return 0.075;
+  return 0.14;
 })();
 
 function isSmall(g: THREE.BufferGeometry): boolean {
