@@ -534,11 +534,12 @@ export class Slime extends Monster {
     // X-ray: where the farmer's hat or a rock hides the slime, a faint tinted silhouette still shows.
     // Outline-only x-ray: just a thin fresnel rim ring, drawn only where something is in front of the slime.
     const xmat = new THREE.ShaderMaterial({
-      uniforms: { uCol: { value: new THREE.Color(pal.slime).lerp(new THREE.Color(1, 1, 1), 0.35) } },
+      uniforms: { uCol: { value: new THREE.Color(pal.slime).lerp(new THREE.Color(1, 1, 1), 0.2) }, uA: { value: 0 } },
       vertexShader: 'varying vec3 vN; varying vec3 vV; void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = -mv.xyz; gl_Position = projectionMatrix * mv; }',
-      fragmentShader: 'uniform vec3 uCol; varying vec3 vN; varying vec3 vV; void main() { float f = 1.0 - abs(dot(normalize(vN), normalize(vV))); if (f < 0.72) discard; gl_FragColor = vec4(uCol, 1.0); }',
+      fragmentShader: 'uniform vec3 uCol; uniform float uA; varying vec3 vN; varying vec3 vV; void main() { float f = 1.0 - abs(dot(normalize(vN), normalize(vV))); float a = smoothstep(0.68, 0.9, f) * uA; if (a < 0.02) discard; gl_FragColor = vec4(uCol, a); }',
       depthFunc: THREE.GreaterDepth,
       depthWrite: false,
+      transparent: true,
       toneMapped: false,
     });
     const xray = new THREE.Mesh(geo, xmat);
@@ -695,7 +696,11 @@ export class Slime extends Monster {
     // X-ray only while the farmer (or a rock) stands between the lens and the slime.
     if (this.xray) {
       const dz = ctx.player.z - this.pos.z;
-      this.xray.visible = dz > 0.05 && dz < 2.6 && Math.abs(ctx.player.x - this.pos.x) < 1.0;
+      // Occlusion proxy: the farmer must stand right in front of the slime; the ring fades in with the overlap.
+      const ov = dz > 0.1 && dz < 1.7 ? 1 - Math.hypot(ctx.player.x - this.pos.x, dz * 0.6) / 0.85 : 0;
+      const k = THREE.MathUtils.smoothstep(ov, 0.25, 0.7);
+      ((this.xray.material as THREE.ShaderMaterial).uniforms.uA as { value: number }).value = k * 0.85;
+      this.xray.visible = k > 0.02;
     }
     this.body.rotation.set(this.lean.y, 0, -this.lean.x);
     let d = this.facing - this.root.rotation.y;

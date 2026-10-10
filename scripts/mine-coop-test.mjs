@@ -122,7 +122,8 @@ try {
     const p = g.player.position;
     let best = null;
     for (const r of m.rocks.rocks) {
-      if (!r.alive) continue;
+      // Plain stone only: ore rocks drop ore, not 'stone', which made the loot check below flaky.
+      if (!r.alive || r.spec.ore) continue;
       const sx = r.spec.x - 1;
       if (!m.grid.isWalkable(sx, r.spec.z)) continue;
       const d = Math.hypot(r.spec.x - p.x, r.spec.z - p.z);
@@ -147,8 +148,13 @@ try {
   const goneHand = await ev(hand, (t) => !window.__game.game.world.current.rockAt(t.x, t.z), target);
   check('farmhand pick breaks the rock on the host (authority)', goneHost);
   check('…and on the farmhand', goneHand);
-  await sleep(2500);
-  const inv1 = await ev(hand, () => window.__game.game.services.inventory.count('stone'));
+  // Loot pops, bobs for 0.5 s, then flies to the nearest farmer and the host grants it over the
+  // wire: poll (up to 12 s) instead of a fixed sleep that raced the grant.
+  let inv1 = inv0;
+  for (let k = 0; k < 24 && inv1 <= inv0; k++) {
+    await sleep(500);
+    inv1 = await ev(hand, () => window.__game.game.services.inventory.count('stone'));
+  }
   check('rock loot reaches the farmhand backpack (host-granted)', inv1 > inv0, `${inv0} → ${inv1}`);
 
   // ── farmhand sword on a host monster ─────────────────────────────
