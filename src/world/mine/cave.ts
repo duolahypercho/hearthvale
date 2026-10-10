@@ -484,7 +484,7 @@ ${CAVE_VN_GLSL}`,
         // sett — the miners' floor showing through the dirt — and WET MUD hollows (dark, glossy).
         // (r7) a tight patch edge (~1-2 setts of ragged fringe, not a 1.5 m field of scattered
         // loose bricks): the paving reads as coherent laid floor under the dirt.
-        float paveM = smoothstep(0.5, 0.55, hvFbm(fp * 0.085 + 71.0)) * onFloor;
+        float paveM = smoothstep(0.6, 0.72, hvFbm(fp * 0.085 + 71.0)) * onFloor;
         if (paveM > 0.0) {
           vec2 bq = fp * vec2(2.0, 3.6);
           float row = floor(bq.y);
@@ -505,12 +505,25 @@ ${CAVE_VN_GLSL}`,
           // joints packed with dirt (a soft groove, not a black grid); fringe setts half-buried
           vec3 joint = diffuseColor.rgb * 0.66;
           sett = mix(sett, diffuseColor.rgb, (1.0 - smoothstep(0.55, 0.95, paveM)) * 0.45);
-          diffuseColor.rgb = mix(diffuseColor.rgb, mix(joint, sett, body), keep);
+          diffuseColor.rgb = mix(diffuseColor.rgb, mix(joint, sett, body), keep * 0.7);
           hvWallH += keep * (body * 0.05 + smoothstep(0.03, 0.09, ed) * 0.025) * onFloor;
         }
         float mud = smoothstep(0.6, 0.72, hvFbm(fp * 0.13 + 29.0) + (hvNoise(fp * 1.3) - 0.5) * 0.08) * onFloor * (1.0 - paveM);
         diffuseColor.rgb *= 1.0 - mud * 0.5;
-        hvWet = mud;
+        // Three clearly different floor materials with wide soft borders: packed warm dirt (base),
+        // DAMP DARK STONE (cool, dark, glossy) and loose GRAVEL (coarse grey-tan stones).
+        float damp = smoothstep(0.46, 0.66, hvFbm(fp * 0.065 + 55.0) + (hvNoise(fp * 0.8) - 0.5) * 0.1) * onFloor * (1.0 - paveM);
+        float dlum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dlum) * vec3(0.66, 0.7, 0.78) * 0.72, damp * 0.8);
+        float gvl = smoothstep(0.5, 0.68, hvFbm(fp * 0.09 + 130.0) + (hvNoise(fp * 1.1) - 0.5) * 0.1) * onFloor * (1.0 - damp) * (1.0 - paveM);
+        vec2 qc = floor(fp * 4.6);
+        vec2 qf = fract(fp * 4.6) - 0.5 - (hvHash22(qc + 9.7) - 0.5) * 0.45;
+        float qh = hvHash12(qc + 41.0);
+        float stone = smoothstep(0.42, 0.3, length(qf)) * step(0.25, qh);
+        vec3 gcol = vec3(dlum) * vec3(1.02, 0.97, 0.9) * (0.75 + 0.7 * qh);
+        diffuseColor.rgb = mix(diffuseColor.rgb, mix(diffuseColor.rgb * 0.8, gcol, stone), gvl * 0.85);
+        hvWallH += gvl * stone * 0.04;
+        hvWet = max(mud, damp * 0.8);
       } else if (uCrack > 1.5) {
         // ICE: smooth frosted sheet, soft blue-white drifts, sparse long fracture lines.
         float drift = hvFbm(fp * 0.12 + 5.0);
@@ -610,13 +623,13 @@ ${CAVE_VN_GLSL}`,
         // Cave mood: the floor falls off into cool, desaturated dark away from the lantern (and its
         // wall feet), with slow mottled damp patches so it never reads as one flat orange plane.
         float ld = length(vCW.xz - uLantern.xz);
-        float pool = exp(-ld * ld / 38.0);
+        float pool = exp(-ld * ld / 30.0);
         float mott = hvFbm(vCW.xz * 0.35 + 21.0);
         float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
         vec3 cool = vec3(lum) * vec3(0.78, 0.86, 1.04);
         float farK = (1.0 - pool) * onFloor;
         diffuseColor.rgb = mix(diffuseColor.rgb, cool * 0.5, farK * 0.8);
-        diffuseColor.rgb *= 1.0 - farK * 0.35;
+        diffuseColor.rgb *= 1.0 - farK * 0.6;
         diffuseColor.rgb *= 1.0 - onFloor * smoothstep(0.45, 0.75, mott) * 0.22;
       }
       `,

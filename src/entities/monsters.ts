@@ -500,6 +500,7 @@ export class Slime extends Monster {
   private wait: number;
   private color: number;
   private eyes: THREE.Group;
+  private xray: THREE.Mesh | null = null;
 
   constructor(biome: Biome, x: number, z: number, tier: number, band: number, seed: number) {
     super('slime', biome, x, z, tier, band, seed);
@@ -530,6 +531,13 @@ export class Slime extends Monster {
     hull.position.y = -0.03;
     hull.userData.noAO = true;
     this.body.add(hull);
+    // X-ray: where the farmer's hat or a rock hides the slime, a faint tinted silhouette still shows.
+    const xray = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.slime).multiplyScalar(1.3), transparent: true, opacity: 0.38, depthFunc: THREE.GreaterDepth, depthWrite: false }));
+    xray.renderOrder = 6;
+    xray.visible = false;
+    this.xray = xray;
+    xray.userData.noAO = true;
+    this.body.add(xray);
     // Inner core shadow (seen through the glossy top as a darker belly band).
     const core = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 10), monsterMat(pal.slimeCore, { rough: 0.3, emissive: pal.slimeCore, emissiveI: biome === 'lava' ? 1.2 : biome === 'ice' ? 0.9 : 0.2, rim: 0.2 }));
     core.position.set(0, 0.2, -0.12);
@@ -675,6 +683,11 @@ export class Slime extends Monster {
     const sy = THREE.MathUtils.clamp(this.sy, 0.5, 1.5);
     const sxz = 1 / Math.sqrt(sy);
     this.body.scale.set(sxz * 1.3, sy * 1.3, sxz * 1.3);
+    // X-ray only while the farmer (or a rock) stands between the lens and the slime.
+    if (this.xray) {
+      const dz = ctx.player.z - this.pos.z;
+      this.xray.visible = dz > 0.05 && dz < 2.6 && Math.abs(ctx.player.x - this.pos.x) < 1.0;
+    }
     this.body.rotation.set(this.lean.y, 0, -this.lean.x);
     let d = this.facing - this.root.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));

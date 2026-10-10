@@ -824,6 +824,11 @@ export function generateFloor(floor: number, seed: number): FloorLayout {
     return true;
   };
   for (let z = 2; z < D - 2; z++) for (let x = 2; x < W - 2; x++) if (isFloor(x, z) && !taken[idx(x, z)] && dist[idx(x, z)]! >= 7 && roomy(x, z)) spots.push({ x, z });
+  // Not in the screen-bottom band south of the arrival point (that is the toolbar / hat-hidden zone).
+  for (let i = spots.length - 1; i >= 0; i--) {
+    const dz = spots[i]!.z - spawn.z;
+    if (dz > 2 && dz < 9 && Math.abs(spots[i]!.x - spawn.x) < 12) spots.splice(i, 1);
+  }
   rng.shuffle(spots);
   const mTable = def.monsters.filter(([k]) => k !== 'crab' || floor >= 4);
   for (const s of spots) {

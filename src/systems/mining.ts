@@ -420,6 +420,8 @@ export class MiningSystem implements System, MiningApi {
     // Prefer beside / below the farmer (reads in frame) over behind them.
     ring.sort((a, b) => Math.abs(a[1]) * 0.6 - a[1] * 0.3 - (Math.abs(b[1]) * 0.6 - b[1] * 0.3));
     for (const [ox, oz] of ring) {
+      // Never in the bottom band of the frame (under the toolbar / hat-hidden): beside or above the farmer.
+      if (oz > 1.4) continue;
       const x = spot.x + ox;
       const z = spot.z + oz;
       const fly = kind === 'wisp';
