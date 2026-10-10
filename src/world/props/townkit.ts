@@ -435,10 +435,10 @@ export function buildMarketStall(rng: Rng, stripes: [number, number] = [0x3f8f7a
   const n = 7;
   for (let i = 0; i < n; i++) {
     const x = -W / 2 - 0.15 + (i + 0.5) * ((W + 0.3) / n);
-    b.add('cloth', roundedBox((W + 0.3) / n + 0.01, 0.04, 1.4, 0.015), mat(x, 2.36, 0.05, 0.22, 0, 0), { tint: stripes[i % 2]! });
+    b.add('cloth', roundedBox((W + 0.3) / n + 0.01, 0.04, 1.4, 0.015), mat(x, 2.36, 0.05, 0.22, 0, 0), { tint: awningTint(stripes[i % 2]!) });
     const sc = new THREE.CylinderGeometry((W + 0.3) / n / 2, (W + 0.3) / n / 2, 0.035, 10, 1, false, 0, Math.PI);
     sc.rotateX(Math.PI / 2);
-    b.add('cloth', sc, mat(x, 2.15, 0.74, 0, 0, Math.PI), { tint: stripes[i % 2]! });
+    b.add('cloth', sc, mat(x, 2.15, 0.74, 0, 0, Math.PI), { tint: awningTint(stripes[i % 2]!) });
   }
   // Produce crates on the counter
   const produce = [0xe4432e, 0xf2c43a, 0x6fae45, 0xe8741e, 0x8a4ab0];

@@ -64,12 +64,11 @@ function wearTexture(cx: number, cz: number, R: number, seed = 5): THREE.CanvasT
     const brick = ['168,92,64', '150,80,58', '182,104,72', '140,74,52'];
     const z0 = cz + 5.45;
     const z1 = cz + R;
-    for (let z = z0; z < z1; z += 0.2)
-      for (let x = cx - 0.75; x <= cx + 0.75; x += 0.2) {
-        const k = Math.round((x - cx) / 0.2) + Math.round((z - z0) / 0.2);
-        const rot = k % 2 ? Math.PI / 4 : -Math.PI / 4;
-        sett(px(x + ((z * 7.3) % 0.04)), pz(z), m * 0.27, m * 0.12, rot, `rgba(${brick[Math.floor(rnd() * brick.length)]},0.93)`);
-      }
+    // Running bond (staggered courses of upright bricks). The earlier 45-degree herringbone overlapped its own dark
+    // joint outlines into a blurry red X lattice that read as a decal pasted under the characters.
+    for (let z = z0, row = 0; z < z1; z += 0.105, row++)
+      for (let x = cx - 0.78 + (row % 2 ? 0.1 : 0); x <= cx + 0.78; x += 0.2)
+        sett(px(x), pz(z), m * 0.178, m * 0.084, 0, `rgba(${brick[Math.floor(rnd() * brick.length)]},0.93)`);
     // kerb setts edging the runner
     for (const sx of [-1, 1]) for (let z = z0; z < z1; z += 0.26) sett(px(cx + sx * 0.92), pz(z), m * 0.14, m * 0.24, 0, `rgba(${sand[Math.floor(rnd() * sand.length)]},0.95)`);
   }

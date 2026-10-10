@@ -99,7 +99,7 @@ export const DEMOS: Record<string, DemoDef> = {
   // Town pod: a lower, closer frame on the square's street life (faces read; the Hall crowns the frame).
   // r9: town-day establishes the town (plaza edge, bakery, market row, Kettle Bridge, river) with the town at
   // work — `&live=1` runs it (walkers walk); `town-square` keeps the old plaza frame.
-  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -42, pitch: 33, distance: 27, offsetX: 9.5, offsetZ: 1.2 }, showcase: ['npcs'] },
+  'town-day': { map: 'town', x: 34.9, z: 22.9, facing: 'right', time: 10.5, season: 'spring', weather: 'sun', camera: { yaw: -42, pitch: 33, distance: 30, offsetX: 5.2, offsetZ: 2.4 }, showcase: ['npcs'] },
   // r18: one uninterrupted schedule change — 11:58, the square at work; at noon six villagers path (A*) to lunch spots (`&seq=10`).
   'town-commute': { map: 'town', x: 34.9, z: 22.9, facing: 'down', time: 11.95, season: 'spring', weather: 'sun', camera: { yaw: 0, pitch: 28, distance: 28, offsetX: -2.9, offsetZ: -5.6 }, showcase: ['npcs'] },
   // town r21: the lunch rush at 12:20 — the schedules' own noon peak on the plaza lens (no staging)
