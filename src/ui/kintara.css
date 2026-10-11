@@ -201,8 +201,75 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  scrollbar-width: thin;
-  scrollbar-color: #b8783e rgba(138, 100, 64, 0.12);
+}
+/* A visible track (not an overlay bar that hides itself), plus a fade and a chip while there is more below. */
+.kn-content::-webkit-scrollbar {
+  width: 12px;
+}
+.kn-content::-webkit-scrollbar-track {
+  margin: 2px 0;
+  border-radius: 8px;
+  background: rgba(138, 100, 64, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(120, 70, 20, 0.18);
+}
+.kn-content::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: linear-gradient(#d49a58, #b8783e);
+  box-shadow: inset 0 0 0 2px rgba(255, 232, 190, 0.55);
+}
+.kn-scroller {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.kn-scroller > .kn-content {
+  flex: 1;
+  min-width: 0;
+}
+.kn-scroller::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 14px;
+  bottom: 0;
+  height: 44px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms;
+  background: linear-gradient(rgba(246, 232, 200, 0), rgba(246, 232, 200, 0.96));
+}
+.kn-scroller.has-more::after {
+  opacity: 1;
+}
+.kn-more {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  translate: calc(-50% - 7px) 0;
+  z-index: 2;
+  padding: 3px 14px 4px;
+  border: 0;
+  border-radius: 999px;
+  font: 900 14px var(--font-head);
+  letter-spacing: 0.3px;
+  color: #fff6e0;
+  background: #2f7f86;
+  box-shadow: 0 0 0 2px #1f5f66, 0 3px 0 rgba(40, 18, 4, 0.35);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms;
+  animation: knBob 1.6s ease-in-out infinite;
+}
+.kn-scroller.has-more > .kn-more {
+  opacity: 1;
+  pointer-events: auto;
+}
+@keyframes knBob {
+  50% {
+    margin-bottom: -3px;
+  }
 }
 .kn-content.kn-in {
   animation: knIn 220ms var(--ease-out);
@@ -500,6 +567,9 @@
   background: rgba(63, 166, 160, 0.16);
 }
 .kn-grid {
+  flex: none;
+  align-content: start;
+  grid-auto-rows: max-content;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
   gap: 12px;
@@ -1057,4 +1127,47 @@ body.u-calm .kn-seal .ring {
   width: 112px;
   height: 14px;
   padding: 0;
+}
+/* Short viewports (1280x720 and below): a compact Collection, bigger type per card, fewer lines each. */
+@media (max-height: 800px) {
+  .kn-grid {
+    grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+    gap: 10px;
+  }
+  .kn-grid .kn-deed {
+    min-height: 0;
+    padding: 10px 8px 9px;
+    gap: 2px;
+    align-content: start;
+  }
+  .kn-grid .kn-deed.ghost {
+    align-content: start;
+  }
+  .kn-grid .kn-deed .art {
+    width: 70px;
+    height: 70px;
+  }
+  .kn-grid .kn-deed .art img,
+  .kn-grid .kn-deed .art .u-ic {
+    width: 54px;
+    height: 54px;
+  }
+  .kn-grid .kn-deed b {
+    font-size: 19px;
+  }
+  .kn-grid .kn-deed small {
+    font-size: 15px;
+    line-height: 1.2;
+  }
+  .kn-grid .kn-deed .by,
+  .kn-grid .kn-deed code,
+  .kn-grid .kn-deed small:nth-of-type(2) {
+    display: none;
+  }
+  .kn-grid .kn-deed .kn-rar {
+    font-size: 14px;
+  }
+  .kn-chips .kn-chip {
+    font-size: 15px;
+  }
 }

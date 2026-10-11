@@ -43,7 +43,8 @@ const GPU_ARGS = ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist',
 const SWIFT_ARGS = ['--use-angle=swiftshader', '--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl'];
 
 async function launch(mode) {
-  const opts = { headless: true, args: mode === 'gpu' ? GPU_ARGS : SWIFT_ARGS };
+  // (SHOT_SCROLLBARS=1 keeps real scrollbars: Playwright's headless default hides them, so a scroll affordance cannot be judged)
+  const opts = { headless: true, args: mode === 'gpu' ? GPU_ARGS : SWIFT_ARGS, ...(process.env.SHOT_SCROLLBARS ? { ignoreDefaultArgs: ['--hide-scrollbars'] } : {}) };
   try {
     return await chromium.launch({ ...opts, channel: 'chromium' });
   } catch {
@@ -114,6 +115,7 @@ async function main() {
     await page.evaluate(() => window.__game.ready());
     console.log(`[shot] ready in ${Date.now() - t0} ms  (${url})`);
     await page.evaluate(() => document.fonts?.ready);
+    if (args.js) args.eval = (await import('node:fs')).readFileSync(args.js, 'utf8'); // --js file.js: same as --eval, from a file
     if (args.eval) {
       // --eval "<js>" runs in the page after ready (may be async / return a value), e.g.
       // --eval "__game.setTime(20); __game.teleport('farm', 20, 40)"

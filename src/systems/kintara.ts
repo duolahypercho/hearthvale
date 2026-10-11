@@ -741,7 +741,7 @@ export class KintaraSystem implements System, KintaraApi {
     const kx = STALL.x + lx * Math.cos(STALL.rot) + lz * Math.sin(STALL.rot);
     const kz = STALL.z - lx * Math.sin(STALL.rot) + lz * Math.cos(STALL.rot);
     k.setPosition(kx, town.heightAt(kx, kz), kz);
-    k.setYaw(STALL.rot + 0.3);
+    k.setYaw(REST_YAW);
     town.root.add(k.root);
     this.stallMap = mapId;
     // Solid counter: the farmer walks up to it, never through it.
@@ -758,11 +758,13 @@ export class KintaraSystem implements System, KintaraApi {
     const d = Math.hypot(p.x - k.position.x, p.z - k.position.z);
     if (d < 6) {
       k.talkTo = p;
-      if (!this.noticed && d < 5.4) {
+      if (!this.noticed && d < 5.6) {
         this.noticed = true;
-        k.gesture('wave', 2.2);
+        k.gesture('wave', 2.6);
       }
     } else {
+      // out of range she settles back to facing the square (not left in profile to whoever last passed)
+      if (k.talkTo) k.faceYaw(REST_YAW);
       k.talkTo = null;
       if (d > 8) this.noticed = false;
     }
@@ -955,3 +957,5 @@ export class KintaraSystem implements System, KintaraApi {
 
 /** Where the Exchange stands in Hearthvale square (south-west of the fountain, facing the camera). */
 export const STALL = { x: 28.0, z: 32.6, rot: 0.32 };
+/** The keeper's resting heading: the square, a touch off the counter's axis. */
+const REST_YAW = STALL.rot - 0.1;

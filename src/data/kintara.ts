@@ -187,7 +187,7 @@ export const KEEPER = {
     brow: 0.8,
     browArch: 0.6,
     skin: 0x9a6442,
-    hair: 0xdfe3e6,
+    hair: 0x9ba3aa, // silver-grey (not white: white clips to a flat blob under bloom)
     hairStyle: 'braids',
     top: 0x24596a,
     bottom: 0x3a3440,

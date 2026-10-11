@@ -104,7 +104,23 @@ export class KintaraScreen extends Screen {
     sim.title = 'Kintara is a game simulation: no real wallet, keys, network or money are involved.';
     this.tabsEl.appendChild(sim);
     this.content = el('div', 'kn-content');
-    right.append(this.tabsEl, this.content);
+    // A scroll affordance: a visible track, a fade and a "more below" chip while there is more to see.
+    const scroller = el('div', 'kn-scroller');
+    const more = el('button', 'kn-more', 'More below <i>&#9662;</i>');
+    more.setAttribute('type', 'button');
+    more.tabIndex = -1;
+    more.addEventListener('click', () => this.content.scrollBy({ top: Math.max(120, this.content.clientHeight * 0.8), behavior: 'smooth' }));
+    const sync = (): void => {
+      const c = this.content;
+      scroller.classList.toggle('has-more', c.scrollHeight - c.clientHeight - c.scrollTop > 8);
+      scroller.classList.toggle('can-scroll', c.scrollHeight - c.clientHeight > 8);
+    };
+    this.content.addEventListener('scroll', sync, { passive: true });
+    this.syncScroll = (): void => {
+      requestAnimationFrame(sync);
+    };
+    scroller.append(this.content, more);
+    right.append(this.tabsEl, scroller);
     body.append(left, right);
     wrap.appendChild(f);
     this.root.appendChild(wrap);
@@ -184,7 +200,11 @@ export class KintaraScreen extends Screen {
     if (animate) replay(this.content, 'kn-in');
     else this.content.scrollTop = scroll;
     this.nav.attach(this.root, this.nav.current && this.root.contains(this.nav.current) ? this.nav.current : null);
+    this.syncScroll();
+    setTimeout(() => this.syncScroll(), 320);
   }
+
+  private syncScroll: () => void = () => {};
 
   // ── Ledger ──
   private drawLedger(): void {
@@ -313,23 +333,6 @@ export class KintaraScreen extends Screen {
       grid.appendChild(gh);
     }
     this.content.appendChild(grid);
-  }
-
-  private findStrip(deeds: DeedToken[]): HTMLElement {
-    const hints: [string, string, string][] = [
-      ['crop', 'Crops', 'a gold-quality harvest, or a pumpkin, melon, yam'],
-      ['fish', 'Fish', 'an Ember Koi, Old Bristleback, the Lanternjaw'],
-      ['gem', 'Gems', 'amethyst, topaz, ruby, aquamarine, diamond'],
-      ['tool', 'Tools', 'upgrade a tool at the forge, then attest it'],
-      ['keepsake', 'Keepsakes', 'the Hall Keystone, stamped when the Hall relights'],
-    ];
-    const box = el('div', 'kn-guide finds');
-    box.appendChild(el('h4', '', 'Still to find <small>one deed on each shelf fills it</small>'));
-    for (const [c, l, h] of hints) {
-      const n = deeds.filter((d) => d.category === c).length;
-      box.appendChild(el('div', `kn-find${n ? ' done' : ''}`, `<span>${n ? '&#10003;' : '&#9675;'}</span><b>${l}</b><small>${n ? `${n} sealed` : h}</small>`));
-    }
-    return box;
   }
 
   // ── Market ──

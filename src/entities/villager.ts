@@ -3091,8 +3091,10 @@ export class Villager {
         head.rotation.x -= 0.06 * w;
         break;
       case 'wave':
-        set(aR, -0.2, 0, 2.5);
-        set(fR, 0, 0, 0.35 * Math.sin(t * 11));
+        // a clear hello: the whole arm up past the ear, the forearm swinging side to side on the elbow
+        set(aR, -0.3, 0, 2.85);
+        set(fR, 0, 0, 0.55 * Math.sin(t * 9));
+        head.rotation.z -= 0.08 * w;
         break;
       case 'think': {
         // (r12 critic: a choice held over a frozen pose read as a still with a menu — the thinker taps

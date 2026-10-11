@@ -41,11 +41,15 @@ const MINE_CAM = { yaw: 0, pitch: 42, distance: 17.5, offsetZ: -0.9 };
 const FESTIVAL_CAM = { ...TOWN_CAM, offsetX: -3.35, offsetZ: -10.3 };
 
 /** Kintara Exchange: the stall south-west of the fountain, keeper behind the counter. */
+const KINTARA_CAM_HIGH = { yaw: 4, pitch: 33, distance: 16, offsetX: -2.6, offsetZ: -3.1 };
 const KINTARA_CAM = { yaw: 4, pitch: 33, distance: 15, offsetX: -2.6, offsetZ: -1.6 };
 
 export const DEMOS: Record<string, DemoDef> = {
   // Kintara pod: the Exchange stall (`kintara`), its panel open (`ui-kintara`, `&ui=kintara:mint|collection|market`).
-  kintara: { map: 'town', x: 31.0, z: 34.6, facing: 'left', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, showcase: ['kintara'] },
+  // (the farmer stands south-east of the counter so the keeper turns to a three-quarter view for the lens, not a profile)
+  'kintara-night': { map: 'town', x: 29.4, z: 37.2, facing: 'left', time: 19.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM_HIGH, showcase: ['kintara'] },
+  'kintara-dusk': { map: 'town', x: 29.4, z: 37.2, facing: 'left', time: 18.7, season: 'spring', weather: 'sun', camera: KINTARA_CAM_HIGH, showcase: ['kintara'] },
+  kintara: { map: 'town', x: 29.4, z: 37.2, facing: 'left', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, showcase: ['kintara'] },
   'ui-kintara': { map: 'town', x: 31.0, z: 34.6, facing: 'left', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara', showcase: ['kintara'] },
   'ui-kintara-mint': { map: 'town', x: 31.0, z: 34.6, facing: 'left', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara:mint', showcase: ['kintara'] },
   'ui-kintara-collection': { map: 'town', x: 31.0, z: 34.6, facing: 'left', time: 17.6, season: 'spring', weather: 'sun', camera: KINTARA_CAM, ui: 'kintara:collection', showcase: ['kintara'] },

@@ -231,11 +231,13 @@ export function buildKintaraStall(): KintaraStallParts {
 
   // Silhouette: two pennants rising over the awning, and a lantern pole with a string of lanterns leading in from the square.
   const bt = bannerTexture();
+  const flags: THREE.MeshStandardMaterial[] = [];
   for (const sx of [-1, 1]) {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 1.5, 6), new THREE.MeshStandardMaterial({ color: 0x6a4630, roughness: 0.8 }));
     pole.position.set(sx * (W / 2 + 0.05), 3.4, -0.5);
     group.add(pole);
-    const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1.25), new THREE.MeshStandardMaterial({ map: bt, roughness: 0.85, side: THREE.DoubleSide, transparent: true, alphaTest: 0.4 }));
+    const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1.25), new THREE.MeshStandardMaterial({ map: bt, roughness: 0.85, side: THREE.DoubleSide, transparent: true, alphaTest: 0.4, emissive: 0xffffff, emissiveMap: bt, emissiveIntensity: 0 }));
+    flags.push(flag.material as THREE.MeshStandardMaterial);
     flag.position.set(sx * (W / 2 + 0.05) + sx * 0.27, 3.45, -0.5);
     flag.userData.sway = sx;
     group.add(flag);
@@ -260,6 +262,37 @@ export function buildKintaraStall(): KintaraStallParts {
     new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.7 }),
   );
   group.add(wire, lb.build({ name: 'kintara-string' }));
+  // Bunting: a swag of small teal / cream triangles between the two pennant poles and another down the lantern string.
+  const bunting = (from: THREE.Vector3, to: THREE.Vector3, sag: number, count: number): THREE.Mesh => {
+    const pos: number[] = [];
+    const col: number[] = [];
+    const cA = new THREE.Color(0x1f8a92);
+    const cB = new THREE.Color(0xf0e2bc);
+    const cC = new THREE.Color(0xe8674a);
+    for (let i = 0; i < count; i++) {
+      const t0 = (i + 0.18) / count;
+      const t1 = (i + 0.82) / count;
+      const at = (t: number): THREE.Vector3 => from.clone().lerp(to, t).setY(from.y + (to.y - from.y) * t - Math.sin(t * Math.PI) * sag);
+      const p0 = at(t0);
+      const p1 = at(t1);
+      const m = at((t0 + t1) / 2);
+      const tip = m.clone().add(new THREE.Vector3(0, -0.34, 0));
+      pos.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, tip.x, tip.y, tip.z);
+      const c = i % 3 === 0 ? cA : i % 3 === 1 ? cB : cC;
+      for (let k = 0; k < 3; k++) col.push(c.r, c.g, c.b);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.computeVertexNormals();
+    const bm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide, emissive: 0xffe0a0, emissiveIntensity: 0 });
+    flags.push(bm);
+    return new THREE.Mesh(geo, bm);
+  };
+  group.add(
+    bunting(new THREE.Vector3(-W / 2 - 0.05, 3.95, -0.5), new THREE.Vector3(W / 2 + 0.05, 3.95, -0.5), 0.35, 9),
+    bunting(new THREE.Vector3(W / 2 + 0.05, 2.95, -0.5), new THREE.Vector3(POLE.x, POLE.h + 0.02, POLE.z), 0.62, 6),
+  );
   // Warm pools of light on the ground: one at the keeper's end of the counter, one in front of the stall.
   const glowTex = (): THREE.CanvasTexture => {
     const c = document.createElement('canvas');
@@ -301,6 +334,8 @@ export function buildKintaraStall(): KintaraStallParts {
   group.userData.perfTag = 'kintara';
   const tick = (time: number, night: number): void => {
     for (const m of glows) (m.material as THREE.MeshBasicMaterial).opacity = (0.5 + 0.1 * tierNow) * (0.25 + 0.75 * night);
+    // the lantern light catches the cloth: pennants and bunting hold a warm glow after dark
+    for (const f of flags) f.emissiveIntensity = 0.55 * night;
     group.traverse((o) => {
       if (o.userData.sway) o.rotation.y = Math.sin(time * 1.6 + o.userData.sway) * 0.18;
     });
