@@ -1941,6 +1941,8 @@ export class NpcSystem implements System {
       a.v.setPosition(x, map.heightAt(x, z), z);
       a.v.setYaw(Math.atan2(p.x - x, p.z - z));
       this.game.player.setFacing(side > 0 ? 'right' : 'left');
+      // Turn the farmer most of the way round to the lens (still reads as talking to her) so his face shows.
+      this.game.player.setYaw(side * Math.PI * 0.15);
       // Anyone else standing right behind the pair steps aside.
       for (const b of this.agents.values()) if (b !== a && Math.hypot(b.v.position.x - x, b.v.position.z - z) < 2.2) this.setInside(b, true, true);
       this.setActivity(a, 'idle');

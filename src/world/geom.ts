@@ -241,6 +241,11 @@ export const DETAIL_R = ((): number => {
   return 0.14;
 })();
 
+/** Flowers, ivy and blossom (material boxFlower) stay in the non-detail prefix: they are the town's colour accents, so the far-detail cull must not strip them. */
+function keepFar(m: MaterialName | THREE.Material): boolean {
+  return m === 'boxFlower';
+}
+
 function isSmall(g: THREE.BufferGeometry): boolean {
   if (DETAIL_R <= 0) return false;
   g.computeBoundingSphere();
@@ -293,7 +298,7 @@ export class MeshBuilder {
     geo: THREE.BufferGeometry,
     matrix?: THREE.Matrix4,
     /** `detail`: force the part into the detail suffix (skips depth-only passes; see DETAIL_R). */
-    opts: { tint?: THREE.ColorRepresentation; ao?: AOFn; aoWorld?: AOFn; detail?: boolean } = {},
+    opts: { tint?: THREE.ColorRepresentation; ao?: AOFn; aoWorld?: AOFn; detail?: boolean; keep?: boolean } = {},
   ): this {
     // Material aliases: variants that only differ by base colour share one material (fewer draw
     // calls after merging); the colour moves into the vertex tint.
@@ -321,7 +326,7 @@ export class MeshBuilder {
       list = [];
       this.parts.set(material, list);
     }
-    list.push({ geo: g, small: (opts.detail === true && DETAIL_R > 0) || isSmall(g) });
+    list.push({ geo: g, small: !opts.keep && !keepFar(material) && ((opts.detail === true && DETAIL_R > 0) || isSmall(g)) });
     g = g; // keep lint quiet
     return this;
   }
@@ -336,7 +341,7 @@ export class MeshBuilder {
           dst = [];
           this.parts.set(m, dst);
         }
-        dst.push({ geo: g, small: isSmall(g) });
+        dst.push({ geo: g, small: !keepFar(m) && isSmall(g) });
       }
     }
     return this;
